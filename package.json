@@ -1,0 +1,19 @@
+{
+  "name": "ac-exam-manager",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev":          "concurrently \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
+    "dev:api":      "npm run dev -w apps/api",
+    "dev:web":      "npm run dev -w apps/web",
+    "build":        "npm run build -w apps/web",
+    "db:migrate":   "node database/scripts/migrate.js",
+    "db:seed":      "node database/scripts/seed.js",
+    "db:provision": "node database/scripts/provisioner.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": { "node": ">=20.0.0" }
+}
