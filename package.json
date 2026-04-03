@@ -2,6 +2,7 @@
   "name": "clearpath",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev":          "concurrently \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
@@ -15,5 +16,7 @@
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
-  "engines": { "node": ">=20.0.0" }
+  "engines": {
+    "node": ">=20.0.0"
+  }
 }
