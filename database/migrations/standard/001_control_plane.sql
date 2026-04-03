@@ -1,5 +1,5 @@
 -- =============================================================================
--- AC EXAM MANAGER — CONTROL PLANE SCHEMA
+-- Clearpath — CONTROL PLANE SCHEMA
 -- Layer: public (shared across all tenants)
 -- Run once on initial platform setup
 -- =============================================================================

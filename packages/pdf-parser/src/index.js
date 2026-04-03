@@ -1,5 +1,5 @@
 /**
- * AC Exam Manager — SARS PDF Parser
+ * Clearpath — SARS PDF Parser
  * Extracted from the original server.js for testability and reuse.
  * All parsing logic for Dalhousie SARS PDF format lives here.
  */

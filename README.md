@@ -1,4 +1,4 @@
-# AC Exam Manager
+# Clearpath
 
 Multi-institution SaaS platform for university accessibility centre exam management.
 
@@ -35,7 +35,7 @@ npm run dev
 ## Structure
 
 ```
-ac-exam-manager/
+clearpath/
 ├── apps/
 │   ├── web/                    React + Tailwind frontend
 │   │   └── src/

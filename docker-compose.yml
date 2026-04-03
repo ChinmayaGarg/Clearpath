@@ -4,7 +4,7 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ac_exam_manager
+      POSTGRES_DB: clearpath
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     ports:

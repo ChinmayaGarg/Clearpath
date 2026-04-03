@@ -1,13 +1,13 @@
 {
-  "name": "@ac-exam/shared",
+  "name": "@clearpath/shared",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "src/index.js",
   "exports": {
-    ".":          "./src/index.js",
-    "./roles":    "./src/roles.js",
+    ".": "./src/index.js",
+    "./roles": "./src/roles.js",
     "./features": "./src/features.js",
-    "./constants":"./src/constants.js"
+    "./constants": "./src/constants.js"
   }
 }

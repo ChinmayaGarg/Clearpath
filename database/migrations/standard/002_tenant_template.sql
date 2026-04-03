@@ -1,5 +1,5 @@
 -- =============================================================================
--- AC EXAM MANAGER — TENANT SCHEMA TEMPLATE
+-- Clearpath — TENANT SCHEMA TEMPLATE
 -- Layer: per-institution schema (e.g. dal, mta, acadia)
 -- Runs inside a transaction during tenant provisioning.
 -- Replace :schema_name with the actual schema slug before executing.

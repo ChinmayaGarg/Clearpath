@@ -1,5 +1,5 @@
 // =============================================================================
-// AC EXAM MANAGER — TENANT PROVISIONER
+// Clearpath — TENANT PROVISIONER
 // Runs when a new institution is onboarded.
 // Wraps everything in a transaction — either the full schema is created or nothing.
 // =============================================================================
