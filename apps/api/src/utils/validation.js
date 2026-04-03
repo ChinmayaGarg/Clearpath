@@ -27,3 +27,25 @@ export const inviteUserSchema = z.object({
     'institution_admin', 'lead', 'professor', 'student', 'counsellor',
   ])).min(1),
 });
+
+export const grantRoleSchema = z.object({
+  role: z.enum([
+    'institution_admin', 'lead', 'professor', 'student', 'counsellor',
+  ]),
+});
+
+export const updateStudentProfileSchema = z.object({
+  student: z.object({
+    studentNumber: z.string().max(20).optional().nullable(),
+    phone:         z.string().max(30).optional().nullable(),
+    doNotCall:     z.boolean().optional(),
+  }).optional(),
+  professor: z.object({
+    department: z.string().max(100).optional().nullable(),
+    phone:      z.string().max(30).optional().nullable(),
+    office:     z.string().max(100).optional().nullable(),
+  }).optional(),
+  counsellor: z.object({
+    department: z.string().max(100).optional().nullable(),
+  }).optional(),
+});
