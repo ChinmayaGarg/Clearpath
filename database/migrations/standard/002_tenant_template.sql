@@ -1,5 +1,5 @@
 -- =============================================================================
--- Clearpath — TENANT SCHEMA TEMPLATE
+-- AC EXAM MANAGER — TENANT SCHEMA TEMPLATE
 -- Layer: per-institution schema (e.g. dal, mta, acadia)
 -- Runs inside a transaction during tenant provisioning.
 -- Replace :schema_name with the actual schema slug before executing.
@@ -13,91 +13,110 @@ SET search_path TO :schema_name, public;
 
 -- ---------------------------------------------------------------------------
 -- Enum types (tenant-scoped)
+-- All wrapped in DO blocks so the template is safe to re-run
+-- if a previous attempt partially failed.
 -- ---------------------------------------------------------------------------
-CREATE TYPE :schema_name.user_role AS ENUM (
-    'institution_admin',
-    'lead',
-    'professor',
-    'student',
-    'counsellor'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.user_role AS ENUM (
+        'institution_admin', 'lead', 'professor', 'student', 'counsellor'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.exam_type AS ENUM (
-    'paper',
-    'brightspace',
-    'crowdmark'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.exam_type AS ENUM (
+        'paper', 'brightspace', 'crowdmark'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.delivery_method AS ENUM (
-    'pickup',
-    'dropped',
-    'delivery',
-    'pending'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.delivery_method AS ENUM (
+        'pickup', 'dropped', 'delivery', 'pending'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.exam_status AS ENUM (
-    'pending',
-    'emailed',
-    'received',
-    'written',
-    'picked_up',
-    'cancelled',
-    'dropped'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.exam_status AS ENUM (
+        'pending', 'emailed', 'received', 'written',
+        'picked_up', 'cancelled', 'dropped'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.audit_action AS ENUM (
-    'created',
-    'updated',
-    'deleted',
-    'status_changed',
-    'email_sent',
-    'pdf_imported',
-    'password_set',
-    'flag_changed',
-    'note_added',
-    'role_granted',
-    'role_revoked',
-    'login',
-    'logout'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.audit_action AS ENUM (
+        'created', 'updated', 'deleted', 'status_changed',
+        'email_sent', 'pdf_imported', 'password_set', 'flag_changed',
+        'note_added', 'role_granted', 'role_revoked', 'login', 'logout'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.entity_type AS ENUM (
-    'exam',
-    'exam_day',
-    'exam_room',
-    'appointment',
-    'student',
-    'professor',
-    'user',
-    'course_dossier'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.entity_type AS ENUM (
+        'exam', 'exam_day', 'exam_room', 'appointment',
+        'student', 'professor', 'user', 'course_dossier'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.form_context AS ENUM (
-    'create',
-    'edit',
-    'view'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.form_context AS ENUM (
+        'create', 'edit', 'view'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.form_field_type AS ENUM (
-    'text',
-    'textarea',
-    'number',
-    'boolean',
-    'select',
-    'multi_select',
-    'radio',
-    'date',
-    'file_upload',
-    'section_header'
-);
+DO $$ BEGIN
+DO $$ BEGIN
+    CREATE TYPE :schema_name.form_field_type AS ENUM (
+        'text',
+        'textarea',
+        'number',
+        'boolean',
+        'select',
+        'multi_select',
+        'radio',
+        'date',
+        'file_upload',
+        'section_header'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE :schema_name.delivery_status AS ENUM (
-    'queued',
-    'sent',
-    'delivered',
-    'bounced',
-    'failed'
-);
+DO $$ BEGIN
+    CREATE TYPE :schema_name.delivery_status AS ENUM (
+        'queued',
+        'sent',
+        'delivered',
+        'bounced',
+        'failed'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ===========================================================================
 -- PEOPLE
@@ -107,7 +126,7 @@ CREATE TYPE :schema_name.delivery_status AS ENUM (
 -- User
 -- Identity only. No role, no profile. Institution is implicit from schema.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.user (
+CREATE TABLE IF NOT EXISTS :schema_name.user (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     email           CITEXT      NOT NULL UNIQUE,
     email_domain    CITEXT      NOT NULL,
@@ -126,14 +145,14 @@ COMMENT ON TABLE :schema_name.user IS
     'One row per person at this institution. Email is unique within this schema.
      No institution_id needed — schema boundary enforces isolation.';
 
-CREATE INDEX idx_user_email        ON :schema_name.user (email);
-CREATE INDEX idx_user_email_domain ON :schema_name.user (email_domain);
+CREATE INDEX IF NOT EXISTS idx_user_email        ON :schema_name.user (email);
+CREATE INDEX IF NOT EXISTS idx_user_email_domain ON :schema_name.user (email_domain);
 
 -- ---------------------------------------------------------------------------
 -- UserRole
 -- One row per role per user. Multiple roles allowed.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.user_role (
+CREATE TABLE IF NOT EXISTS :schema_name.user_role (
     id          UUID                        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID                        NOT NULL REFERENCES :schema_name.user (id) ON DELETE CASCADE,
     role        :schema_name.user_role      NOT NULL,
@@ -144,13 +163,13 @@ CREATE TABLE :schema_name.user_role (
     CONSTRAINT uq_user_role UNIQUE (user_id, role)
 );
 
-CREATE INDEX idx_user_role_user ON :schema_name.user_role (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_role_user ON :schema_name.user_role (user_id);
 
 -- ---------------------------------------------------------------------------
 -- StudentProfile
 -- Exists when user has 'student' role.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.student_profile (
+CREATE TABLE IF NOT EXISTS :schema_name.student_profile (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID        NOT NULL UNIQUE REFERENCES :schema_name.user (id) ON DELETE CASCADE,
     student_number  TEXT        UNIQUE,
@@ -161,13 +180,13 @@ CREATE TABLE :schema_name.student_profile (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_student_profile_number ON :schema_name.student_profile (student_number);
+CREATE INDEX IF NOT EXISTS idx_student_profile_number ON :schema_name.student_profile (student_number);
 
 -- ---------------------------------------------------------------------------
 -- ProfessorProfile
 -- Exists when user has 'professor' role.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.professor_profile (
+CREATE TABLE IF NOT EXISTS :schema_name.professor_profile (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID        NOT NULL UNIQUE REFERENCES :schema_name.user (id) ON DELETE CASCADE,
     department  TEXT,
@@ -181,7 +200,7 @@ CREATE TABLE :schema_name.professor_profile (
 -- CounsellorProfile
 -- Exists when user has 'counsellor' role.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.counsellor_profile (
+CREATE TABLE IF NOT EXISTS :schema_name.counsellor_profile (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID        NOT NULL UNIQUE REFERENCES :schema_name.user (id) ON DELETE CASCADE,
     department  TEXT,
@@ -194,7 +213,7 @@ CREATE TABLE :schema_name.counsellor_profile (
 -- Server-side session store. Token stored as hash — never raw.
 -- Scoped to this tenant schema — cross-institution sessions impossible.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.session (
+CREATE TABLE IF NOT EXISTS :schema_name.session (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID        NOT NULL REFERENCES :schema_name.user (id) ON DELETE CASCADE,
     token_hash      TEXT        NOT NULL UNIQUE,
@@ -208,14 +227,14 @@ CREATE TABLE :schema_name.session (
 COMMENT ON COLUMN :schema_name.session.token_hash IS
     'SHA-256 hash of the raw token. Raw token lives only in the browser cookie.';
 
-CREATE INDEX idx_session_user       ON :schema_name.session (user_id);
-CREATE INDEX idx_session_expires    ON :schema_name.session (expires_at);
+CREATE INDEX IF NOT EXISTS idx_session_user       ON :schema_name.session (user_id);
+CREATE INDEX IF NOT EXISTS idx_session_expires    ON :schema_name.session (expires_at);
 
 -- ---------------------------------------------------------------------------
 -- PasswordResetToken
 -- One-time use. used_at NULL = not yet used.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.password_reset_token (
+CREATE TABLE IF NOT EXISTS :schema_name.password_reset_token (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID        NOT NULL REFERENCES :schema_name.user (id) ON DELETE CASCADE,
     token_hash  TEXT        NOT NULL UNIQUE,
@@ -224,8 +243,8 @@ CREATE TABLE :schema_name.password_reset_token (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_pwd_reset_user    ON :schema_name.password_reset_token (user_id);
-CREATE INDEX idx_pwd_reset_expires ON :schema_name.password_reset_token (expires_at);
+CREATE INDEX IF NOT EXISTS idx_pwd_reset_user    ON :schema_name.password_reset_token (user_id);
+CREATE INDEX IF NOT EXISTS idx_pwd_reset_expires ON :schema_name.password_reset_token (expires_at);
 
 -- ===========================================================================
 -- EXAM OPERATIONS
@@ -235,7 +254,7 @@ CREATE INDEX idx_pwd_reset_expires ON :schema_name.password_reset_token (expires
 -- ExamDay
 -- The daily book. One row per date. Unique constraint prevents duplicates.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.exam_day (
+CREATE TABLE IF NOT EXISTS :schema_name.exam_day (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     date            DATE        NOT NULL UNIQUE,
     created_by      UUID        REFERENCES :schema_name.user (id) ON DELETE SET NULL,
@@ -245,14 +264,14 @@ CREATE TABLE :schema_name.exam_day (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_exam_day_date ON :schema_name.exam_day (date DESC);
+CREATE INDEX IF NOT EXISTS idx_exam_day_date ON :schema_name.exam_day (date DESC);
 
 -- ---------------------------------------------------------------------------
 -- Exam
 -- One course sitting per exam day.
 -- professor_id nullable — not every exam has a linked professor at import time.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.exam (
+CREATE TABLE IF NOT EXISTS :schema_name.exam (
     id                  UUID                            PRIMARY KEY DEFAULT gen_random_uuid(),
     exam_day_id         UUID                            NOT NULL REFERENCES :schema_name.exam_day (id) ON DELETE CASCADE,
     professor_id        UUID                            REFERENCES :schema_name.professor_profile (id) ON DELETE SET NULL,
@@ -273,17 +292,17 @@ COMMENT ON COLUMN :schema_name.exam.password IS
     'Stored in plaintext — this is an exam file password provided by the professor,
      not an authentication credential. Required before status can advance past emailed.';
 
-CREATE INDEX idx_exam_day       ON :schema_name.exam (exam_day_id);
-CREATE INDEX idx_exam_professor ON :schema_name.exam (professor_id);
-CREATE INDEX idx_exam_course    ON :schema_name.exam (course_code);
-CREATE INDEX idx_exam_status    ON :schema_name.exam (status);
+CREATE INDEX IF NOT EXISTS idx_exam_day       ON :schema_name.exam (exam_day_id);
+CREATE INDEX IF NOT EXISTS idx_exam_professor ON :schema_name.exam (professor_id);
+CREATE INDEX IF NOT EXISTS idx_exam_course    ON :schema_name.exam (course_code);
+CREATE INDEX IF NOT EXISTS idx_exam_status    ON :schema_name.exam (status);
 
 -- ---------------------------------------------------------------------------
 -- ExamRoom
 -- One row per room slot per exam.
 -- One exam can run in multiple rooms at different times.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.exam_room (
+CREATE TABLE IF NOT EXISTS :schema_name.exam_room (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     exam_id         UUID        NOT NULL REFERENCES :schema_name.exam (id) ON DELETE CASCADE,
     room_name       TEXT        NOT NULL,
@@ -292,14 +311,14 @@ CREATE TABLE :schema_name.exam_room (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_exam_room_exam ON :schema_name.exam_room (exam_id);
+CREATE INDEX IF NOT EXISTS idx_exam_room_exam ON :schema_name.exam_room (exam_id);
 
 -- ---------------------------------------------------------------------------
 -- Appointment
 -- One student's individual booking within a room slot.
 -- Sourced from SARS PDF import.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.appointment (
+CREATE TABLE IF NOT EXISTS :schema_name.appointment (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     exam_room_id        UUID        NOT NULL REFERENCES :schema_name.exam_room (id) ON DELETE CASCADE,
     student_profile_id  UUID        NOT NULL REFERENCES :schema_name.student_profile (id),
@@ -312,15 +331,15 @@ CREATE TABLE :schema_name.appointment (
     CONSTRAINT uq_appointment UNIQUE (exam_room_id, student_profile_id)
 );
 
-CREATE INDEX idx_appointment_room    ON :schema_name.appointment (exam_room_id);
-CREATE INDEX idx_appointment_student ON :schema_name.appointment (student_profile_id);
+CREATE INDEX IF NOT EXISTS idx_appointment_room    ON :schema_name.appointment (exam_room_id);
+CREATE INDEX IF NOT EXISTS idx_appointment_student ON :schema_name.appointment (student_profile_id);
 
 -- ---------------------------------------------------------------------------
 -- AccommodationCode
 -- Lookup table of all recognised codes at this institution.
 -- Per-tenant — each institution maintains their own code set.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.accommodation_code (
+CREATE TABLE IF NOT EXISTS :schema_name.accommodation_code (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     code                TEXT        NOT NULL UNIQUE,  -- e.g. 'RWG', 'DRAGON', '30MIN/HR'
     label               TEXT        NOT NULL,
@@ -337,7 +356,7 @@ COMMENT ON COLUMN :schema_name.accommodation_code.triggers_rwg_flag IS
 -- Join between appointment and accommodation codes for that booking.
 -- Codes live on the appointment, not permanently on the student — they can change term to term.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.appointment_accommodation (
+CREATE TABLE IF NOT EXISTS :schema_name.appointment_accommodation (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     appointment_id  UUID        NOT NULL REFERENCES :schema_name.appointment (id) ON DELETE CASCADE,
     code_id         UUID        NOT NULL REFERENCES :schema_name.accommodation_code (id),
@@ -347,7 +366,7 @@ CREATE TABLE :schema_name.appointment_accommodation (
     CONSTRAINT uq_appt_code UNIQUE (appointment_id, code_id)
 );
 
-CREATE INDEX idx_appt_accommodation ON :schema_name.appointment_accommodation (appointment_id);
+CREATE INDEX IF NOT EXISTS idx_appt_accommodation ON :schema_name.appointment_accommodation (appointment_id);
 
 -- ===========================================================================
 -- PROFESSOR
@@ -358,7 +377,7 @@ CREATE INDEX idx_appt_accommodation ON :schema_name.appointment_accommodation (a
 -- Institutional memory of how each professor runs each course.
 -- Built up over time — the central knowledge base for leads.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.course_dossier (
+CREATE TABLE IF NOT EXISTS :schema_name.course_dossier (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     professor_id        UUID        NOT NULL REFERENCES :schema_name.professor_profile (id) ON DELETE CASCADE,
     course_code         TEXT        NOT NULL,
@@ -373,8 +392,8 @@ CREATE TABLE :schema_name.course_dossier (
     CONSTRAINT uq_course_dossier UNIQUE (professor_id, course_code)
 );
 
-CREATE INDEX idx_course_dossier_professor ON :schema_name.course_dossier (professor_id);
-CREATE INDEX idx_course_dossier_course    ON :schema_name.course_dossier (course_code);
+CREATE INDEX IF NOT EXISTS idx_course_dossier_professor ON :schema_name.course_dossier (professor_id);
+CREATE INDEX IF NOT EXISTS idx_course_dossier_course    ON :schema_name.course_dossier (course_code);
 
 -- ===========================================================================
 -- DYNAMIC FORMS
@@ -384,7 +403,7 @@ CREATE INDEX idx_course_dossier_course    ON :schema_name.course_dossier (course
 -- FormSchema
 -- One schema per entity type + context combination.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.form_schema (
+CREATE TABLE IF NOT EXISTS :schema_name.form_schema (
     id              UUID                        PRIMARY KEY DEFAULT gen_random_uuid(),
     entity_type     :schema_name.entity_type    NOT NULL,
     context         :schema_name.form_context   NOT NULL,
@@ -400,7 +419,7 @@ CREATE TABLE :schema_name.form_schema (
 -- FormField
 -- One field per schema. Rendered in display_order sequence.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.form_field (
+CREATE TABLE IF NOT EXISTS :schema_name.form_field (
     id              UUID                            PRIMARY KEY DEFAULT gen_random_uuid(),
     schema_id       UUID                            NOT NULL REFERENCES :schema_name.form_schema (id) ON DELETE CASCADE,
     key             TEXT                            NOT NULL,
@@ -417,13 +436,13 @@ CREATE TABLE :schema_name.form_field (
     CONSTRAINT uq_form_field_key UNIQUE (schema_id, key)
 );
 
-CREATE INDEX idx_form_field_schema ON :schema_name.form_field (schema_id, display_order);
+CREATE INDEX IF NOT EXISTS idx_form_field_schema ON :schema_name.form_field (schema_id, display_order);
 
 -- ---------------------------------------------------------------------------
 -- FormFieldOption
 -- Options for select, multi_select, and radio fields.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.form_field_option (
+CREATE TABLE IF NOT EXISTS :schema_name.form_field_option (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     field_id        UUID        NOT NULL REFERENCES :schema_name.form_field (id) ON DELETE CASCADE,
     value           TEXT        NOT NULL,
@@ -434,7 +453,7 @@ CREATE TABLE :schema_name.form_field_option (
     CONSTRAINT uq_form_field_option UNIQUE (field_id, value)
 );
 
-CREATE INDEX idx_form_field_option ON :schema_name.form_field_option (field_id, display_order);
+CREATE INDEX IF NOT EXISTS idx_form_field_option ON :schema_name.form_field_option (field_id, display_order);
 
 -- ---------------------------------------------------------------------------
 -- FormFieldValue
@@ -442,7 +461,7 @@ CREATE INDEX idx_form_field_option ON :schema_name.form_field_option (field_id, 
 -- entity_id is a plain UUID — no FK because it points to different tables
 -- depending on entity_type in the parent FormSchema.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.form_field_value (
+CREATE TABLE IF NOT EXISTS :schema_name.form_field_value (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     field_id    UUID        NOT NULL REFERENCES :schema_name.form_field (id) ON DELETE CASCADE,
     entity_id   UUID        NOT NULL,       -- FK resolved at application layer via entity_type
@@ -453,8 +472,8 @@ CREATE TABLE :schema_name.form_field_value (
     CONSTRAINT uq_field_value UNIQUE (field_id, entity_id)
 );
 
-CREATE INDEX idx_form_field_value_entity ON :schema_name.form_field_value (entity_id);
-CREATE INDEX idx_form_field_value_field  ON :schema_name.form_field_value (field_id);
+CREATE INDEX IF NOT EXISTS idx_form_field_value_entity ON :schema_name.form_field_value (entity_id);
+CREATE INDEX IF NOT EXISTS idx_form_field_value_field  ON :schema_name.form_field_value (field_id);
 
 -- ===========================================================================
 -- TRACKING
@@ -465,7 +484,7 @@ CREATE INDEX idx_form_field_value_field  ON :schema_name.form_field_value (field
 -- Immutable record of every exam status transition.
 -- No UPDATE, no DELETE — ever.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.status_event (
+CREATE TABLE IF NOT EXISTS :schema_name.status_event (
     id              UUID                        PRIMARY KEY DEFAULT gen_random_uuid(),
     exam_id         UUID                        NOT NULL REFERENCES :schema_name.exam (id) ON DELETE CASCADE,
     from_status     :schema_name.exam_status,   -- NULL for the initial 'pending' creation event
@@ -478,8 +497,8 @@ CREATE TABLE :schema_name.status_event (
 COMMENT ON TABLE :schema_name.status_event IS
     'Append-only. Never UPDATE or DELETE. Every row is a fact about the past.';
 
-CREATE INDEX idx_status_event_exam    ON :schema_name.status_event (exam_id);
-CREATE INDEX idx_status_event_created ON :schema_name.status_event (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_status_event_exam    ON :schema_name.status_event (exam_id);
+CREATE INDEX IF NOT EXISTS idx_status_event_created ON :schema_name.status_event (created_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- AuditLog
@@ -487,7 +506,7 @@ CREATE INDEX idx_status_event_created ON :schema_name.status_event (created_at D
 -- Polymorphic via entity_type + entity_id.
 -- Append-only.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.audit_log (
+CREATE TABLE IF NOT EXISTS :schema_name.audit_log (
     id          UUID                        PRIMARY KEY DEFAULT gen_random_uuid(),
     entity_type :schema_name.entity_type    NOT NULL,
     entity_id   UUID                        NOT NULL,
@@ -502,16 +521,16 @@ CREATE TABLE :schema_name.audit_log (
 COMMENT ON TABLE :schema_name.audit_log IS
     'Append-only. Never UPDATE or DELETE.';
 
-CREATE INDEX idx_audit_entity   ON :schema_name.audit_log (entity_type, entity_id);
-CREATE INDEX idx_audit_user     ON :schema_name.audit_log (changed_by);
-CREATE INDEX idx_audit_created  ON :schema_name.audit_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_entity   ON :schema_name.audit_log (entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_user     ON :schema_name.audit_log (changed_by);
+CREATE INDEX IF NOT EXISTS idx_audit_created  ON :schema_name.audit_log (created_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- EmailLog
 -- Complete record of every email sent through the system.
 -- body_snapshot preserves exact content at send time.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.email_log (
+CREATE TABLE IF NOT EXISTS :schema_name.email_log (
     id              UUID                            PRIMARY KEY DEFAULT gen_random_uuid(),
     exam_id         UUID                            REFERENCES :schema_name.exam (id) ON DELETE SET NULL,
     sent_by         UUID                            REFERENCES :schema_name.user (id) ON DELETE SET NULL,
@@ -522,16 +541,16 @@ CREATE TABLE :schema_name.email_log (
     sent_at         TIMESTAMPTZ                     NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_email_log_exam    ON :schema_name.email_log (exam_id);
-CREATE INDEX idx_email_log_to      ON :schema_name.email_log (to_email);
-CREATE INDEX idx_email_log_sent_at ON :schema_name.email_log (sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_log_exam    ON :schema_name.email_log (exam_id);
+CREATE INDEX IF NOT EXISTS idx_email_log_to      ON :schema_name.email_log (to_email);
+CREATE INDEX IF NOT EXISTS idx_email_log_sent_at ON :schema_name.email_log (sent_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Note
 -- Free text attached to any entity.
 -- Polymorphic via entity_type + entity_id.
 -- ---------------------------------------------------------------------------
-CREATE TABLE :schema_name.note (
+CREATE TABLE IF NOT EXISTS :schema_name.note (
     id          UUID                        PRIMARY KEY DEFAULT gen_random_uuid(),
     entity_type :schema_name.entity_type    NOT NULL,
     entity_id   UUID                        NOT NULL,
@@ -540,8 +559,8 @@ CREATE TABLE :schema_name.note (
     created_at  TIMESTAMPTZ                 NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_note_entity ON :schema_name.note (entity_type, entity_id);
-CREATE INDEX idx_note_created ON :schema_name.note (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_note_entity ON :schema_name.note (entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_note_created ON :schema_name.note (created_at DESC);
 
 -- ===========================================================================
 -- SEED: Minimal form schemas for this institution
