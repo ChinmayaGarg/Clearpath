@@ -10,6 +10,7 @@ import Settings                   from './pages/Settings.jsx';
 import NotFound                   from './pages/NotFound.jsx';
 import Professors                 from './pages/Professors.jsx';
 import Students                   from './pages/Students.jsx';
+import Analytics                  from './pages/Analytics.jsx';
 import Spinner                    from './components/ui/Spinner.jsx';
 
 /**
@@ -60,6 +61,9 @@ export default function App() {
         } />
         <Route path="/settings" element={
           <ProtectedRoute><Settings /></ProtectedRoute>
+        } />
+        <Route path="/analytics" element={
+          <ProtectedRoute requiredRole="institution_admin"><Analytics /></ProtectedRoute>
         } />
         <Route path="/students" element={
           <ProtectedRoute><Students /></ProtectedRoute>

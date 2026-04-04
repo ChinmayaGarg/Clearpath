@@ -41,7 +41,10 @@ export default function Book() {
             <Link to="/professors" className="text-sm text-gray-600 hover:text-gray-900">Professors</Link>
             <Link to="/students" className="text-sm text-gray-600 hover:text-gray-900">Students</Link>
             {isAdmin && (
+              <>
               <Link to="/admin" className="text-sm text-gray-600 hover:text-gray-900">Admin</Link>
+              <Link to="/analytics" className="text-sm text-gray-600 hover:text-gray-900">Analytics</Link>
+              </>
             )}
           </div>
           <div className="flex items-center gap-3">
