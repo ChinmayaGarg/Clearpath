@@ -128,3 +128,70 @@ router.delete('/:id/rooms/:roomId',
 );
 
 export default router;
+
+// ── Email routes (added to exams router) ─────────────────────────────────────
+import {
+  composeExamEmail,
+  sendExamEmail,
+  getExamEmailLog,
+} from '../services/emailService.js';
+import { requireFeature } from '../middleware/feature.js';
+
+// GET  /api/exams/:id/email         — compose preview (no send)
+router.get('/:id/email',
+  requireRole('lead', 'institution_admin'),
+  requireFeature('prof_email_direct'),
+  async (req, res, next) => {
+    try {
+      const composed = await composeExamEmail(
+        req.tenantSchema,
+        req.params.id,
+        req.institutionId
+      );
+      res.json({ ok: true, ...composed });
+    } catch (err) { next(err); }
+  }
+);
+
+// POST /api/exams/:id/email         — send the email
+router.post('/:id/email',
+  requireRole('lead', 'institution_admin'),
+  requireFeature('prof_email_direct'),
+  async (req, res, next) => {
+    try {
+      const { toEmail, subject, htmlBody, textBody } = req.body;
+
+      if (!toEmail || !subject) {
+        return res.status(400).json({
+          ok: false, error: 'toEmail and subject are required',
+        });
+      }
+
+      const result = await sendExamEmail(
+        req.tenantSchema,
+        req.institutionId,
+        {
+          examId:   req.params.id,
+          toEmail,
+          subject,
+          htmlBody,
+          textBody,
+          sentBy:   req.user.id,
+        }
+      );
+
+      res.json({ ok: true, ...result });
+    } catch (err) { next(err); }
+  }
+);
+
+// GET  /api/exams/:id/email/log     — email history for this exam
+router.get('/:id/email/log',
+  requireRole('lead', 'institution_admin'),
+  async (req, res, next) => {
+    try {
+      const log = await getExamEmailLog(req.tenantSchema, req.params.id);
+      res.json({ ok: true, log });
+    } catch (err) { next(err); }
+  }
+);
