@@ -18,6 +18,7 @@ import studentRoutes   from './routes/students.js';
 import exportRoutes    from './routes/export.js';
 import analyticsRoutes      from './routes/analytics.js';
 import notificationRoutes from './routes/notifications.js';
+import statusRoutes       from './routes/status.js';
 import healthRoutes  from './routes/health.js';
 
 const app = express();
@@ -55,7 +56,8 @@ app.use('/api/professors', professorRoutes);
 app.use('/api/students',   studentRoutes);
 app.use('/api/export',     exportRoutes);
 app.use('/api/analytics',      analyticsRoutes);
-app.use('/api/notifications', notificationRoutes);  // platform admin only
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/status',        statusRoutes);  // platform admin only
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);

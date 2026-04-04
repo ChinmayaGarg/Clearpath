@@ -11,6 +11,7 @@ import NotFound                   from './pages/NotFound.jsx';
 import Professors                 from './pages/Professors.jsx';
 import Students                   from './pages/Students.jsx';
 import Analytics                  from './pages/Analytics.jsx';
+import Board                      from './pages/Board.jsx';
 import Spinner                    from './components/ui/Spinner.jsx';
 
 /**
@@ -50,6 +51,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/board/:token" element={<Board />} />
         <Route path="/" element={
           <ProtectedRoute><Book /></ProtectedRoute>
         } />
