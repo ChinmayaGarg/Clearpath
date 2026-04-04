@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
   "dependencies": {
     "pdfreader": "^3.0.8"
   }
