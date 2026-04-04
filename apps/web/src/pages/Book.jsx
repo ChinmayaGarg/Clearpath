@@ -17,7 +17,7 @@ export default function Book() {
 
   useEffect(() => {
     loadAllDates();
-  }, [loadAllDates]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filters = [
     { key: 'all',      label: 'All' },

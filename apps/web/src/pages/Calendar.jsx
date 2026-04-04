@@ -43,7 +43,7 @@ export default function Calendar() {
 
   const dateMap = Object.fromEntries(allDates.map(d => [d.date, d]));
 
-  useEffect(() => { loadAllDates(); }, [loadAllDates]);
+  useEffect(() => { loadAllDates(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function prevMonth() {
     const d = new Date(year, month - 2, 1);

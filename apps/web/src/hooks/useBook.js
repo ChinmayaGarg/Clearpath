@@ -2,28 +2,34 @@ import { useEffect }    from 'react';
 import { useBookStore } from '../store/bookStore.js';
 
 export function useBook() {
-  const store = useBookStore();
+  const activeDate  = useBookStore(s => s.activeDate);
+  const activeBook  = useBookStore(s => s.activeBook);
+  const loading     = useBookStore(s => s.loading);
+  const error       = useBookStore(s => s.error);
+  const setDate     = useBookStore(s => s.setActiveDate);
+  const createBook  = useBookStore(s => s.createBook);
+  const updateStatus = useBookStore(s => s.updateExamStatus);
+  const updateField  = useBookStore(s => s.updateExamField);
+  const deleteExam   = useBookStore(s => s.deleteExam);
+  const loadBook     = useBookStore(s => s.loadBook);
 
-  // Load book for active date on first use
   useEffect(() => {
-    if (store.activeDate) {
-      store.loadBook(store.activeDate);
-    }
-  }, [store.activeDate]); // eslint-disable-line
+    if (activeDate) loadBook(activeDate);
+  }, [activeDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
-    book:         store.activeBook,
-    date:         store.activeDate,
-    loading:      store.loading,
-    error:        store.error,
-    setDate:      store.setActiveDate,
-    createBook:   store.createBook,
-    updateStatus: store.updateExamStatus,
-    updateField:  store.updateExamField,
-    deleteExam:   store.deleteExam,
-    loadBook:     store.loadBook,
-    exams:        store.activeBook?.exams        ?? [],
-    stats:        store.activeBook?.stats        ?? {},
-    flagged:      store.activeBook?.needsAttention ?? [],
+    book:         activeBook,
+    date:         activeDate,
+    loading,
+    error,
+    setDate,
+    createBook,
+    updateStatus,
+    updateField,
+    deleteExam,
+    loadBook,
+    exams:        activeBook?.exams          ?? [],
+    stats:        activeBook?.stats          ?? {},
+    flagged:      activeBook?.needsAttention ?? [],
   };
 }

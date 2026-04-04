@@ -26,7 +26,7 @@ function ProtectedRoute({ children, requiredRole }) {
 
 export default function App() {
   const init = useAuthStore(s => s.init);
-  useEffect(() => { init(); }, [init]);
+  useEffect(() => { init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <BrowserRouter>
