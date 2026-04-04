@@ -6,6 +6,7 @@ import { useAuth }                from '../hooks/useAuth.js';
 import BookView                   from '../components/book/BookView.jsx';
 import PdfImport                  from '../components/book/PdfImport.jsx';
 import Modal                      from '../components/ui/Modal.jsx';
+import ExportButton               from '../components/book/ExportButton.jsx';
 import { formatDate, shiftDate, todayStr } from '../lib/utils.js';
 
 export default function Book() {
@@ -75,6 +76,7 @@ export default function Book() {
                        rounded-lg hover:bg-gray-50 transition-colors">
             Today
           </button>
+          <ExportButton date={date} />
           <button onClick={() => setShowImport(true)}
             className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600
                        hover:bg-brand-800 rounded-lg transition-colors">

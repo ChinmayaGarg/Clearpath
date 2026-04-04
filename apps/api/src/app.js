@@ -15,6 +15,7 @@ import formRoutes    from './routes/forms.js';
 import adminRoutes      from './routes/admin.js';
 import professorRoutes from './routes/professors.js';
 import studentRoutes   from './routes/students.js';
+import exportRoutes    from './routes/export.js';
 import healthRoutes  from './routes/health.js';
 
 const app = express();
@@ -49,7 +50,8 @@ app.use('/api/dossier', dossierRoutes);
 app.use('/api/forms',   formRoutes);
 app.use('/api/admin',      adminRoutes);
 app.use('/api/professors', professorRoutes);
-app.use('/api/students',   studentRoutes);  // platform admin only
+app.use('/api/students',   studentRoutes);
+app.use('/api/export',     exportRoutes);  // platform admin only
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);
