@@ -15,38 +15,34 @@ SET search_path TO :schema_name, public;
 -- Enum types (tenant-scoped)
 -- All wrapped in DO blocks so the template is safe to re-run
 -- if a previous attempt partially failed.
+--
+-- NOTE: PostgreSQL doesn't allow user-defined types and tables to share the same name
+-- in the same schema, because tables automatically create a composite type for their row structure.
+-- Therefore, enum types are named with "_enum" suffix (e.g., user_role_enum instead of user_role).
 -- ---------------------------------------------------------------------------
 DO $$ BEGIN
-DO $$ BEGIN
-    CREATE TYPE :schema_name.user_role AS ENUM (
+    CREATE TYPE :schema_name.user_role_enum AS ENUM (
         'institution_admin', 'lead', 'professor', 'student', 'counsellor'
     );
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN OTHERS THEN 
+    -- Type already exists or other error, that's fine - do nothing
+    NULL;
 END $$;
 
-DO $$ BEGIN
 DO $$ BEGIN
     CREATE TYPE :schema_name.exam_type AS ENUM (
         'paper', 'brightspace', 'crowdmark'
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
 
-DO $$ BEGIN
 DO $$ BEGIN
     CREATE TYPE :schema_name.delivery_method AS ENUM (
         'pickup', 'dropped', 'delivery', 'pending'
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
 
-DO $$ BEGIN
 DO $$ BEGIN
     CREATE TYPE :schema_name.exam_status AS ENUM (
         'pending', 'emailed', 'received', 'written',
@@ -54,10 +50,7 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
 
-DO $$ BEGIN
 DO $$ BEGIN
     CREATE TYPE :schema_name.audit_action AS ENUM (
         'created', 'updated', 'deleted', 'status_changed',
@@ -66,10 +59,7 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
 
-DO $$ BEGIN
 DO $$ BEGIN
     CREATE TYPE :schema_name.entity_type AS ENUM (
         'exam', 'exam_day', 'exam_room', 'appointment',
@@ -77,20 +67,14 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
 
-DO $$ BEGIN
 DO $$ BEGIN
     CREATE TYPE :schema_name.form_context AS ENUM (
         'create', 'edit', 'view'
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
 
-DO $$ BEGIN
 DO $$ BEGIN
     CREATE TYPE :schema_name.form_field_type AS ENUM (
         'text',
@@ -155,7 +139,7 @@ CREATE INDEX IF NOT EXISTS idx_user_email_domain ON :schema_name.user (email_dom
 CREATE TABLE IF NOT EXISTS :schema_name.user_role (
     id          UUID                        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID                        NOT NULL REFERENCES :schema_name.user (id) ON DELETE CASCADE,
-    role        :schema_name.user_role      NOT NULL,
+    role        :schema_name.user_role_enum      NOT NULL,
     granted_by  UUID                        REFERENCES :schema_name.user (id) ON DELETE SET NULL,
     granted_at  TIMESTAMPTZ                 NOT NULL DEFAULT NOW(),
     is_active   BOOLEAN                     NOT NULL DEFAULT TRUE,
