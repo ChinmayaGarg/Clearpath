@@ -4,7 +4,8 @@
  */
 import { useState }     from 'react';
 import Modal            from '../ui/Modal.jsx';
-import DossierPanel     from './DossierPanel.jsx';
+import DossierPanel       from './DossierPanel.jsx';
+import ProfessorSearch    from '../professors/ProfessorSearch.jsx';
 import EmailComposer    from '../email/EmailComposer.jsx';
 import { api }          from '../../lib/api.js';
 import { useBook }      from '../../hooks/useBook.js';
@@ -176,6 +177,11 @@ export default function ExamEditModal({ exam, onClose }) {
               className="accent-brand-600" />
             <span className="text-sm text-gray-700">RWG flag — requires Word file</span>
           </label>
+
+          <ProfessorSearch
+            exam={exam}
+            onLinked={() => { onClose(); }}
+          />
 
           {error && (
             <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>

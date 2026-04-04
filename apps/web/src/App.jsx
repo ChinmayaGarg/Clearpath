@@ -8,6 +8,7 @@ import Calendar                   from './pages/Calendar.jsx';
 import Admin                      from './pages/Admin.jsx';
 import Settings                   from './pages/Settings.jsx';
 import NotFound                   from './pages/NotFound.jsx';
+import Professors                 from './pages/Professors.jsx';
 import Spinner                    from './components/ui/Spinner.jsx';
 
 function ProtectedRoute({ children, requiredRole }) {
@@ -43,6 +44,9 @@ export default function App() {
         } />
         <Route path="/settings" element={
           <ProtectedRoute><Settings /></ProtectedRoute>
+        } />
+        <Route path="/professors" element={
+          <ProtectedRoute><Professors /></ProtectedRoute>
         } />
         <Route path="*" element={<NotFound />} />
       </Routes>

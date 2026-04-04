@@ -37,6 +37,7 @@ export default function Book() {
             <span className="font-semibold text-brand-800">Clearpath</span>
             <Link to="/" className="text-sm text-gray-600 hover:text-gray-900">Book</Link>
             <Link to="/calendar" className="text-sm text-gray-600 hover:text-gray-900">Calendar</Link>
+            <Link to="/professors" className="text-sm text-gray-600 hover:text-gray-900">Professors</Link>
             {isAdmin && (
               <Link to="/admin" className="text-sm text-gray-600 hover:text-gray-900">Admin</Link>
             )}
