@@ -7,6 +7,7 @@ import BookView                   from '../components/book/BookView.jsx';
 import PdfImport                  from '../components/book/PdfImport.jsx';
 import Modal                      from '../components/ui/Modal.jsx';
 import ExportButton               from '../components/book/ExportButton.jsx';
+import NotificationBell           from '../components/notifications/NotificationBell.jsx';
 import { formatDate, shiftDate, todayStr } from '../lib/utils.js';
 
 export default function Book() {
@@ -48,6 +49,7 @@ export default function Book() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <span className="text-xs text-gray-400">{user?.email}</span>
             <button onClick={logout}
               className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
