@@ -2,9 +2,7 @@ import { create } from 'zustand';
 import { api }    from '../lib/api.js';
 
 export const useBookStore = create((set, get) => ({
-  // Calendar summary — all dates
   allDates:   [],
-  // Full book data for the active date
   activeBook: null,
   activeDate: new Date().toISOString().split('T')[0],
   loading:    false,
@@ -20,7 +18,7 @@ export const useBookStore = create((set, get) => ({
       const data = await api.get('/books');
       set({ allDates: data.books });
     } catch (err) {
-      set({ error: err.message });
+      console.error('loadAllDates failed:', err.message);
     }
   },
 
@@ -47,20 +45,16 @@ export const useBookStore = create((set, get) => ({
 
   async updateExamStatus(examId, status, note) {
     await api.patch(`/exams/${examId}/status`, { status, note });
-    get().loadBook(get().activeDate);
+    await get().loadBook(get().activeDate);
   },
 
   async updateExamField(examId, fields) {
     await api.patch(`/exams/${examId}`, fields);
-    get().loadBook(get().activeDate);
+    await get().loadBook(get().activeDate);
   },
 
   async deleteExam(examId) {
     await api.delete(`/exams/${examId}`);
-    get().loadBook(get().activeDate);
+    await get().loadBook(get().activeDate);
   },
-
-  // Derived helpers
-  getDateSummary: (date) =>
-    get().allDates.find(d => d.date === date) ?? null,
 }));

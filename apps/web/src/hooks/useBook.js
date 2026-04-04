@@ -1,28 +1,29 @@
+import { useEffect }    from 'react';
 import { useBookStore } from '../store/bookStore.js';
 
 export function useBook() {
-  const activeBook   = useBookStore(s => s.activeBook);
-  const activeDate   = useBookStore(s => s.activeDate);
-  const loading      = useBookStore(s => s.loading);
-  const error        = useBookStore(s => s.error);
-  const setDate      = useBookStore(s => s.setActiveDate);
-  const createBook   = useBookStore(s => s.createBook);
-  const updateStatus = useBookStore(s => s.updateExamStatus);
-  const updateField  = useBookStore(s => s.updateExamField);
-  const deleteExam   = useBookStore(s => s.deleteExam);
+  const store = useBookStore();
+
+  // Load book for active date on first use
+  useEffect(() => {
+    if (store.activeDate) {
+      store.loadBook(store.activeDate);
+    }
+  }, [store.activeDate]); // eslint-disable-line
 
   return {
-    book: activeBook,
-    date: activeDate,
-    loading,
-    error,
-    setDate,
-    createBook,
-    updateStatus,
-    updateField,
-    deleteExam,
-    exams:   activeBook?.exams   ?? [],
-    stats:   activeBook?.stats   ?? {},
-    flagged: activeBook?.needsAttention ?? [],
+    book:         store.activeBook,
+    date:         store.activeDate,
+    loading:      store.loading,
+    error:        store.error,
+    setDate:      store.setActiveDate,
+    createBook:   store.createBook,
+    updateStatus: store.updateExamStatus,
+    updateField:  store.updateExamField,
+    deleteExam:   store.deleteExam,
+    loadBook:     store.loadBook,
+    exams:        store.activeBook?.exams        ?? [],
+    stats:        store.activeBook?.stats        ?? {},
+    flagged:      store.activeBook?.needsAttention ?? [],
   };
 }

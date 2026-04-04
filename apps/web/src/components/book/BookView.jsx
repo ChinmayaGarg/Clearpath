@@ -1,28 +1,24 @@
-import { useEffect, useState } from 'react';
-import { useBook }             from '../../hooks/useBook.js';
-import ExamCard                from './ExamCard.jsx';
+import { useState }             from 'react';
+import { useBook }              from '../../hooks/useBook.js';
+import ExamCard                 from './ExamCard.jsx';
+import Spinner                  from '../ui/Spinner.jsx';
+import { toast }                from '../ui/Toast.jsx';
 
 function StatsBar({ stats }) {
-  if (!stats || !stats.total) return null;
+  if (!stats?.total) return null;
   return (
-    <div className="flex flex-wrap gap-3 text-sm text-gray-600">
-      <span><strong className="text-gray-900">{stats.total}</strong> exams</span>
-      <span><strong className="text-gray-900">{stats.students}</strong> students</span>
-      {stats.rwgCount > 0 && (
-        <span className="text-red-600">
-          <strong>{stats.rwgCount}</strong> RWG
-        </span>
-      )}
-      {stats.pending > 0 && (
-        <span className="text-gray-500">
-          {stats.pending} pending
-        </span>
-      )}
-      {stats.pickedUp > 0 && (
-        <span className="text-green-600">
-          {stats.pickedUp} done
-        </span>
-      )}
+    <div className="flex flex-wrap gap-4 text-sm mb-4">
+      <span>
+        <strong className="text-gray-900">{stats.total}</strong>
+        <span className="text-gray-500 ml-1">exams</span>
+      </span>
+      <span>
+        <strong className="text-gray-900">{stats.students}</strong>
+        <span className="text-gray-500 ml-1">students</span>
+      </span>
+      {stats.rwgCount  > 0 && <span className="text-red-600 font-medium">{stats.rwgCount} RWG</span>}
+      {stats.pending   > 0 && <span className="text-gray-400">{stats.pending} pending</span>}
+      {stats.pickedUp  > 0 && <span className="text-green-600">{stats.pickedUp} done</span>}
     </div>
   );
 }
@@ -31,93 +27,64 @@ function AttentionBanner({ flagged }) {
   if (!flagged?.length) return null;
   return (
     <div className="mb-4 border border-amber-200 bg-amber-50 rounded-xl px-4 py-3">
-      <p className="text-sm font-medium text-amber-800 mb-1">
-        Needs attention before exams start
-      </p>
-      <ul className="space-y-0.5">
-        {flagged.map(e => (
-          <li key={e.id} className="text-xs text-amber-700">
-            {e.course_code} — {e.status === 'pending' ? 'not yet emailed' : 'missing password'}
-          </li>
-        ))}
-      </ul>
+      <p className="text-sm font-medium text-amber-800 mb-1">Needs attention</p>
+      {flagged.map(e => (
+        <p key={e.id} className="text-xs text-amber-700">
+          {e.course_code} — {e.status === 'pending' ? 'not yet emailed' : 'missing password'}
+        </p>
+      ))}
     </div>
   );
 }
 
-export default function BookView() {
-  const {
-    book, date, loading, error,
-    exams, stats, flagged,
-    createBook,
-  } = useBook();
-
+export default function BookView({ filter = 'all' }) {
+  const { book, loading, error, exams, stats, flagged, createBook, date } = useBook();
   const [creating, setCreating] = useState(false);
-  const [editExam, setEditExam] = useState(null);
 
-  async function handleCreateBook() {
+  async function handleCreate() {
     setCreating(true);
-    try {
-      await createBook(date);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setCreating(false);
-    }
+    try { await createBook(date); }
+    catch (err) { toast(err.message, 'error'); }
+    finally { setCreating(false); }
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-20 text-sm text-gray-400">
-      Loading book…
-    </div>
-  );
-
-  if (error) return (
-    <div className="text-sm text-red-600 bg-red-50 px-4 py-3 rounded-xl">
-      {error}
-    </div>
-  );
+  if (loading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>;
+  if (error)   return <div className="text-sm text-red-600 bg-red-50 px-4 py-3 rounded-xl">{error}</div>;
 
   if (!book) return (
-    <div className="flex flex-col items-center justify-center py-20 gap-4">
-      <p className="text-sm text-gray-500">No book for {date}</p>
-      <button
-        onClick={handleCreateBook}
-        disabled={creating}
+    <div className="flex flex-col items-center justify-center py-20 gap-3">
+      <p className="text-sm text-gray-500">No book for this date</p>
+      <button onClick={handleCreate} disabled={creating}
         className="px-4 py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
-                   font-medium rounded-lg transition-colors disabled:opacity-50"
-      >
+                   font-medium rounded-lg transition-colors disabled:opacity-50">
         {creating ? 'Creating…' : '+ Create book for this day'}
       </button>
     </div>
   );
 
+  const filtered = exams.filter(e => {
+    if (filter === 'pending')  return e.status === 'pending';
+    if (filter === 'emailed')  return e.status === 'emailed';
+    if (filter === 'received') return e.status === 'received';
+    if (filter === 'rwg')      return e.rwg_flag;
+    return true;
+  });
+
   return (
-    <div className="space-y-4">
-
-      {/* Stats */}
+    <div>
       <StatsBar stats={stats} />
-
-      {/* Attention flags */}
       <AttentionBanner flagged={flagged} />
-
-      {/* Exam list */}
-      {exams.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="text-sm text-gray-400 text-center py-12">
-          No exams yet — import a PDF to populate the book
+          {exams.length === 0
+            ? 'No exams yet — import a PDF to populate this book'
+            : 'No exams match this filter'}
         </div>
       ) : (
         <div className="space-y-3">
-          {exams.map(exam => (
-            <ExamCard
-              key={exam.id}
-              exam={exam}
-              onEdit={setEditExam}
-            />
-          ))}
+          {filtered.map(exam => <ExamCard key={exam.id} exam={exam} />)}
         </div>
       )}
-
     </div>
   );
 }
