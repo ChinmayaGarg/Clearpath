@@ -1,4 +1,4 @@
-import { useEffect }              from 'react';
+import { useEffect, useRef }      from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore }           from './store/authStore.js';
 import { ToastContainer }         from './components/ui/Toast.jsx';
@@ -12,8 +12,15 @@ import Professors                 from './pages/Professors.jsx';
 import Students                   from './pages/Students.jsx';
 import Spinner                    from './components/ui/Spinner.jsx';
 
+/**
+ * ProtectedRoute — uses granular selectors to avoid re-rendering
+ * on every store change. Each selector subscribes only to what it needs.
+ */
 function ProtectedRoute({ children, requiredRole }) {
-  const { user, roles, loading } = useAuthStore();
+  const user    = useAuthStore(s => s.user);
+  const roles   = useAuthStore(s => s.roles);
+  const loading = useAuthStore(s => s.loading);
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <Spinner size="lg" />
@@ -27,8 +34,16 @@ function ProtectedRoute({ children, requiredRole }) {
 }
 
 export default function App() {
-  const init = useAuthStore(s => s.init);
-  useEffect(() => { init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Use a ref to guarantee init() runs exactly once,
+  // even under React 18 StrictMode which mounts effects twice in dev.
+  const initialised = useRef(false);
+  const init        = useAuthStore(s => s.init);
+
+  useEffect(() => {
+    if (initialised.current) return;
+    initialised.current = true;
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <BrowserRouter>

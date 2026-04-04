@@ -1,14 +1,23 @@
-import { useState }        from 'react';
-import { useNavigate }     from 'react-router-dom';
-import { useAuthStore }    from '../store/authStore.js';
+import { useState }     from 'react';
+import { useNavigate }  from 'react-router-dom';
+import { useAuthStore } from '../store/authStore.js';
 
 export default function Login() {
-  const navigate         = useNavigate();
-  const login            = useAuthStore(s => s.login);
-  const [email, setEmail]         = useState('');
-  const [password, setPassword]   = useState('');
-  const [error, setError]         = useState('');
-  const [loading, setLoading]     = useState(false);
+  const navigate  = useNavigate();
+  // Granular selectors — only re-render when these specific values change
+  const login     = useAuthStore(s => s.login);
+  const user      = useAuthStore(s => s.user);
+
+  const [email,    setEmail]    = useState('');
+  const [password, setPassword] = useState('');
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+
+  // Already logged in — redirect immediately without re-rendering
+  if (user) {
+    navigate('/', { replace: true });
+    return null;
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -26,7 +35,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-full max-w-sm bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+      <div className="w-full max-w-sm bg-white rounded-xl shadow-sm
+                      border border-gray-200 p-8">
 
         <div className="mb-8">
           <h1 className="text-2xl font-semibold text-gray-900">Clearpath</h1>
@@ -47,8 +57,10 @@ export default function Login() {
               placeholder="you@dal.ca"
               autoComplete="username"
               required
+              disabled={loading}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-transparent"
+                         focus:outline-none focus:ring-2 focus:ring-brand-600
+                         disabled:opacity-60"
             />
           </div>
 
@@ -63,8 +75,10 @@ export default function Login() {
               placeholder="Password"
               autoComplete="current-password"
               required
+              disabled={loading}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-transparent"
+                         focus:outline-none focus:ring-2 focus:ring-brand-600
+                         disabled:opacity-60"
             />
           </div>
 
@@ -86,10 +100,8 @@ export default function Login() {
         </form>
 
         <div className="mt-4 text-center">
-          <a
-            href="/forgot-password"
-            className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <a href="/forgot-password"
+            className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
             Forgot password?
           </a>
         </div>
