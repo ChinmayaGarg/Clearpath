@@ -8,9 +8,9 @@ export const useBookStore = create((set, get) => ({
   loading:    false,
   error:      null,
 
+  // Just update the date — BookView will detect the change and call loadBook
   setActiveDate: (date) => {
-    set({ activeDate: date, activeBook: null });
-    get().loadBook(date);
+    set({ activeDate: date, activeBook: null, error: null });
   },
 
   async loadAllDates() {
