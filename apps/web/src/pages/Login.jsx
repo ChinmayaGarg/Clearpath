@@ -99,10 +99,14 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-4 text-center">
+        <div className="mt-4 flex justify-between">
           <a href="/forgot-password"
             className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
             Forgot password?
+          </a>
+          <a href="/claim"
+            className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+            First time? Activate account
           </a>
         </div>
 
