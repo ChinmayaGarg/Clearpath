@@ -24,8 +24,12 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
-      navigate('/', { replace: true });
+      const result = await login(email, password);
+      // Route professors to their portal, others to the book
+      const roles = result?.roles ?? [];
+      const isOnlyProfessor = roles.includes('professor') &&
+        !roles.includes('lead') && !roles.includes('institution_admin');
+      navigate(isOnlyProfessor ? '/portal' : '/', { replace: true });
     } catch (err) {
       setError(err.message || 'Invalid credentials');
     } finally {
