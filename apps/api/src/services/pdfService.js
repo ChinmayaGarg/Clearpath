@@ -13,7 +13,8 @@
  */
 import { parseSARSPdf } from '@clearpath/pdf-parser';
 import { tenantQuery, tenantTransaction } from '../db/tenantPool.js';
-import { logAction }   from '../db/queries/audit.js';
+import { logAction }          from '../db/queries/audit.js';
+import { runMatchingEngine }  from './matchingEngine.js';
 import { logger }      from '../utils/logger.js';
 import pool            from '../db/pool.js';
 
@@ -69,6 +70,16 @@ export async function importPDFs(schema, institutionId, files, uploadedBy) {
         unmatched: 0,
       });
     }
+  }
+
+  // Run matching engine for each unique date that was affected
+  const affectedDates = [...new Set(
+    results.filter(r => r.date && !r.error).map(r => r.date)
+  )];
+  for (const date of affectedDates) {
+    runMatchingEngine(schema, date, institutionId).catch(err =>
+      logger.warn('Matching engine failed', { date, err: err.message })
+    );
   }
 
   return results;

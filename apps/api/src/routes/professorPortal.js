@@ -32,7 +32,8 @@ import {
   getProfessorNotifications,
   markNotificationsRead,
 } from '../db/queries/examUploads.js';
-import { tenantQuery } from '../db/tenantPool.js';
+import { tenantQuery }     from '../db/tenantPool.js';
+import { matchUpload } from '../services/matchingEngine.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -192,6 +193,11 @@ router.post('/uploads/:id/submit', async (req, res, next) => {
     if (!profId) return;
 
     await submitUpload(req.tenantSchema, req.params.id, profId);
+
+    // Run matching engine asynchronously — don't block the response
+    matchUpload(req.tenantSchema, req.params.id, req.institutionId)
+      .catch(err => console.warn('Match upload failed:', err.message));
+
     res.json({ ok: true, message: 'Exam submitted successfully' });
   } catch (err) { next(err); }
 });
