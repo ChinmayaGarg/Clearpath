@@ -32,8 +32,12 @@ export async function getExam(schema, examId) {
      LEFT JOIN professor_profile pp ON pp.id = e.professor_id
      LEFT JOIN "user"            u  ON u.id  = pp.user_id
      LEFT JOIN exam_room         er ON er.exam_id = e.id
+     LEFT JOIN exam_upload       eu ON eu.id = e.exam_upload_id
      WHERE e.id = $1
-     GROUP BY e.id, pp.id, pp.user_id, u.first_name, u.last_name, u.email`,
+     GROUP BY e.id, pp.id, pp.user_id, u.first_name, u.last_name, u.email,
+              eu.id, eu.course_code, eu.exam_type_label, eu.version_label,
+              eu.delivery, eu.materials, eu.password, eu.rwg_flag,
+              eu.is_makeup, eu.status, eu.submitted_at`,
     [examId]
   );
   return result.rows[0] ?? null;

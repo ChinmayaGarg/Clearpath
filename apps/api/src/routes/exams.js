@@ -195,3 +195,79 @@ router.get('/:id/email/log',
     } catch (err) { next(err); }
   }
 );
+
+// ── GET /api/exams/:id/upload ─────────────────────────────────────────────────
+// Full upload panel data for the lead-facing exam card
+router.get('/:id/upload',
+  requireRole('lead', 'institution_admin'),
+  async (req, res, next) => {
+    try {
+      const schema = req.tenantSchema;
+      const examId = req.params.id;
+
+      // Get matched upload with dates
+      const uploadResult = await import('../db/tenantPool.js').then(
+        ({ tenantQuery }) => tenantQuery(schema,
+          `SELECT
+             eu.id, eu.course_code, eu.exam_type_label, eu.version_label,
+             eu.delivery, eu.materials, eu.password, eu.rwg_flag,
+             eu.is_makeup, eu.makeup_notes, eu.status, eu.submitted_at,
+             up.first_name || ' ' || up.last_name AS professor_name,
+             COALESCE(
+               json_agg(
+                 json_build_object(
+                   'exam_date',    eud.exam_date,
+                   'time_slot',    eud.time_slot,
+                   'match_status', eud.match_status
+                 ) ORDER BY eud.exam_date
+               ) FILTER (WHERE eud.id IS NOT NULL),
+               '[]'
+             ) AS dates
+           FROM exam e
+           JOIN exam_upload       eu  ON eu.id  = e.exam_upload_id
+           JOIN professor_profile pp  ON pp.id  = eu.professor_profile_id
+           JOIN "user"            up  ON up.id  = pp.user_id
+           LEFT JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+           WHERE e.id = $1
+           GROUP BY eu.id, up.first_name, up.last_name`,
+          [examId]
+        )
+      );
+
+      // Get any pending reuse requests for this exam
+      const reuseResult = await import('../db/tenantPool.js').then(
+        ({ tenantQuery }) => tenantQuery(schema,
+          `SELECT
+             err.id, err.status, err.professor_note, err.requested_at, err.responded_at,
+             eu.course_code, eu.version_label, eu.exam_type_label
+           FROM exam_reuse_request err
+           JOIN exam_upload eu ON eu.id = err.original_upload_id
+           WHERE err.makeup_exam_id = $1
+           ORDER BY err.requested_at DESC
+           LIMIT 1`,
+          [examId]
+        )
+      );
+
+      // Get exam makeup status
+      const makeupResult = await import('../db/tenantPool.js').then(
+        ({ tenantQuery }) => tenantQuery(schema,
+          `SELECT
+             COUNT(*) FILTER (WHERE a.is_makeup) AS makeup_count,
+             COUNT(*) AS total_appointments
+           FROM appointment a
+           JOIN exam_room er ON er.id = a.exam_room_id
+           WHERE er.exam_id = $1`,
+          [examId]
+        )
+      );
+
+      res.json({
+        ok:           true,
+        upload:       uploadResult.rows[0] ?? null,
+        reuseRequest: reuseResult.rows[0]  ?? null,
+        makeupStats:  makeupResult.rows[0],
+      });
+    } catch (err) { next(err); }
+  }
+);

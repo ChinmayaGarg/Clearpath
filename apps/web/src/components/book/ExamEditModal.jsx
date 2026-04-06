@@ -6,13 +6,14 @@ import { useState }     from 'react';
 import Modal            from '../ui/Modal.jsx';
 import DossierPanel       from './DossierPanel.jsx';
 import ProfessorSearch    from '../professors/ProfessorSearch.jsx';
+import UploadPanel        from './UploadPanel.jsx';
 import EmailComposer    from '../email/EmailComposer.jsx';
 import { api }          from '../../lib/api.js';
 import { useBook }      from '../../hooks/useBook.js';
 import { useAuth }      from '../../hooks/useAuth.js';
 import { DELIVERY_LABELS } from '../../lib/constants.js';
 
-const TABS = ['Details', 'CourseDossier', 'Email'];
+const TABS = ['Details', 'CourseDossier', 'Email', 'Professor upload'];
 
 export default function ExamEditModal({ exam, onClose }) {
   const { updateField, loadBook, date } = useBook();
@@ -37,7 +38,8 @@ export default function ExamEditModal({ exam, onClose }) {
   const visibleTabs = TABS.filter(t =>
     t === 'Details' ||
     (t === 'CourseDossier' && canDossier) ||
-    (t === 'Email' && canEmail)
+    (t === 'Email' && canEmail) ||
+    t === 'Professor upload'
   );
 
   async function handleSave() {
@@ -208,6 +210,16 @@ export default function ExamEditModal({ exam, onClose }) {
         <DossierPanel
           exam={{ ...exam, professor_id: exam.professor_id }}
           onApplySuggestions={applyDossierSuggestions}
+        />
+      )}
+
+      {/* Professor upload tab */}
+      {activeTab === 'Professor upload' && (
+        <UploadPanel
+          exam={exam}
+          onApplyUpload={() => {
+            onClose();
+          }}
         />
       )}
 
