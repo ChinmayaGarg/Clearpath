@@ -4,7 +4,7 @@
  * 2. /claim           Link sent confirmation
  * 3. /claim/:token    Set password and activate
  */
-import { useState }       from 'react';
+import { useState, useEffect } from 'react';
 import { useParams,
          useNavigate }     from 'react-router-dom';
 import { toast }          from '../components/ui/Toast.jsx';
@@ -154,7 +154,7 @@ export function ClaimSetPassword() {
   const [tokenError, setTokenError] = useState('');
 
   // Validate token on mount
-  useState(() => {
+  useEffect(() => {
     fetch(`/api/claim/${token}`)
       .then(r => r.json())
       .then(data => {
@@ -167,7 +167,7 @@ export function ClaimSetPassword() {
       })
       .catch(() => setTokenError('Failed to validate link'))
       .finally(() => setLoading(false));
-  });
+  }, []); // eslint-disable-line
 
   async function handleSubmit(e) {
     e.preventDefault();
