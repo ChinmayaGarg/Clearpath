@@ -196,7 +196,7 @@ export async function removeUploadDate(schema, dateId, uploadId) {
 export async function getPendingReuseRequests(schema, professorProfileId) {
   const result = await tenantQuery(schema,
     `SELECT
-       err.id, err.status, err.makeup_notes, err.requested_at,
+       err.id, err.status, err.professor_note, err.requested_at,
        eu.course_code, eu.exam_type_label, eu.version_label,
        ed.date     AS makeup_date,
        u.first_name || ' ' || u.last_name AS requested_by_name

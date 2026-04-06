@@ -112,13 +112,14 @@ router.post('/send', async (req, res, next) => {
     const token     = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + CLAIM_TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
+    // Delete any existing tokens for this user first
     await tenantQuery(schema,
-      `INSERT INTO password_reset_token (user_id, token, expires_at)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id) DO UPDATE
-         SET token = EXCLUDED.token,
-             expires_at = EXCLUDED.expires_at,
-             used = FALSE`,
+      `DELETE FROM password_reset_token WHERE user_id = $1`,
+      [userId]
+    );
+    await tenantQuery(schema,
+      `INSERT INTO password_reset_token (user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3)`,
       [userId, token, expiresAt]
     );
 
@@ -150,11 +151,11 @@ router.get('/:token', async (req, res, next) => {
 
     for (const { slug: schema } of institutions.rows) {
       const result = await tenantQuery(schema,
-        `SELECT prt.user_id, prt.expires_at, prt.used,
+        `SELECT prt.user_id, prt.expires_at, prt.used_at,
                 u.email, u.first_name, u.last_name
          FROM password_reset_token prt
          JOIN "user" u ON u.id = prt.user_id
-         WHERE prt.token = $1`,
+         WHERE prt.token_hash = $1`,
         [token]
       );
 
@@ -162,7 +163,7 @@ router.get('/:token', async (req, res, next) => {
 
       const row = result.rows[0];
 
-      if (row.used) {
+      if (row.used_at) {
         return res.status(410).json({ ok: false, error: 'This link has already been used' });
       }
       if (new Date(row.expires_at) < new Date()) {
@@ -197,9 +198,9 @@ router.post('/:token', async (req, res, next) => {
 
     for (const { slug: schema } of institutions.rows) {
       const result = await tenantQuery(schema,
-        `SELECT prt.user_id, prt.expires_at, prt.used
+        `SELECT prt.user_id, prt.expires_at, prt.used_at
          FROM password_reset_token prt
-         WHERE prt.token = $1`,
+         WHERE prt.token_hash = $1`,
         [token]
       );
 
@@ -207,7 +208,7 @@ router.post('/:token', async (req, res, next) => {
 
       const row = result.rows[0];
 
-      if (row.used) {
+      if (row.used_at) {
         return res.status(410).json({ ok: false, error: 'This link has already been used' });
       }
       if (new Date(row.expires_at) < new Date()) {
@@ -232,8 +233,8 @@ router.post('/:token', async (req, res, next) => {
         // Mark token used
         await client.query(
           `UPDATE password_reset_token
-           SET used = TRUE
-           WHERE token = $1`,
+           SET used_at = NOW()
+           WHERE token_hash = $1`,
           [token]
         );
       });

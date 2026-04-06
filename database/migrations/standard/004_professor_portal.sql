@@ -240,7 +240,7 @@ ALTER TABLE :schema_name.course_dossier
 
 ALTER TABLE :schema_name.course_dossier
   ADD CONSTRAINT uq_dossier_prof_course_type
-    UNIQUE (professor_profile_id, course_code, exam_type_label);
+    UNIQUE (professor_id, course_code, exam_type_label);
 
 COMMENT ON COLUMN :schema_name.course_dossier.exam_type_label IS
   'NULL = wildcard, applies to all exam types for this course.
