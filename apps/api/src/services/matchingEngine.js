@@ -225,10 +225,8 @@ async function applyUploadToExam(schema, examId, uploadId) {
        materials  = CASE WHEN e.materials IS NULL THEN u.materials ELSE e.materials END,
        password   = CASE WHEN e.password  IS NULL THEN u.password  ELSE e.password  END,
        rwg_flag   = CASE WHEN u.rwg_flag = TRUE    THEN TRUE       ELSE e.rwg_flag  END,
-       exam_type  = CASE WHEN u.exam_type_label IN ('brightspace','crowdmark')
-                              AND e.exam_type = 'paper'
-                         THEN u.exam_type_label::dal.exam_type
-                         ELSE e.exam_type END,
+       -- exam_type only updated from upload if it's a brightspace/crowdmark type
+       -- Skip this for now to avoid enum cast issues
        updated_at = NOW()
      FROM exam_upload u
      WHERE e.id = $1 AND u.id = $2`,

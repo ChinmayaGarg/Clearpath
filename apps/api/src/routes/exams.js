@@ -271,3 +271,81 @@ router.get('/:id/upload',
     } catch (err) { next(err); }
   }
 );
+
+// ── GET /api/exams/:id/uploads/available ─────────────────────────────────────
+// List submitted uploads for the same course — for manual linking
+router.get('/:id/uploads/available',
+  requireRole('lead', 'institution_admin'),
+  async (req, res, next) => {
+    try {
+      const { tenantQuery } = await import('../db/tenantPool.js');
+
+      // Get exam course code first
+      const examResult = await tenantQuery(req.tenantSchema,
+        `SELECT course_code, cross_listed_code FROM exam WHERE id = $1`,
+        [req.params.id]
+      );
+      if (!examResult.rows.length) {
+        return res.status(404).json({ ok: false, error: 'Exam not found' });
+      }
+      const { course_code, cross_listed_code } = examResult.rows[0];
+
+      // Find submitted uploads for this course
+      const uploads = await tenantQuery(req.tenantSchema,
+        `SELECT
+           eu.id, eu.course_code, eu.exam_type_label,
+           eu.version_label, eu.delivery, eu.materials,
+           eu.password, eu.rwg_flag, eu.is_makeup,
+           eu.status, eu.submitted_at,
+           u.first_name || ' ' || u.last_name AS professor_name,
+           COALESCE(
+             json_agg(
+               json_build_object('exam_date', eud.exam_date, 'time_slot', eud.time_slot)
+               ORDER BY eud.exam_date
+             ) FILTER (WHERE eud.id IS NOT NULL),
+             '[]'
+           ) AS dates
+         FROM exam_upload eu
+         JOIN professor_profile pp ON pp.id = eu.professor_profile_id
+         JOIN "user" u ON u.id = pp.user_id
+         LEFT JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+         WHERE eu.status = 'submitted'
+           AND (
+             UPPER(eu.course_code) = UPPER($1)
+             OR UPPER(eu.course_code) = UPPER($2)
+           )
+         GROUP BY eu.id, u.first_name, u.last_name
+         ORDER BY eu.submitted_at DESC`,
+        [course_code, cross_listed_code ?? course_code]
+      );
+
+      res.json({ ok: true, uploads: uploads.rows });
+    } catch (err) { next(err); }
+  }
+);
+
+// ── POST /api/exams/:id/uploads/:uploadId/link ────────────────────────────────
+// Manually link an upload to an exam
+router.post('/:id/uploads/:uploadId/link',
+  requireRole('lead', 'institution_admin'),
+  async (req, res, next) => {
+    try {
+      const { tenantQuery } = await import('../db/tenantPool.js');
+
+      await tenantQuery(req.tenantSchema,
+        `UPDATE exam SET exam_upload_id = $1, updated_at = NOW() WHERE id = $2`,
+        [req.params.uploadId, req.params.id]
+      );
+
+      // Mark upload date as matched
+      await tenantQuery(req.tenantSchema,
+        `UPDATE exam_upload_date
+         SET match_status = 'matched', matched_exam_id = $1
+         WHERE exam_upload_id = $2`,
+        [req.params.id, req.params.uploadId]
+      );
+
+      res.json({ ok: true, message: 'Upload linked to exam' });
+    } catch (err) { next(err); }
+  }
+);
