@@ -21,7 +21,7 @@ import {
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireFeature('course_dossier'));
+// Feature gate moved to individual routes when needed
 
 const saveDossierSchema = z.object({
   professorId:       z.string().uuid(),

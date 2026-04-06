@@ -66,11 +66,33 @@ const respondSchema = z.object({
 
 // ── Helper: get and verify professor profile ──────────────────────────────────
 async function getProfId(req, res) {
-  const profId = await getProfessorProfileId(req.tenantSchema, req.user.id);
+  let profId = await getProfessorProfileId(req.tenantSchema, req.user.id);
+
+  // Auto-create professor_profile if missing — happens when professor
+  // claimed their account but no profile row was created yet
   if (!profId) {
-    res.status(403).json({ ok: false, error: 'No professor profile found for your account' });
-    return null;
+    try {
+      const result = await tenantQuery(req.tenantSchema,
+        `INSERT INTO professor_profile (user_id)
+         VALUES ($1)
+         ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+         RETURNING id`,
+        [req.user.id]
+      );
+      // Also ensure professor role exists
+      await tenantQuery(req.tenantSchema,
+        `INSERT INTO user_role (user_id, role)
+         VALUES ($1, 'professor')
+         ON CONFLICT (user_id, role) DO NOTHING`,
+        [req.user.id]
+      );
+      profId = result.rows[0]?.id ?? null;
+    } catch (err) {
+      res.status(403).json({ ok: false, error: 'Could not resolve professor profile' });
+      return null;
+    }
   }
+
   return profId;
 }
 

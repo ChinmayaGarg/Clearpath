@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate }         from 'react-router-dom';
-import { useAuthStore }        from '../../store/authStore.js';
+import { useAuth }             from '../../hooks/useAuth.js';
 import { api }                 from '../../lib/api.js';
 import { toast }               from '../../components/ui/Toast.jsx';
 import Spinner                 from '../../components/ui/Spinner.jsx';
@@ -11,8 +11,7 @@ import ReuseRequests           from '../../components/portal/ReuseRequests.jsx';
 const TABS = ['My uploads', 'Reuse requests', 'Notifications'];
 
 export default function ProfessorPortal() {
-  const user                   = useAuthStore(s => s.user);
-  const logout                 = useAuthStore(s => s.logout);
+  const { user, logout }       = useAuth();
   const navigate               = useNavigate();
   const [tab,      setTab]     = useState('My uploads');
   const [me,       setMe]      = useState(null);
@@ -145,11 +144,18 @@ export default function ProfessorPortal() {
                 + New exam upload
               </button>
             </div>
-            <UploadList
-              key={refreshKey}
-              onEdit={id => { setEditId(id); setShowForm(true); }}
-              onRefresh={refresh}
-            />
+            {loading ? (
+              <div className="flex justify-center py-10">
+                <div className="w-5 h-5 border-2 border-brand-600
+                                border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <UploadList
+                key={refreshKey}
+                onEdit={id => { setEditId(id); setShowForm(true); }}
+                onRefresh={refresh}
+              />
+            )}
           </div>
         )}
 

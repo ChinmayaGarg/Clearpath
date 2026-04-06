@@ -52,6 +52,7 @@ export async function getExamsForDay(schema, examDayId) {
        e.duration_mins, e.exam_type, e.delivery,
        e.materials, e.password, e.status, e.rwg_flag,
        e.created_at, e.updated_at,
+       pp.id                                   AS professor_id,
        pp.user_id                              AS professor_user_id,
        u.first_name || ' ' || u.last_name      AS professor_name,
        u.email                                 AS professor_email,
@@ -74,7 +75,7 @@ export async function getExamsForDay(schema, examDayId) {
      LEFT JOIN "user"            u  ON u.id  = pp.user_id
      LEFT JOIN exam_room         er ON er.exam_id = e.id
      WHERE e.exam_day_id = $1
-     GROUP BY e.id, pp.user_id, u.first_name, u.last_name,
+     GROUP BY e.id, pp.id, pp.user_id, u.first_name, u.last_name,
               u.email, pp.phone, pp.department
      ORDER BY MIN(er.start_time), e.course_code`,
     [examDayId]
