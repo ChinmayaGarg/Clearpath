@@ -14,10 +14,10 @@
  * GET  /api/portal/notifications        Get notifications
  * POST /api/portal/notifications/read   Mark all as read
  */
-import { Router }      from 'express';
-import { z }           from 'zod';
-import { requireAuth } from '../middleware/auth.js';
-import { requireRole } from '../middleware/role.js';
+import { Router } from "express";
+import { z } from "zod";
+import { requireAuth } from "../middleware/auth.js";
+import { requireRole } from "../middleware/role.js";
 import {
   getProfessorProfileId,
   listUploadsForProfessor,
@@ -31,36 +31,48 @@ import {
   respondToReuseRequest,
   getProfessorNotifications,
   markNotificationsRead,
-} from '../db/queries/examUploads.js';
-import { tenantQuery }     from '../db/tenantPool.js';
-import { matchUpload } from '../services/matchingEngine.js';
-
+} from "../db/queries/examUploads.js";
+import { tenantQuery } from "../db/tenantPool.js";
+import { matchUpload } from "../services/matchingEngine.js";
+import { persistUploadDossier } from "../services/dossierService.js";
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole('professor', 'institution_admin', 'lead'));
+router.use(requireRole("professor", "institution_admin", "lead"));
 
-const EXAM_TYPES = ['midterm','endterm','tutorial','lab','quiz','assignment','other'];
-const DELIVERIES = ['pickup','dropped','delivery','pending'];
+const EXAM_TYPES = [
+  "midterm",
+  "endterm",
+  "tutorial",
+  "lab",
+  "quiz",
+  "assignment",
+  "other",
+];
+const DELIVERIES = ["pickup", "dropped", "delivery", "pending"];
 
 const createUploadSchema = z.object({
-  courseCode:     z.string().min(1).max(50).trim().toUpperCase(),
-  examTypeLabel:  z.enum(EXAM_TYPES),
-  versionLabel:   z.string().max(100).optional().nullable(),
-  delivery:       z.enum(DELIVERIES).default('pending'),
-  materials:      z.string().max(500).optional().nullable(),
-  password:       z.string().max(200).optional().nullable(),
-  rwgFlag:        z.boolean().default(false),
-  isMakeup:       z.boolean().default(false),
-  makeupNotes:    z.string().max(500).optional().nullable(),
+  courseCode: z.string().min(1).max(50).trim().toUpperCase(),
+  examTypeLabel: z.enum(EXAM_TYPES),
+  versionLabel: z.string().max(100).optional().nullable(),
+  delivery: z.enum(DELIVERIES).default("pending"),
+  materials: z.string().max(500).optional().nullable(),
+  password: z.string().max(200).optional().nullable(),
+  rwgFlag: z.boolean().default(false),
+  isMakeup: z.boolean().default(false),
+  makeupNotes: z.string().max(500).optional().nullable(),
 });
 
 const addDateSchema = z.object({
   examDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timeSlot: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional().nullable(),
+  timeSlot: z
+    .string()
+    .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+    .optional()
+    .nullable(),
 });
 
 const respondSchema = z.object({
-  status:        z.enum(['approved','denied']),
+  status: z.enum(["approved", "denied"]),
   professorNote: z.string().max(500).optional().nullable(),
 });
 
@@ -72,23 +84,27 @@ async function getProfId(req, res) {
   // claimed their account but no profile row was created yet
   if (!profId) {
     try {
-      const result = await tenantQuery(req.tenantSchema,
+      const result = await tenantQuery(
+        req.tenantSchema,
         `INSERT INTO professor_profile (user_id)
          VALUES ($1)
          ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
          RETURNING id`,
-        [req.user.id]
+        [req.user.id],
       );
       // Also ensure professor role exists
-      await tenantQuery(req.tenantSchema,
+      await tenantQuery(
+        req.tenantSchema,
         `INSERT INTO user_role (user_id, role)
          VALUES ($1, 'professor')
          ON CONFLICT (user_id, role) DO NOTHING`,
-        [req.user.id]
+        [req.user.id],
       );
       profId = result.rows[0]?.id ?? null;
     } catch (err) {
-      res.status(403).json({ ok: false, error: 'Could not resolve professor profile' });
+      res
+        .status(403)
+        .json({ ok: false, error: "Could not resolve professor profile" });
       return null;
     }
   }
@@ -97,203 +113,247 @@ async function getProfId(req, res) {
 }
 
 // ── GET /api/portal/me ────────────────────────────────────────────────────────
-router.get('/me', async (req, res, next) => {
+router.get("/me", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     const [profileResult, statsResult, notifResult] = await Promise.all([
-      tenantQuery(req.tenantSchema,
+      tenantQuery(
+        req.tenantSchema,
         `SELECT pp.id, pp.department, pp.phone, pp.office,
                 u.first_name, u.last_name, u.email
          FROM professor_profile pp
          JOIN "user" u ON u.id = pp.user_id
          WHERE pp.id = $1`,
-        [profId]
+        [profId],
       ),
-      tenantQuery(req.tenantSchema,
+      tenantQuery(
+        req.tenantSchema,
         `SELECT
            COUNT(*)                                              AS total_uploads,
            COUNT(*) FILTER (WHERE status = 'submitted')         AS submitted,
            COUNT(*) FILTER (WHERE status = 'draft')             AS drafts,
            COUNT(DISTINCT course_code)                          AS courses
          FROM exam_upload WHERE professor_profile_id = $1`,
-        [profId]
+        [profId],
       ),
-      tenantQuery(req.tenantSchema,
+      tenantQuery(
+        req.tenantSchema,
         `SELECT COUNT(*) AS unread
          FROM upload_notification
          WHERE professor_profile_id = $1 AND is_read = FALSE`,
-        [profId]
+        [profId],
       ),
     ]);
 
     res.json({
-      ok:      true,
+      ok: true,
       profile: profileResult.rows[0],
-      stats:   statsResult.rows[0],
-      unread:  parseInt(notifResult.rows[0].unread),
+      stats: statsResult.rows[0],
+      unread: parseInt(notifResult.rows[0].unread),
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/portal/uploads ───────────────────────────────────────────────────
-router.get('/uploads', async (req, res, next) => {
+router.get("/uploads", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     const uploads = await listUploadsForProfessor(req.tenantSchema, profId);
     res.json({ ok: true, uploads });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/portal/uploads ──────────────────────────────────────────────────
-router.post('/uploads', async (req, res, next) => {
+router.post("/uploads", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
-    const data     = createUploadSchema.parse(req.body);
+    const data = createUploadSchema.parse(req.body);
     const uploadId = await createUpload(req.tenantSchema, {
       professorProfileId: profId,
-      courseCode:         data.courseCode,
-      examTypeLabel:      data.examTypeLabel,
-      versionLabel:       data.versionLabel,
-      delivery:           data.delivery,
-      materials:          data.materials,
-      password:           data.password,
-      rwgFlag:            data.rwgFlag,
-      isMakeup:           data.isMakeup,
-      makeupNotes:        data.makeupNotes,
+      courseCode: data.courseCode,
+      examTypeLabel: data.examTypeLabel,
+      versionLabel: data.versionLabel,
+      delivery: data.delivery,
+      materials: data.materials,
+      password: data.password,
+      rwgFlag: data.rwgFlag,
+      isMakeup: data.isMakeup,
+      makeupNotes: data.makeupNotes,
     });
 
+    await persistUploadDossier(req.tenantSchema, uploadId, req.user.id);
+
     res.status(201).json({ ok: true, uploadId });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/portal/uploads/:id ───────────────────────────────────────────────
-router.get('/uploads/:id', async (req, res, next) => {
+router.get("/uploads/:id", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     const upload = await getUpload(req.tenantSchema, req.params.id, profId);
-    if (!upload) return res.status(404).json({ ok: false, error: 'Upload not found' });
+    if (!upload)
+      return res.status(404).json({ ok: false, error: "Upload not found" });
 
     res.json({ ok: true, upload });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── PUT /api/portal/uploads/:id ───────────────────────────────────────────────
-router.put('/uploads/:id', async (req, res, next) => {
+router.put("/uploads/:id", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     const data = createUploadSchema.partial().parse(req.body);
     const dbFields = {};
-    if (data.courseCode    !== undefined) dbFields.course_code     = data.courseCode;
-    if (data.examTypeLabel !== undefined) dbFields.exam_type_label = data.examTypeLabel;
-    if (data.versionLabel  !== undefined) dbFields.version_label   = data.versionLabel;
-    if (data.delivery      !== undefined) dbFields.delivery        = data.delivery;
-    if (data.materials     !== undefined) dbFields.materials       = data.materials;
-    if (data.password      !== undefined) dbFields.password        = data.password;
-    if (data.rwgFlag       !== undefined) dbFields.rwg_flag        = data.rwgFlag;
-    if (data.isMakeup      !== undefined) dbFields.is_makeup       = data.isMakeup;
-    if (data.makeupNotes   !== undefined) dbFields.makeup_notes    = data.makeupNotes;
+    if (data.courseCode !== undefined) dbFields.course_code = data.courseCode;
+    if (data.examTypeLabel !== undefined)
+      dbFields.exam_type_label = data.examTypeLabel;
+    if (data.versionLabel !== undefined)
+      dbFields.version_label = data.versionLabel;
+    if (data.delivery !== undefined) dbFields.delivery = data.delivery;
+    if (data.materials !== undefined) dbFields.materials = data.materials;
+    if (data.password !== undefined) dbFields.password = data.password;
+    if (data.rwgFlag !== undefined) dbFields.rwg_flag = data.rwgFlag;
+    if (data.isMakeup !== undefined) dbFields.is_makeup = data.isMakeup;
+    if (data.makeupNotes !== undefined)
+      dbFields.makeup_notes = data.makeupNotes;
 
     await updateUpload(req.tenantSchema, req.params.id, profId, dbFields);
+    await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/portal/uploads/:id/submit ──────────────────────────────────────
-router.post('/uploads/:id/submit', async (req, res, next) => {
+router.post("/uploads/:id/submit", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     await submitUpload(req.tenantSchema, req.params.id, profId);
+    await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
 
     // Run matching engine asynchronously — don't block the response
-    matchUpload(req.tenantSchema, req.params.id, req.institutionId)
-      .catch(err => console.warn('Match upload failed:', err.message));
+    matchUpload(
+      req.tenantSchema,
+      req.params.id,
+      req.institutionId,
+      req.user.id,
+    ).catch((err) => console.warn("Match upload failed:", err.message));
 
-    res.json({ ok: true, message: 'Exam submitted successfully' });
-  } catch (err) { next(err); }
+    res.json({ ok: true, message: "Exam submitted successfully" });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/portal/uploads/:id/dates ───────────────────────────────────────
-router.post('/uploads/:id/dates', async (req, res, next) => {
+router.post("/uploads/:id/dates", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
-    const data   = addDateSchema.parse(req.body);
+    const data = addDateSchema.parse(req.body);
     const dateId = await addUploadDate(req.tenantSchema, req.params.id, {
-      examDate:  data.examDate,
-      timeSlot:  data.timeSlot ?? null,
+      examDate: data.examDate,
+      timeSlot: data.timeSlot ?? null,
     });
 
     res.status(201).json({ ok: true, dateId });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── DELETE /api/portal/uploads/:id/dates/:dateId ─────────────────────────────
-router.delete('/uploads/:id/dates/:dateId', async (req, res, next) => {
+router.delete("/uploads/:id/dates/:dateId", async (req, res, next) => {
   try {
     await removeUploadDate(req.tenantSchema, req.params.dateId, req.params.id);
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/portal/reuse ─────────────────────────────────────────────────────
-router.get('/reuse', async (req, res, next) => {
+router.get("/reuse", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     const requests = await getPendingReuseRequests(req.tenantSchema, profId);
     res.json({ ok: true, requests });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/portal/reuse/:id/respond ───────────────────────────────────────
-router.post('/reuse/:id/respond', async (req, res, next) => {
+router.post("/reuse/:id/respond", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     const { status, professorNote } = respondSchema.parse(req.body);
     await respondToReuseRequest(req.tenantSchema, req.params.id, {
-      status, professorNote, professorProfileId: profId,
+      status,
+      professorNote,
+      professorProfileId: profId,
     });
 
     res.json({ ok: true, message: `Request ${status}` });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/portal/notifications ────────────────────────────────────────────
-router.get('/notifications', async (req, res, next) => {
+router.get("/notifications", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
-    const notifications = await getProfessorNotifications(req.tenantSchema, profId);
+    const notifications = await getProfessorNotifications(
+      req.tenantSchema,
+      profId,
+    );
     res.json({ ok: true, notifications });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/portal/notifications/read ──────────────────────────────────────
-router.post('/notifications/read', async (req, res, next) => {
+router.post("/notifications/read", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
     await markNotificationsRead(req.tenantSchema, profId);
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

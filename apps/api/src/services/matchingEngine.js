@@ -17,9 +17,10 @@
  * prior appointments for the same student + course within the configured
  * window (default 20 days). Sets is_makeup = TRUE if found.
  */
-import { tenantQuery, tenantTransaction } from '../db/tenantPool.js';
-import pool   from '../db/pool.js';
-import { logger } from '../utils/logger.js';
+import { tenantQuery, tenantTransaction } from "../db/tenantPool.js";
+import pool from "../db/pool.js";
+import { persistUploadDossier } from "./dossierService.js";
+import { logger } from "../utils/logger.js";
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 
@@ -33,11 +34,12 @@ import { logger } from '../utils/logger.js';
  * @returns {Promise<MatchSummary>}
  */
 export async function runMatchingEngine(schema, date, institutionId) {
-  const config       = await getConfig(institutionId);
-  const results      = { matched: 0, conflicts: 0, unmatched: 0, makeups: 0 };
+  const config = await getConfig(institutionId);
+  const results = { matched: 0, conflicts: 0, unmatched: 0, makeups: 0 };
 
   // Get all exams for this date
-  const examsResult = await tenantQuery(schema,
+  const examsResult = await tenantQuery(
+    schema,
     `SELECT
        e.id, e.course_code, e.cross_listed_code, e.exam_upload_id,
        json_agg(
@@ -49,20 +51,24 @@ export async function runMatchingEngine(schema, date, institutionId) {
      LEFT JOIN exam_room er ON er.exam_id = e.id
      WHERE e.status NOT IN ('cancelled', 'dropped')
      GROUP BY e.id`,
-    [date]
+    [date],
   );
 
   for (const exam of examsResult.rows) {
     const matchResult = await matchExamToUpload(schema, exam, date);
 
-    if (matchResult.status === 'matched') {
+    if (matchResult.status === "matched") {
       results.matched++;
       // Pre-fill exam fields from upload if they're still empty
       await applyUploadToExam(schema, exam.id, matchResult.uploadId);
-    } else if (matchResult.status === 'conflict') {
+      await persistUploadDossier(schema, matchResult.uploadId, null);
+    } else if (matchResult.status === "conflict") {
       results.conflicts++;
-      logger.warn('Match conflict', {
-        examId: exam.id, course: exam.course_code, date, schema,
+      logger.warn("Match conflict", {
+        examId: exam.id,
+        course: exam.course_code,
+        date,
+        schema,
       });
     } else {
       results.unmatched++;
@@ -74,9 +80,13 @@ export async function runMatchingEngine(schema, date, institutionId) {
   }
 
   // Run makeup detection for new appointments on this date
-  results.makeups = await detectMakeups(schema, date, config.makeupWindowDays ?? 20);
+  results.makeups = await detectMakeups(
+    schema,
+    date,
+    config.makeupWindowDays ?? 20,
+  );
 
-  logger.info('Matching engine complete', { date, schema, ...results });
+  logger.info("Matching engine complete", { date, schema, ...results });
   return results;
 }
 
@@ -84,20 +94,27 @@ export async function runMatchingEngine(schema, date, institutionId) {
  * Run matching for a single newly-submitted upload.
  * Called when a professor submits via the portal.
  */
-export async function matchUpload(schema, uploadId, institutionId) {
+export async function matchUpload(
+  schema,
+  uploadId,
+  institutionId,
+  changedBy = null,
+) {
   // Get all dates on this upload
-  const datesResult = await tenantQuery(schema,
+  const datesResult = await tenantQuery(
+    schema,
     `SELECT eud.id, eud.exam_date, eud.time_slot,
             eu.course_code, eu.professor_profile_id
      FROM exam_upload_date eud
      JOIN exam_upload eu ON eu.id = eud.exam_upload_id
      WHERE eud.exam_upload_id = $1`,
-    [uploadId]
+    [uploadId],
   );
 
   let matched = 0;
   for (const dateRow of datesResult.rows) {
-    const examResult = await tenantQuery(schema,
+    const examResult = await tenantQuery(
+      schema,
       `SELECT e.id, e.course_code, e.cross_listed_code, e.exam_upload_id,
               json_agg(
                 json_build_object('id', er.id, 'start_time', er.start_time)
@@ -108,28 +125,30 @@ export async function matchUpload(schema, uploadId, institutionId) {
        WHERE (e.course_code = $2 OR e.cross_listed_code = $2)
          AND e.status NOT IN ('cancelled', 'dropped')
        GROUP BY e.id`,
-      [dateRow.exam_date, dateRow.course_code]
+      [dateRow.exam_date, dateRow.course_code],
     );
 
     for (const exam of examResult.rows) {
       const matches = timeSlotMatches(
-        exam.rooms.map(r => r.start_time),
-        dateRow.time_slot
+        exam.rooms.map((r) => r.start_time),
+        dateRow.time_slot,
       );
       if (!matches) continue;
 
       // Link exam to upload
-      await tenantQuery(schema,
+      await tenantQuery(
+        schema,
         `UPDATE exam SET exam_upload_id = $1 WHERE id = $2`,
-        [uploadId, exam.id]
+        [uploadId, exam.id],
       );
 
       // Update date row match status
-      await tenantQuery(schema,
+      await tenantQuery(
+        schema,
         `UPDATE exam_upload_date
          SET match_status = 'matched', matched_exam_id = $1
          WHERE id = $2`,
-        [exam.id, dateRow.id]
+        [exam.id, dateRow.id],
       );
 
       await applyUploadToExam(schema, exam.id, uploadId);
@@ -140,6 +159,7 @@ export async function matchUpload(schema, uploadId, institutionId) {
     }
   }
 
+  await persistUploadDossier(schema, uploadId, changedBy);
   return { matched };
 }
 
@@ -147,7 +167,8 @@ export async function matchUpload(schema, uploadId, institutionId) {
 
 async function matchExamToUpload(schema, exam, date) {
   // Find candidate uploads for this course + date
-  const candidatesResult = await tenantQuery(schema,
+  const candidatesResult = await tenantQuery(
+    schema,
     `SELECT eu.id AS upload_id, eud.id AS date_id, eud.time_slot
      FROM exam_upload eu
      JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
@@ -157,50 +178,51 @@ async function matchExamToUpload(schema, exam, date) {
      ORDER BY
        -- Prefer exact time slot matches over wildcards
        CASE WHEN eud.time_slot IS NULL THEN 1 ELSE 0 END`,
-    [date, exam.course_code, exam.cross_listed_code ?? exam.course_code]
+    [date, exam.course_code, exam.cross_listed_code ?? exam.course_code],
   );
 
   const candidates = candidatesResult.rows;
-  if (!candidates.length) return { status: 'unmatched' };
+  if (!candidates.length) return { status: "unmatched" };
 
-  const roomTimes = (exam.rooms ?? []).map(r => r.start_time);
+  const roomTimes = (exam.rooms ?? []).map((r) => r.start_time);
 
   // Filter candidates by time slot match
-  const matching = candidates.filter(c =>
-    timeSlotMatches(roomTimes, c.time_slot)
+  const matching = candidates.filter((c) =>
+    timeSlotMatches(roomTimes, c.time_slot),
   );
 
-  if (!matching.length) return { status: 'unmatched' };
+  if (!matching.length) return { status: "unmatched" };
 
   // Conflict: multiple distinct uploads match
-  const uniqueUploads = [...new Set(matching.map(c => c.upload_id))];
+  const uniqueUploads = [...new Set(matching.map((c) => c.upload_id))];
   if (uniqueUploads.length > 1) {
     // Mark all date rows as conflict
     for (const c of matching) {
-      await tenantQuery(schema,
+      await tenantQuery(
+        schema,
         `UPDATE exam_upload_date SET match_status = 'conflict' WHERE id = $1`,
-        [c.date_id]
+        [c.date_id],
       );
     }
-    return { status: 'conflict' };
+    return { status: "conflict" };
   }
 
   // Single match — link it
   const winner = matching[0];
   await tenantTransaction(schema, async (client) => {
-    await client.query(
-      `UPDATE exam SET exam_upload_id = $1 WHERE id = $2`,
-      [winner.upload_id, exam.id]
-    );
+    await client.query(`UPDATE exam SET exam_upload_id = $1 WHERE id = $2`, [
+      winner.upload_id,
+      exam.id,
+    ]);
     await client.query(
       `UPDATE exam_upload_date
        SET match_status = 'matched', matched_exam_id = $1
        WHERE id = $2`,
-      [exam.id, winner.date_id]
+      [exam.id, winner.date_id],
     );
   });
 
-  return { status: 'matched', uploadId: winner.upload_id };
+  return { status: "matched", uploadId: winner.upload_id };
 }
 
 /**
@@ -209,7 +231,9 @@ async function matchExamToUpload(schema, exam, date) {
  */
 function timeSlotMatches(roomStartTimes, timeSlot) {
   if (!timeSlot) return true; // wildcard
-  return roomStartTimes.some(t => t === timeSlot || t?.startsWith(timeSlot.slice(0, 5)));
+  return roomStartTimes.some(
+    (t) => t === timeSlot || t?.startsWith(timeSlot.slice(0, 5)),
+  );
 }
 
 /**
@@ -217,7 +241,8 @@ function timeSlotMatches(roomStartTimes, timeSlot) {
  * Never overwrites data a lead has manually set.
  */
 async function applyUploadToExam(schema, examId, uploadId) {
-  await tenantQuery(schema,
+  await tenantQuery(
+    schema,
     `UPDATE exam e
      SET
        delivery   = CASE WHEN e.delivery = 'pending' AND u.delivery != 'pending'
@@ -230,7 +255,7 @@ async function applyUploadToExam(schema, examId, uploadId) {
        updated_at = NOW()
      FROM exam_upload u
      WHERE e.id = $1 AND u.id = $2`,
-    [examId, uploadId]
+    [examId, uploadId],
   );
 }
 
@@ -242,7 +267,8 @@ async function applyUploadToExam(schema, examId, uploadId) {
  * If so, mark as makeup.
  */
 async function detectMakeups(schema, date, windowDays) {
-  const result = await tenantQuery(schema,
+  const result = await tenantQuery(
+    schema,
     `WITH new_appts AS (
        SELECT DISTINCT
          a.id             AS appointment_id,
@@ -276,7 +302,7 @@ async function detectMakeups(schema, date, windowDays) {
          OR pe.cross_listed_code = na.course_code
        )
      RETURNING a.id`,
-    [date, String(windowDays)]
+    [date, String(windowDays)],
   );
 
   return result.rowCount;
@@ -286,29 +312,28 @@ async function detectMakeups(schema, date, windowDays) {
 
 async function createUploadNeededNotification(schema, exam, date) {
   // Get professor profile id from exam
-  const profResult = await tenantQuery(schema,
-    `SELECT professor_id FROM exam WHERE id = $1`, [exam.id]
+  const profResult = await tenantQuery(
+    schema,
+    `SELECT professor_id FROM exam WHERE id = $1`,
+    [exam.id],
   );
   const professorId = profResult.rows[0]?.professor_id;
   if (!professorId) return;
 
-  await tenantQuery(schema,
+  await tenantQuery(
+    schema,
     `INSERT INTO upload_notification
        (professor_profile_id, exam_id, type, message)
      VALUES ($1, $2, 'upload_needed', $3)
      ON CONFLICT DO NOTHING`,
-    [
-      professorId,
-      exam.id,
-      `Upload needed for ${exam.course_code} on ${date}`,
-    ]
+    [professorId, exam.id, `Upload needed for ${exam.course_code} on ${date}`],
   );
 }
 
 async function createUploadReceivedNotification(schema, examId, uploadId) {
   // Notify leads via audit log — persistent notifications for leads
   // come in a future iteration; for now just log
-  logger.info('Upload received and matched', { examId, uploadId, schema });
+  logger.info("Upload received and matched", { examId, uploadId, schema });
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -317,7 +342,7 @@ async function getConfig(institutionId) {
   try {
     const result = await pool.query(
       `SELECT config FROM public.institution WHERE id = $1`,
-      [institutionId]
+      [institutionId],
     );
     return result.rows[0]?.config ?? {};
   } catch {
