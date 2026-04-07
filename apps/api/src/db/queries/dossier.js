@@ -1,16 +1,20 @@
 /**
  * CourseDossier query functions — all tenant-scoped.
  */
-import { tenantQuery, tenantTransaction } from '../tenantPool.js';
+import { tenantQuery, tenantTransaction } from "../tenantPool.js";
 
 /**
- * Get the dossier for a specific professor + course combination.
+ * Get the dossier for a specific professor + course + term combination.
  * Returns null if no dossier exists yet.
  */
-export async function getDossier(schema, { professorId, courseCode }) {
-  const result = await tenantQuery(schema,
+export async function getDossier(
+  schema,
+  { professorId, courseCode, term = "current" },
+) {
+  const result = await tenantQuery(
+    schema,
     `SELECT
-       cd.id, cd.professor_id, cd.course_code,
+       cd.id, cd.professor_id, cd.course_code, cd.term,
        cd.preferred_delivery, cd.typical_materials,
        cd.password_reminder, cd.notes,
        cd.created_at, cd.updated_at,
@@ -18,51 +22,86 @@ export async function getDossier(schema, { professorId, courseCode }) {
      FROM course_dossier cd
      LEFT JOIN "user" u ON u.id = cd.last_updated_by
      WHERE cd.professor_id = $1
-       AND UPPER(cd.course_code) = UPPER($2)`,
-    [professorId, courseCode]
+       AND UPPER(cd.course_code) = UPPER($2)
+       AND cd.term = $3`,
+    [professorId, courseCode, term],
   );
   return result.rows[0] ?? null;
 }
 
 /**
- * Get all dossiers for a professor — their full knowledge base.
+ * Get all dossiers for a professor — optionally filtered by term.
  */
-export async function getDossiersForProfessor(schema, professorId) {
-  const result = await tenantQuery(schema,
-    `SELECT
-       cd.id, cd.course_code, cd.preferred_delivery,
-       cd.typical_materials, cd.password_reminder, cd.notes,
-       cd.updated_at,
-       u.first_name || ' ' || u.last_name AS last_updated_by_name
-     FROM course_dossier cd
-     LEFT JOIN "user" u ON u.id = cd.last_updated_by
-     WHERE cd.professor_id = $1
-     ORDER BY cd.updated_at DESC`,
-    [professorId]
+export async function getDossiersForProfessor(
+  schema,
+  professorId,
+  term = null,
+) {
+  const query = term
+    ? `SELECT
+         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
+         cd.typical_materials, cd.password_reminder, cd.notes,
+         cd.updated_at,
+         u.first_name || ' ' || u.last_name AS last_updated_by_name
+       FROM course_dossier cd
+       LEFT JOIN "user" u ON u.id = cd.last_updated_by
+       WHERE cd.professor_id = $1 AND cd.term = $2
+       ORDER BY cd.term DESC, cd.updated_at DESC`
+    : `SELECT
+         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
+         cd.typical_materials, cd.password_reminder, cd.notes,
+         cd.updated_at,
+         u.first_name || ' ' || u.last_name AS last_updated_by_name
+       FROM course_dossier cd
+       LEFT JOIN "user" u ON u.id = cd.last_updated_by
+       WHERE cd.professor_id = $1
+       ORDER BY cd.term DESC, cd.updated_at DESC`;
+
+  const result = await tenantQuery(
+    schema,
+    query,
+    term ? [professorId, term] : [professorId],
   );
   return result.rows;
 }
 
 /**
- * Get all dossiers for a course code — useful when multiple professors
- * share a course, or for searching across the institution.
+ * Get all dossiers for a course code — optionally filtered by term.
+ * Useful when multiple professors share a course, or for searching across the institution.
  */
-export async function getDossiersByCourse(schema, courseCode) {
-  const result = await tenantQuery(schema,
-    `SELECT
-       cd.id, cd.course_code, cd.preferred_delivery,
-       cd.typical_materials, cd.password_reminder, cd.notes,
-       cd.updated_at,
-       pp.id            AS professor_id,
-       u.first_name || ' ' || u.last_name AS professor_name,
-       u.email          AS professor_email,
-       pp.department
-     FROM course_dossier cd
-     JOIN professor_profile pp ON pp.id = cd.professor_id
-     JOIN "user"            u  ON u.id  = pp.user_id
-     WHERE UPPER(cd.course_code) = UPPER($1)
-     ORDER BY cd.updated_at DESC`,
-    [courseCode]
+export async function getDossiersByCourse(schema, courseCode, term = null) {
+  const query = term
+    ? `SELECT
+         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
+         cd.typical_materials, cd.password_reminder, cd.notes,
+         cd.updated_at,
+         pp.id            AS professor_id,
+         u.first_name || ' ' || u.last_name AS professor_name,
+         u.email          AS professor_email,
+         pp.department
+       FROM course_dossier cd
+       JOIN professor_profile pp ON pp.id = cd.professor_id
+       JOIN "user"            u  ON u.id  = pp.user_id
+       WHERE UPPER(cd.course_code) = UPPER($1) AND cd.term = $2
+       ORDER BY cd.updated_at DESC`
+    : `SELECT
+         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
+         cd.typical_materials, cd.password_reminder, cd.notes,
+         cd.updated_at,
+         pp.id            AS professor_id,
+         u.first_name || ' ' || u.last_name AS professor_name,
+         u.email          AS professor_email,
+         pp.department
+       FROM course_dossier cd
+       JOIN professor_profile pp ON pp.id = cd.professor_id
+       JOIN "user"            u  ON u.id  = pp.user_id
+       WHERE UPPER(cd.course_code) = UPPER($1)
+       ORDER BY cd.updated_at DESC`;
+
+  const result = await tenantQuery(
+    schema,
+    query,
+    term ? [courseCode, term] : [courseCode],
   );
   return result.rows;
 }
@@ -70,18 +109,28 @@ export async function getDossiersByCourse(schema, courseCode) {
 /**
  * Upsert a dossier entry.
  * Creates on first save, updates on subsequent saves.
- * Uses UNIQUE(professor_id, course_code) constraint.
+ * Uses UNIQUE(professor_id, course_code, term) constraint.
  */
-export async function upsertDossier(schema, {
-  professorId, courseCode, preferredDelivery,
-  typicalMaterials, passwordReminder, notes, updatedBy,
-}) {
-  const result = await tenantQuery(schema,
+export async function upsertDossier(
+  schema,
+  {
+    professorId,
+    courseCode,
+    preferredDelivery,
+    typicalMaterials,
+    passwordReminder,
+    notes,
+    updatedBy,
+    term = "current",
+  },
+) {
+  const result = await tenantQuery(
+    schema,
     `INSERT INTO course_dossier
-       (professor_id, course_code, preferred_delivery,
+       (professor_id, course_code, term, preferred_delivery,
         typical_materials, password_reminder, notes, last_updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (professor_id, course_code)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (professor_id, course_code, term)
      DO UPDATE SET
        preferred_delivery = EXCLUDED.preferred_delivery,
        typical_materials  = EXCLUDED.typical_materials,
@@ -91,10 +140,15 @@ export async function upsertDossier(schema, {
        updated_at         = NOW()
      RETURNING id, created_at, updated_at`,
     [
-      professorId, courseCode.toUpperCase(),
-      preferredDelivery ?? null, typicalMaterials ?? null,
-      passwordReminder ?? false, notes ?? null, updatedBy,
-    ]
+      professorId,
+      courseCode.toUpperCase(),
+      term,
+      preferredDelivery ?? null,
+      typicalMaterials ?? null,
+      passwordReminder ?? false,
+      notes ?? null,
+      updatedBy,
+    ],
   );
   return result.rows[0];
 }
@@ -114,26 +168,30 @@ export async function learnFromExam(schema, examId, updatedBy) {
               e.professor_id, e.exam_type
        FROM exam e
        WHERE e.id = $1 AND e.professor_id IS NOT NULL`,
-      [examId]
+      [examId],
     );
     const exam = examResult.rows[0];
     if (!exam || !exam.professor_id) return null;
 
-    // Check if dossier exists
+    // Check if dossier exists for current term
     const existing = await client.query(
       `SELECT id, preferred_delivery, typical_materials
        FROM course_dossier
-       WHERE professor_id = $1 AND UPPER(course_code) = UPPER($2)`,
-      [exam.professor_id, exam.course_code]
+       WHERE professor_id = $1 AND UPPER(course_code) = UPPER($2) AND term = 'current'`,
+      [exam.professor_id, exam.course_code],
     );
 
     if (existing.rows.length) {
       // Only fill empty fields — don't overwrite curated data
       const updates = [];
-      const values  = [];
+      const values = [];
       let idx = 1;
 
-      if (!existing.rows[0].preferred_delivery && exam.delivery && exam.delivery !== 'pending') {
+      if (
+        !existing.rows[0].preferred_delivery &&
+        exam.delivery &&
+        exam.delivery !== "pending"
+      ) {
         updates.push(`preferred_delivery = $${idx++}`);
         values.push(exam.delivery);
       }
@@ -146,14 +204,14 @@ export async function learnFromExam(schema, examId, updatedBy) {
         updates.push(`last_updated_by = $${idx++}`, `updated_at = NOW()`);
         values.push(updatedBy, existing.rows[0].id);
         await client.query(
-          `UPDATE course_dossier SET ${updates.join(', ')}
+          `UPDATE course_dossier SET ${updates.join(", ")}
            WHERE id = $${idx}`,
-          values
+          values,
         );
       }
     } else {
       // Create a new dossier entry from this exam's data
-      if (exam.delivery && exam.delivery !== 'pending') {
+      if (exam.delivery && exam.delivery !== "pending") {
         await client.query(
           `INSERT INTO course_dossier
              (professor_id, course_code, preferred_delivery,
@@ -161,9 +219,12 @@ export async function learnFromExam(schema, examId, updatedBy) {
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (professor_id, course_code) DO NOTHING`,
           [
-            exam.professor_id, exam.course_code.toUpperCase(),
-            exam.delivery, exam.materials ?? null, updatedBy,
-          ]
+            exam.professor_id,
+            exam.course_code.toUpperCase(),
+            exam.delivery,
+            exam.materials ?? null,
+            updatedBy,
+          ],
         );
       }
     }
@@ -176,7 +237,8 @@ export async function learnFromExam(schema, examId, updatedBy) {
  * Search dossiers by course code prefix — for autocomplete.
  */
 export async function searchDossiers(schema, query, limit = 10) {
-  const result = await tenantQuery(schema,
+  const result = await tenantQuery(
+    schema,
     `SELECT
        cd.course_code, cd.preferred_delivery,
        cd.typical_materials, cd.password_reminder,
@@ -188,7 +250,7 @@ export async function searchDossiers(schema, query, limit = 10) {
      WHERE cd.course_code ILIKE $1
      ORDER BY cd.updated_at DESC
      LIMIT $2`,
-    [`${query}%`, limit]
+    [`${query}%`, limit],
   );
   return result.rows;
 }

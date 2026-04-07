@@ -5,7 +5,7 @@ import { toast } from "../components/ui/Toast.jsx";
 import Modal from "../components/ui/Modal.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
 import ProfessorDetail from "../components/professors/ProfessorDetail.jsx";
-import CreateProfessorModal from "../components/professors/CreateProfessorModal.jsx";
+import AddDossierModal from "../components/professors/AddDossierModal.jsx";
 
 function ProfRow({ prof, onClick }) {
   return (
@@ -52,7 +52,7 @@ export default function Professors() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
+  const [showAddDossier, setShowAddDossier] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -104,11 +104,11 @@ export default function Professors() {
             </p>
           </div>
           <button
-            onClick={() => setShowCreate(true)}
+            onClick={() => setShowAddDossier(true)}
             className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white
                        text-sm font-medium rounded-lg transition-colors"
           >
-            + Add professor
+            + Add dossier
           </button>
         </div>
 
@@ -133,7 +133,7 @@ export default function Professors() {
           <div className="text-center py-16 text-sm text-gray-400">
             {search
               ? "No professors match your search"
-              : "No professors yet — add one to get started"}
+              : "No professors yet — add a dossier to get started"}
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -189,12 +189,12 @@ export default function Professors() {
         </Modal>
       )}
 
-      {/* Create professor modal */}
-      {showCreate && (
-        <CreateProfessorModal
-          onClose={() => setShowCreate(false)}
+      {/* Add dossier modal */}
+      {showAddDossier && (
+        <AddDossierModal
+          onClose={() => setShowAddDossier(false)}
           onCreated={() => {
-            setShowCreate(false);
+            setShowAddDossier(false);
             load();
           }}
         />

@@ -69,8 +69,15 @@ function UploadCard({ upload, onEdit }) {
 
       {/* Details */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-xs text-gray-500">
-        {upload.delivery !== 'pending' && (
+        {upload.delivery !== 'pending' && upload.delivery !== 'file_upload' && (
           <span>Delivery: {upload.delivery}</span>
+        )}
+        {upload.delivery === 'file_upload' && (
+          upload.file_path ? (
+            <span className="text-green-600 font-medium">✓ File uploaded</span>
+          ) : (
+            <span className="text-amber-600 font-medium">⚠ File pending upload</span>
+          )
         )}
         {upload.materials && (
           <span>Materials: {upload.materials}</span>

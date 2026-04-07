@@ -16,6 +16,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
+import multer from "multer";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/role.js";
 import {
@@ -31,13 +32,41 @@ import {
   respondToReuseRequest,
   getProfessorNotifications,
   markNotificationsRead,
+  getAllowedCoursesForProfessor,
+  updateUploadFile,
+  getUploadFileInfo,
 } from "../db/queries/examUploads.js";
 import { tenantQuery } from "../db/tenantPool.js";
 import { matchUpload } from "../services/matchingEngine.js";
 import { persistUploadDossier } from "../services/dossierService.js";
+import {
+  saveFile,
+  generateFilePath,
+  readFileFromStorage,
+  getFileUrl,
+} from "../services/fileStorage.js";
+import { logger } from "../utils/logger.js";
+
 const router = Router();
 router.use(requireAuth);
 router.use(requireRole("professor", "institution_admin", "lead"));
+
+// Multer config for file uploads - memory storage (we'll save to disk manually)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+    files: 1,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype !== "application/pdf") {
+      return cb(
+        Object.assign(new Error("Only PDF files are allowed"), { status: 400 }),
+      );
+    }
+    cb(null, true);
+  },
+});
 
 const EXAM_TYPES = [
   "midterm",
@@ -48,7 +77,7 @@ const EXAM_TYPES = [
   "assignment",
   "other",
 ];
-const DELIVERIES = ["pickup", "dropped", "delivery", "pending"];
+const DELIVERIES = ["pickup", "dropped", "delivery", "pending", "file_upload"];
 
 const createUploadSchema = z.object({
   courseCode: z.string().min(1).max(50).trim().toUpperCase(),
@@ -112,6 +141,21 @@ async function getProfId(req, res) {
   return profId;
 }
 
+async function ensureCourseAllowed(schema, professorProfileId, courseCode) {
+  const allowed = await getAllowedCoursesForProfessor(
+    schema,
+    professorProfileId,
+  );
+  if (!allowed.includes(courseCode.toUpperCase())) {
+    throw Object.assign(
+      new Error(
+        `Course '${courseCode}' is not assigned to your profile. Contact your lead to assign it.`,
+      ),
+      { status: 400 },
+    );
+  }
+}
+
 // ── GET /api/portal/me ────────────────────────────────────────────────────────
 router.get("/me", async (req, res, next) => {
   try {
@@ -158,6 +202,22 @@ router.get("/me", async (req, res, next) => {
   }
 });
 
+// ── GET /api/portal/courses ──────────────────────────────────────────────────
+router.get("/courses", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const courses = await getAllowedCoursesForProfessor(
+      req.tenantSchema,
+      profId,
+    );
+    res.json({ ok: true, courses });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET /api/portal/uploads ───────────────────────────────────────────────────
 router.get("/uploads", async (req, res, next) => {
   try {
@@ -178,6 +238,7 @@ router.post("/uploads", async (req, res, next) => {
     if (!profId) return;
 
     const data = createUploadSchema.parse(req.body);
+    await ensureCourseAllowed(req.tenantSchema, profId, data.courseCode);
     const uploadId = await createUpload(req.tenantSchema, {
       professorProfileId: profId,
       courseCode: data.courseCode,
@@ -223,7 +284,10 @@ router.put("/uploads/:id", async (req, res, next) => {
 
     const data = createUploadSchema.partial().parse(req.body);
     const dbFields = {};
-    if (data.courseCode !== undefined) dbFields.course_code = data.courseCode;
+    if (data.courseCode !== undefined) {
+      await ensureCourseAllowed(req.tenantSchema, profId, data.courseCode);
+      dbFields.course_code = data.courseCode;
+    }
     if (data.examTypeLabel !== undefined)
       dbFields.exam_type_label = data.examTypeLabel;
     if (data.versionLabel !== undefined)
@@ -250,6 +314,22 @@ router.post("/uploads/:id/submit", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
+    // Check if upload requires a file
+    const uploadResult = await tenantQuery(
+      req.tenantSchema,
+      `SELECT delivery, file_path FROM exam_upload WHERE id = $1 AND professor_profile_id = $2`,
+      [req.params.id, profId],
+    );
+    const upload = uploadResult.rows[0];
+
+    // Validate file upload requirement
+    if (upload?.delivery === "file_upload" && !upload?.file_path) {
+      return res.status(400).json({
+        ok: false,
+        error: "Please upload the exam file before submitting",
+      });
+    }
+
     await submitUpload(req.tenantSchema, req.params.id, profId);
     await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
 
@@ -262,6 +342,103 @@ router.post("/uploads/:id/submit", async (req, res, next) => {
     ).catch((err) => console.warn("Match upload failed:", err.message));
 
     res.json({ ok: true, message: "Exam submitted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/portal/uploads/:id/file ─────────────────────────────────────────
+// Upload file for an exam (when delivery = file_upload)
+router.post(
+  "/uploads/:id/file",
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      const profId = await getProfId(req, res);
+      if (!profId) return;
+
+      if (!req.file) {
+        return res.status(400).json({ ok: false, error: "No file uploaded" });
+      }
+
+      const uploadId = req.params.id;
+
+      // Verify upload belongs to professor
+      const uploadResult = await tenantQuery(
+        req.tenantSchema,
+        `SELECT delivery FROM exam_upload WHERE id = $1 AND professor_profile_id = $2`,
+        [uploadId, profId],
+      );
+
+      if (!uploadResult.rows.length) {
+        return res.status(404).json({ ok: false, error: "Upload not found" });
+      }
+
+      // Generate storage path and save file
+      const storagePath = generateFilePath(
+        req.tenantSchema,
+        uploadId,
+        req.file.originalname,
+      );
+
+      const { size } = await saveFile(req.file.buffer, storagePath);
+
+      // Update database with file info
+      const result = await updateUploadFile(req.tenantSchema, uploadId, profId, {
+        filePath: storagePath,
+        fileOriginalName: req.file.originalname,
+        fileSize: size,
+      });
+
+      logger.info("Professor uploaded exam file", {
+        uploadId,
+        professorId: profId,
+        schema: req.tenantSchema,
+        fileName: req.file.originalname,
+        size,
+      });
+
+      res.json({
+        ok: true,
+        file: {
+          originalName: req.file.originalname,
+          size: size,
+          uploadedAt: result.file_uploaded_at,
+          url: getFileUrl(storagePath),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /api/portal/uploads/:id/file ─────────────────────────────────────────
+// Download the uploaded file
+router.get("/uploads/:id/file", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const fileInfo = await getUploadFileInfo(
+      req.tenantSchema,
+      req.params.id,
+      profId,
+    );
+
+    if (!fileInfo || !fileInfo.file_path) {
+      return res.status(404).json({ ok: false, error: "File not found" });
+    }
+
+    const fileBuffer = await readFileFromStorage(fileInfo.file_path);
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(fileInfo.file_original_name)}"`,
+    );
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Length", fileInfo.file_size);
+    res.send(fileBuffer);
   } catch (err) {
     next(err);
   }

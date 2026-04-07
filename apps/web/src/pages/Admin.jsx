@@ -3,6 +3,7 @@ import TopNav from "../components/ui/TopNav.jsx";
 import UserTable from "../components/admin/UserTable.jsx";
 import InviteModal from "../components/admin/InviteModal.jsx";
 import StatusBoardSettings from "../components/admin/StatusBoardSettings.jsx";
+import CourseProfessorLinkForm from "../components/admin/CourseProfessorLinkForm.jsx";
 import { useAuth } from "../hooks/useAuth.js";
 
 export default function Admin() {
@@ -30,6 +31,10 @@ export default function Admin() {
 
         <div className="mb-8">
           <StatusBoardSettings />
+        </div>
+
+        <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6">
+          <CourseProfessorLinkForm />
         </div>
 
         <UserTable key={refreshKey} onInvite={() => setShowInvite(true)} />
