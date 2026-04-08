@@ -33,3 +33,4 @@ Thumbs.db
 # Misc
 .cache/
 .turbo/
+*.pdf
