@@ -65,7 +65,14 @@ function UploadCard({ upload, onApply, applying }) {
         {upload.delivery !== 'pending' && (
           <div className="flex gap-3">
             <span className="text-xs text-gray-500 w-20 shrink-0">Delivery</span>
-            <span className="text-sm text-gray-800">{DELIVERY_LABELS[upload.delivery]}</span>
+            <span className="text-sm text-gray-800">
+              {DELIVERY_LABELS[upload.delivery]}
+              {upload.delivery === 'dropped' && upload.copies_received != null && (
+                <span className="ml-2 text-xs text-amber-700 font-medium">
+                  · {upload.copies_received} {upload.copies_received === 1 ? 'copy' : 'copies'} received
+                </span>
+              )}
+            </span>
           </div>
         )}
         {upload.materials && (
@@ -119,12 +126,15 @@ function UploadCard({ upload, onApply, applying }) {
 }
 
 export default function UploadPanel({ exam, onApplyUpload }) {
-  const [data,       setData]       = useState(null);
-  const [available,  setAvailable]  = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [applying,   setApplying]   = useState(false);
-  const [linking,    setLinking]    = useState(null);
-  const [showPicker, setShowPicker] = useState(false);
+  const [data,          setData]          = useState(null);
+  const [available,     setAvailable]     = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [applying,      setApplying]      = useState(false);
+  const [linking,       setLinking]       = useState(null);
+  const [showPicker,    setShowPicker]    = useState(false);
+  const [copies,        setCopies]        = useState('');
+  const [leadNotes,     setLeadNotes]     = useState('');
+  const [savingDropoff, setSavingDropoff] = useState(false);
 
   async function load() {
     try {
@@ -134,6 +144,10 @@ export default function UploadPanel({ exam, onApplyUpload }) {
       ]);
       setData(uploadData);
       setAvailable(availData.uploads ?? []);
+      if (uploadData?.upload) {
+        setCopies(uploadData.upload.copies_received ?? '');
+        setLeadNotes(uploadData.upload.lead_notes ?? '');
+      }
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -173,6 +187,25 @@ export default function UploadPanel({ exam, onApplyUpload }) {
       toast(err.message, 'error');
     } finally {
       setLinking(null);
+    }
+  }
+
+  async function handleSaveDropoff() {
+    if (!data?.upload) {
+      toast('Link a professor upload first to record drop-off details', 'warning');
+      return;
+    }
+    setSavingDropoff(true);
+    try {
+      await api.patch(`/portal/uploads/${data.upload.id}/dropoff`, {
+        copiesReceived: copies !== '' ? Number(copies) : null,
+        leadNotes:      leadNotes || null,
+      });
+      toast('Drop-off details saved', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSavingDropoff(false);
     }
   }
 
@@ -284,6 +317,51 @@ export default function UploadPanel({ exam, onApplyUpload }) {
           <p className="text-xs text-purple-600 mt-0.5">
             Prior appointment detected within 20 days
           </p>
+        </div>
+      )}
+
+      {/* Drop-off tracking — leads only, visible whenever delivery is dropped */}
+      {(upload?.delivery === 'dropped' || exam.delivery === 'dropped') && (
+        <div className="border border-amber-200 bg-amber-50 rounded-xl p-4 space-y-3">
+          <p className="text-xs font-medium text-amber-800 uppercase tracking-wide">
+            Drop-off tracking
+          </p>
+          {upload?.estimated_copies != null && (
+            <p className="text-xs text-amber-700">
+              Professor estimated: <span className="font-medium">{upload.estimated_copies}</span> {upload.estimated_copies === 1 ? 'copy' : 'copies'}
+            </p>
+          )}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28 shrink-0">Copies received</label>
+            <input
+              type="number"
+              min="0"
+              value={copies}
+              onChange={e => setCopies(e.target.value)}
+              placeholder="e.g. 30"
+              className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                         focus:outline-none focus:ring-2 focus:ring-brand-600"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600 block mb-1">Lead notes</label>
+            <textarea
+              value={leadNotes}
+              onChange={e => setLeadNotes(e.target.value)}
+              rows={2}
+              placeholder="e.g. Received sealed envelope, stored in cabinet 3"
+              className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                         resize-none focus:outline-none focus:ring-2 focus:ring-brand-600"
+            />
+          </div>
+          <button
+            onClick={handleSaveDropoff}
+            disabled={savingDropoff}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs
+                       font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {savingDropoff ? 'Saving…' : 'Save drop-off details'}
+          </button>
         </div>
       )}
 

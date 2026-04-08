@@ -212,6 +212,7 @@ router.get('/:id/upload',
              eu.id, eu.course_code, eu.exam_type_label, eu.version_label,
              eu.delivery, eu.materials, eu.password, eu.rwg_flag,
              eu.is_makeup, eu.makeup_notes, eu.status, eu.submitted_at,
+             eu.copies_received, eu.lead_notes, eu.estimated_copies,
              up.first_name || ' ' || up.last_name AS professor_name,
              COALESCE(
                json_agg(

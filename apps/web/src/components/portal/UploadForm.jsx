@@ -34,6 +34,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     rwgFlag: false,
     isMakeup: false,
     makeupNotes: "",
+    estimatedCopies: "",
   });
   const [dates, setDates] = useState([]);
   const [newDate, setNewDate] = useState("");
@@ -69,6 +70,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
           rwgFlag: u.rwg_flag,
           isMakeup: u.is_makeup,
           makeupNotes: u.makeup_notes ?? "",
+          estimatedCopies: u.estimated_copies ?? "",
         });
         setDates(u.dates ?? []);
         // Load existing file info if present
@@ -114,11 +116,15 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
     setSaving(true);
     try {
+      const payload = {
+        ...form,
+        estimatedCopies: form.estimatedCopies !== "" ? Number(form.estimatedCopies) : null,
+      };
       let currentUploadId = uploadId_;
       if (currentUploadId) {
-        await api.put(`/portal/uploads/${currentUploadId}`, form);
+        await api.put(`/portal/uploads/${currentUploadId}`, payload);
       } else {
-        const data = await api.post("/portal/uploads", form);
+        const data = await api.post("/portal/uploads", payload);
         currentUploadId = data.uploadId;
         setUploadId_(currentUploadId);
       }
@@ -317,6 +323,10 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                   setSelectedFile(null);
                   setUploadedFile(null);
                 }
+                // Clear estimated copies if not dropped
+                if (newDelivery !== "dropped") {
+                  setForm((f) => ({ ...f, estimatedCopies: "" }));
+                }
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                          focus:outline-none focus:ring-2 focus:ring-brand-600"
@@ -328,6 +338,30 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               ))}
             </select>
           </div>
+
+          {/* Estimated copies - shown when delivery is dropped */}
+          {form.delivery === "dropped" && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Estimated copies to drop off{" "}
+                <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={form.estimatedCopies}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, estimatedCopies: e.target.value }))
+                }
+                placeholder="e.g. 30"
+                className="w-28 px-3 py-1.5 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+              />
+              <p className="text-xs text-amber-700 mt-1">
+                Helps the lead prepare for receiving your exam.
+              </p>
+            </div>
+          )}
 
           {/* File upload section - shown when delivery is file_upload */}
           {form.delivery === "file_upload" && (

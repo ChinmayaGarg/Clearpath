@@ -89,6 +89,7 @@ const createUploadSchema = z.object({
   rwgFlag: z.boolean().default(false),
   isMakeup: z.boolean().default(false),
   makeupNotes: z.string().max(500).optional().nullable(),
+  estimatedCopies: z.number().int().min(1).optional().nullable(),
 });
 
 const addDateSchema = z.object({
@@ -218,6 +219,30 @@ router.get("/courses", async (req, res, next) => {
   }
 });
 
+// ── GET /api/portal/my-dossiers ──────────────────────────────────────────────
+// Read-only view of the dossier entries a lead has built for this professor
+router.get("/my-dossiers", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
+         cd.typical_materials, cd.password_reminder, cd.notes,
+         cd.updated_at,
+         u.first_name || ' ' || u.last_name AS last_updated_by_name
+       FROM course_dossier cd
+       JOIN professor_profile pp ON pp.id = cd.professor_id
+       LEFT JOIN "user" u ON u.id = cd.last_updated_by
+       WHERE pp.user_id = $1
+       ORDER BY cd.term DESC, UPPER(cd.course_code)`,
+      [req.user.id],
+    );
+    res.json({ ok: true, dossiers: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET /api/portal/uploads ───────────────────────────────────────────────────
 router.get("/uploads", async (req, res, next) => {
   try {
@@ -250,6 +275,7 @@ router.post("/uploads", async (req, res, next) => {
       rwgFlag: data.rwgFlag,
       isMakeup: data.isMakeup,
       makeupNotes: data.makeupNotes,
+      estimatedCopies: data.estimatedCopies,
     });
 
     await persistUploadDossier(req.tenantSchema, uploadId, req.user.id);
@@ -318,6 +344,8 @@ router.put("/uploads/:id", async (req, res, next) => {
     if (data.isMakeup !== undefined) dbFields.is_makeup = data.isMakeup;
     if (data.makeupNotes !== undefined)
       dbFields.makeup_notes = data.makeupNotes;
+    if (data.estimatedCopies !== undefined)
+      dbFields.estimated_copies = data.estimatedCopies;
 
     await updateUpload(req.tenantSchema, req.params.id, profId, dbFields);
     await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
@@ -326,6 +354,37 @@ router.put("/uploads/:id", async (req, res, next) => {
     next(err);
   }
 });
+
+// ── PATCH /api/portal/uploads/:id/dropoff ────────────────────────────────────
+// Lead-only: record copies received and notes for a drop-off submission
+router.patch(
+  "/uploads/:id/dropoff",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const { copiesReceived, leadNotes } = z
+        .object({
+          copiesReceived: z.number().int().min(0).nullable().optional(),
+          leadNotes: z.string().max(1000).nullable().optional(),
+        })
+        .parse(req.body);
+
+      await tenantQuery(
+        req.tenantSchema,
+        `UPDATE exam_upload
+         SET copies_received = COALESCE($2, copies_received),
+             lead_notes      = COALESCE($3, lead_notes),
+             updated_at      = NOW()
+         WHERE id = $1`,
+        [req.params.id, copiesReceived ?? null, leadNotes ?? null],
+      );
+
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ── POST /api/portal/uploads/:id/submit ──────────────────────────────────────
 router.post("/uploads/:id/submit", async (req, res, next) => {
@@ -551,5 +610,134 @@ router.post("/notifications/read", async (req, res, next) => {
     next(err);
   }
 });
+
+// =============================================================================
+// Lead-facing routes — create/manage uploads on behalf of a professor
+// =============================================================================
+
+// ── GET /api/portal/professor/:profId/uploads ─────────────────────────────────
+router.get(
+  "/professor/:profId/uploads",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const uploads = await listUploadsForProfessor(
+        req.tenantSchema,
+        req.params.profId,
+      );
+      res.json({ ok: true, uploads });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /api/portal/professor/:profId/uploads ────────────────────────────────
+router.post(
+  "/professor/:profId/uploads",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const data = createUploadSchema.parse(req.body);
+      const uploadId = await createUpload(req.tenantSchema, {
+        professorProfileId: req.params.profId,
+        courseCode: data.courseCode,
+        examTypeLabel: data.examTypeLabel,
+        versionLabel: data.versionLabel,
+        delivery: data.delivery,
+        materials: data.materials,
+        password: data.password,
+        rwgFlag: data.rwgFlag,
+        isMakeup: data.isMakeup,
+        makeupNotes: data.makeupNotes,
+        estimatedCopies: data.estimatedCopies,
+      });
+      await persistUploadDossier(req.tenantSchema, uploadId, req.user.id);
+      res.status(201).json({ ok: true, uploadId });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── PUT /api/portal/professor/:profId/uploads/:id ─────────────────────────────
+router.put(
+  "/professor/:profId/uploads/:id",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const data = createUploadSchema.partial().parse(req.body);
+      const dbFields = {};
+      if (data.courseCode !== undefined) dbFields.course_code = data.courseCode;
+      if (data.examTypeLabel !== undefined) dbFields.exam_type_label = data.examTypeLabel;
+      if (data.versionLabel !== undefined) dbFields.version_label = data.versionLabel;
+      if (data.delivery !== undefined) dbFields.delivery = data.delivery;
+      if (data.materials !== undefined) dbFields.materials = data.materials;
+      if (data.password !== undefined) dbFields.password = data.password;
+      if (data.rwgFlag !== undefined) dbFields.rwg_flag = data.rwgFlag;
+      if (data.isMakeup !== undefined) dbFields.is_makeup = data.isMakeup;
+      if (data.makeupNotes !== undefined) dbFields.makeup_notes = data.makeupNotes;
+      if (data.estimatedCopies !== undefined) dbFields.estimated_copies = data.estimatedCopies;
+
+      await updateUpload(req.tenantSchema, req.params.id, req.params.profId, dbFields);
+      await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /api/portal/professor/:profId/uploads/:id/submit ─────────────────────
+router.post(
+  "/professor/:profId/uploads/:id/submit",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      await submitUpload(req.tenantSchema, req.params.id, req.params.profId);
+      await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
+      matchUpload(req.tenantSchema, req.params.id).catch(() => {});
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /api/portal/professor/:profId/uploads/:id/dates ─────────────────────
+router.post(
+  "/professor/:profId/uploads/:id/dates",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const { examDate, timeSlot } = addDateSchema.parse(req.body);
+      const data = await addUploadDate(req.tenantSchema, req.params.id, {
+        examDate,
+        timeSlot,
+      });
+      res.status(201).json({ ok: true, dateId: data.id });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── DELETE /api/portal/professor/:profId/uploads/:id/dates/:dateId ────────────
+router.delete(
+  "/professor/:profId/uploads/:id/dates/:dateId",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      await removeUploadDate(
+        req.tenantSchema,
+        req.params.dateId,
+        req.params.id,
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 export default router;

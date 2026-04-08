@@ -85,6 +85,7 @@ export async function listUploadsForProfessor(schema, professorProfileId) {
        eu.is_makeup, eu.makeup_notes, eu.status, eu.submitted_at,
        eu.created_at, eu.updated_at,
        eu.file_path, eu.file_original_name, eu.file_uploaded_at,
+       eu.estimated_copies,
        COALESCE(
          json_agg(
            json_build_object(
@@ -173,6 +174,7 @@ export async function createUpload(
     rwgFlag,
     isMakeup,
     makeupNotes,
+    estimatedCopies,
   },
 ) {
   const result = await tenantQuery(
@@ -180,8 +182,8 @@ export async function createUpload(
     `INSERT INTO exam_upload
        (professor_profile_id, course_code, exam_type_label, version_label,
         delivery, materials, password, rwg_flag, is_makeup, makeup_notes,
-        status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft')
+        estimated_copies, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft')
      RETURNING id`,
     [
       professorProfileId,
@@ -194,6 +196,7 @@ export async function createUpload(
       rwgFlag ?? false,
       isMakeup ?? false,
       makeupNotes ?? null,
+      estimatedCopies ?? null,
     ],
   );
   return result.rows[0].id;
@@ -218,6 +221,7 @@ export async function updateUpload(
     "rwg_flag",
     "is_makeup",
     "makeup_notes",
+    "estimated_copies",
   ];
   const setClauses = [];
   const values = [];

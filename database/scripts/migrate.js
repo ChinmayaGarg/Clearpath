@@ -28,6 +28,8 @@ const migrationMap = {
   4: "004_professor_portal.sql",
   5: "005_add_term_to_course_dossier.sql",
   6: "006_add_file_upload_to_exam_upload.sql",
+  7: "007_add_dropoff_tracking.sql",
+  8: "008_add_estimated_copies.sql",
 };
 
 const filename = migrationMap[targetVersion];

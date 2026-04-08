@@ -167,6 +167,7 @@ export default function ProfessorPortal() {
           <NotificationsTab onRead={refresh} />
         )}
 
+
       </div>
 
       {/* Upload form modal */}
@@ -239,3 +240,4 @@ function NotificationsTab({ onRead }) {
     </div>
   );
 }
+

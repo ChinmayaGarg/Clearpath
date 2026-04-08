@@ -3,43 +3,24 @@ import { api }                 from '../../lib/api.js';
 import { toast }               from '../ui/Toast.jsx';
 import Spinner                 from '../ui/Spinner.jsx';
 
-const DELIVERY_LABELS = {
-  pickup: 'Pickup', dropped: 'Dropped off',
-  delivery: 'Delivery', pending: 'Pending',
-};
-
-function DossierCard({ dossier }) {
-  return (
-    <div className="border border-gray-200 rounded-lg px-3 py-2.5">
-      <div className="flex items-center justify-between mb-1">
-        <span className="font-medium text-sm text-gray-900">{dossier.course_code}</span>
-        {dossier.password_reminder && (
-          <span className="text-xs text-amber-600 font-medium bg-amber-50
-                           px-1.5 py-0.5 rounded">⚠ Password</span>
-        )}
-      </div>
-      <div className="space-y-0.5">
-        {dossier.preferred_delivery && (
-          <p className="text-xs text-gray-500">
-            Delivery: {DELIVERY_LABELS[dossier.preferred_delivery]}
-          </p>
-        )}
-        {dossier.typical_materials && (
-          <p className="text-xs text-gray-500 italic">{dossier.typical_materials}</p>
-        )}
-        {dossier.notes && (
-          <p className="text-xs text-gray-600 mt-1">{dossier.notes}</p>
-        )}
-      </div>
-      <p className="text-xs text-gray-400 mt-1.5">
-        Updated {new Date(dossier.updated_at).toLocaleDateString('en-CA', {
-          month: 'short', day: 'numeric', year: 'numeric',
-        })}
-        {dossier.last_updated_by_name && ` by ${dossier.last_updated_by_name}`}
-      </p>
-    </div>
-  );
-}
+const EXAM_TYPES = [
+  { value: 'midterm', label: 'Midterm' },
+  { value: 'endterm', label: 'End term' },
+  { value: 'tutorial', label: 'Tutorial' },
+  { value: 'lab', label: 'Lab' },
+  { value: 'quiz', label: 'Quiz' },
+  { value: 'assignment', label: 'Assignment' },
+  { value: 'other', label: 'Other' },
+];
+const DELIVERIES = [
+  { value: 'pending', label: 'Not sure yet' },
+  { value: 'dropped', label: 'Prof will drop off' },
+  { value: 'pickup', label: 'AC picks it up' },
+  { value: 'delivery', label: 'Delivered to room' },
+  { value: 'file_upload', label: 'File upload' },
+];
+const TYPE_LABELS = Object.fromEntries(EXAM_TYPES.map(t => [t.value, t.label]));
+const DELIVERY_LABELS = Object.fromEntries(DELIVERIES.map(d => [d.value, d.label]));
 
 export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
   const [prof,    setProf]    = useState(null);
@@ -99,7 +80,7 @@ export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
     <p className="text-sm text-gray-400 py-6 text-center">Professor not found</p>
   );
 
-  const tabs = ['profile', 'dossiers', 'history'];
+  const tabs = ['profile', 'uploads', 'history'];
 
   return (
     <div>
@@ -139,12 +120,6 @@ export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
             {t}
-            {t === 'dossiers' && prof.dossiers?.length > 0 && (
-              <span className="ml-1.5 text-xs bg-purple-100 text-purple-700
-                               px-1.5 py-0.5 rounded-full">
-                {prof.dossiers.length}
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -199,17 +174,9 @@ export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
         )
       )}
 
-      {/* Dossiers tab */}
-      {tab === 'dossiers' && (
-        <div className="space-y-2">
-          {prof.dossiers?.length > 0 ? (
-            prof.dossiers.map(d => <DossierCard key={d.id} dossier={d} />)
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-6">
-              No CourseDossier entries yet for this professor
-            </p>
-          )}
-        </div>
+      {/* Uploads tab */}
+      {tab === 'uploads' && (
+        <LeadUploadPanel professorId={prof.id} />
       )}
 
       {/* History tab */}
@@ -243,6 +210,280 @@ export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
             </p>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Lead upload panel ─────────────────────────────────────────────────────────
+const BLANK_FORM = {
+  courseCode: '', examTypeLabel: 'midterm', versionLabel: '',
+  delivery: 'pending', materials: '', password: '',
+  rwgFlag: false, isMakeup: false, makeupNotes: '', estimatedCopies: '',
+};
+
+function LeadUploadPanel({ professorId }) {
+  const [uploads,     setUploads]     = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [showForm,    setShowForm]    = useState(false);
+  const [form,        setForm]        = useState(BLANK_FORM);
+  const [step,        setStep]        = useState('details'); // 'details' | 'dates'
+  const [saving,      setSaving]      = useState(false);
+  const [uploadId,    setUploadId]    = useState(null);
+  const [dates,       setDates]       = useState([]);
+  const [newDate,     setNewDate]     = useState('');
+  const [newTime,     setNewTime]     = useState('');
+
+  async function load() {
+    try {
+      const d = await api.get(`/portal/professor/${professorId}/uploads`);
+      setUploads(d.uploads ?? []);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [professorId]); // eslint-disable-line
+
+  function openNew() {
+    setForm(BLANK_FORM);
+    setUploadId(null);
+    setDates([]);
+    setStep('details');
+    setShowForm(true);
+  }
+
+  async function handleSaveDetails() {
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        estimatedCopies: form.estimatedCopies !== '' ? Number(form.estimatedCopies) : null,
+      };
+      let id = uploadId;
+      if (id) {
+        await api.put(`/portal/professor/${professorId}/uploads/${id}`, payload);
+      } else {
+        const data = await api.post(`/portal/professor/${professorId}/uploads`, payload);
+        id = data.uploadId;
+        setUploadId(id);
+      }
+      setStep('dates');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAddDate() {
+    if (!newDate) return;
+    try {
+      const data = await api.post(
+        `/portal/professor/${professorId}/uploads/${uploadId}/dates`,
+        { examDate: newDate, timeSlot: newTime || null },
+      );
+      setDates(d => [...d, { id: data.dateId, exam_date: newDate, time_slot: newTime || null }]);
+      setNewDate(''); setNewTime('');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function handleRemoveDate(dateId) {
+    try {
+      await api.delete(`/portal/professor/${professorId}/uploads/${uploadId}/dates/${dateId}`);
+      setDates(d => d.filter(x => x.id !== dateId));
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function handleSubmit() {
+    if (!dates.length) { toast('Add at least one exam date', 'warning'); return; }
+    setSaving(true);
+    try {
+      await api.post(`/portal/professor/${professorId}/uploads/${uploadId}/submit`, {});
+      toast('Exam saved successfully', 'success');
+      setShowForm(false);
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-6"><Spinner /></div>;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button onClick={openNew}
+          className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white
+                     text-xs font-medium rounded-lg transition-colors">
+          + New exam upload
+        </button>
+      </div>
+
+      {/* Inline form */}
+      {showForm && (
+        <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-gray-700">
+              {step === 'details' ? 'Step 1 — Exam details' : 'Step 2 — Exam dates'}
+            </span>
+            <button onClick={() => setShowForm(false)}
+              className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+          </div>
+
+          {step === 'details' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Course code</label>
+                  <input value={form.courseCode}
+                    onChange={e => setForm(f => ({ ...f, courseCode: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. CSCI 2220"
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                               focus:outline-none focus:ring-2 focus:ring-brand-600" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Exam type</label>
+                  <select value={form.examTypeLabel}
+                    onChange={e => setForm(f => ({ ...f, examTypeLabel: e.target.value }))}
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                               focus:outline-none focus:ring-2 focus:ring-brand-600">
+                    {EXAM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Delivery
+                </label>
+                <select value={form.delivery}
+                  onChange={e => setForm(f => ({ ...f, delivery: e.target.value }))}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600">
+                  {DELIVERIES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                </select>
+              </div>
+              {form.delivery === 'dropped' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Estimated copies
+                  </label>
+                  <input type="number" min="1" value={form.estimatedCopies}
+                    onChange={e => setForm(f => ({ ...f, estimatedCopies: e.target.value }))}
+                    placeholder="e.g. 30"
+                    className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                               focus:outline-none focus:ring-2 focus:ring-brand-600" />
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Materials</label>
+                <input value={form.materials}
+                  onChange={e => setForm(f => ({ ...f, materials: e.target.value }))}
+                  placeholder="e.g. Scientific calculator, one cue sheet"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600" />
+              </div>
+              <button onClick={handleSaveDetails} disabled={saving || !form.courseCode}
+                className="w-full py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
+                           font-medium rounded-lg transition-colors disabled:opacity-50">
+                {saving ? 'Saving…' : 'Next →'}
+              </button>
+            </div>
+          )}
+
+          {step === 'dates' && (
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+                  className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600" />
+                <input type="time" value={newTime} onChange={e => setNewTime(e.target.value)}
+                  className="w-28 px-2 py-1.5 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600" />
+                <button onClick={handleAddDate} disabled={!newDate}
+                  className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white text-sm
+                             font-medium rounded-lg disabled:opacity-50">Add</button>
+              </div>
+              <div className="space-y-1">
+                {dates.map(d => (
+                  <div key={d.id} className="flex items-center justify-between px-3 py-1.5
+                                             bg-white border border-gray-200 rounded-lg text-sm">
+                    <span className="text-gray-700">
+                      {new Date(d.exam_date + 'T12:00:00').toLocaleDateString('en-CA', {
+                        weekday: 'short', month: 'short', day: 'numeric',
+                      })}
+                      {d.time_slot && ` · ${d.time_slot.slice(0,5)}`}
+                    </span>
+                    <button onClick={() => handleRemoveDate(d.id)}
+                      className="text-xs text-red-400 hover:text-red-600">Remove</button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setStep('details')}
+                  className="flex-1 py-2 border border-gray-300 text-gray-700 text-sm
+                             font-medium rounded-lg hover:bg-gray-50">← Back</button>
+                <button onClick={handleSubmit} disabled={saving || !dates.length}
+                  className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white text-sm
+                             font-medium rounded-lg transition-colors disabled:opacity-50">
+                  {saving ? 'Saving…' : 'Save exam'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Existing uploads list */}
+      {uploads.length === 0 && !showForm ? (
+        <p className="text-sm text-gray-400 text-center py-6">No exam uploads yet</p>
+      ) : (
+        uploads.map(u => (
+          <div key={u.id} className="border border-gray-200 rounded-xl px-4 py-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center flex-wrap gap-2">
+                <span className="font-semibold text-gray-900 text-sm">{u.course_code}</span>
+                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                  {TYPE_LABELS[u.exam_type_label] ?? u.exam_type_label}
+                </span>
+                {u.is_makeup && (
+                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">Makeup</span>
+                )}
+              </div>
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium shrink-0">
+                {u.status}
+              </span>
+            </div>
+            {u.delivery !== 'pending' && (
+              <p className="text-xs text-gray-500 mt-1">
+                {DELIVERY_LABELS[u.delivery] ?? u.delivery}
+                {u.estimated_copies != null && u.delivery === 'dropped' && (
+                  <span className="ml-1 text-amber-700">· {u.estimated_copies} est. copies</span>
+                )}
+              </p>
+            )}
+            {u.dates?.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {u.dates.map((d, i) => (
+                  <span key={i} className="text-xs bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">
+                    {new Date(d.exam_date + 'T12:00:00').toLocaleDateString('en-CA', {
+                      month: 'short', day: 'numeric',
+                    })}
+                    {d.time_slot && ` · ${d.time_slot.slice(0,5)}`}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))
       )}
     </div>
   );
