@@ -3,12 +3,6 @@ import { api }                 from '../../lib/api.js';
 import { toast }               from '../ui/Toast.jsx';
 import Spinner                 from '../ui/Spinner.jsx';
 
-const STATUS_META = {
-  draft:      { label: 'Draft',      colour: 'bg-gray-100 text-gray-600'    },
-  submitted:  { label: 'Submitted',  colour: 'bg-green-100 text-green-700'  },
-  superseded: { label: 'Superseded', colour: 'bg-gray-100 text-gray-400'    },
-};
-
 const TYPE_LABELS = {
   midterm:    'Midterm',
   endterm:    'End term',
@@ -25,14 +19,20 @@ const MATCH_META = {
   conflict:  { label: 'Conflict',        colour: 'text-red-600'   },
 };
 
+function canEditUpload(upload) {
+  if (!upload.dates?.length) return true;
+  const now = new Date();
+  return upload.dates.every(d => {
+    const diffDays = (new Date(d.exam_date + 'T00:00:00') - now) / (1000 * 60 * 60 * 24);
+    return diffDays > 2;
+  });
+}
+
 function UploadCard({ upload, onEdit }) {
-  const status = STATUS_META[upload.status] ?? STATUS_META.draft;
-  const isDraft = upload.status === 'draft';
+  const editable = canEditUpload(upload);
 
   return (
-    <div className={`bg-white border rounded-xl p-4 ${
-      isDraft ? 'border-amber-200' : 'border-gray-200'
-    }`}>
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center flex-wrap gap-2">
           <span className="font-semibold text-gray-900">{upload.course_code}</span>
@@ -51,14 +51,16 @@ function UploadCard({ upload, onEdit }) {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-xs px-2 py-0.5 rounded font-medium ${status.colour}`}>
-            {status.label}
-          </span>
-          {isDraft && (
+          {editable && (
             <button onClick={() => onEdit(upload.id)}
               className="text-xs text-brand-600 hover:text-brand-800 font-medium">
               Edit
             </button>
+          )}
+          {!editable && (
+            <span className="text-xs text-gray-400 font-medium" title="Cannot edit within 2 days of the exam">
+              Locked
+            </span>
           )}
         </div>
       </div>
@@ -111,9 +113,9 @@ function UploadCard({ upload, onEdit }) {
         </div>
       )}
 
-      {isDraft && !upload.dates?.length && (
-        <p className="text-xs text-amber-600 mt-2">
-          ⚠ Add at least one exam date before submitting
+      {!editable && (
+        <p className="text-xs text-gray-400 mt-2">
+          Editing is locked — exam is within 2 days
         </p>
       )}
 
@@ -147,36 +149,13 @@ export default function UploadList({ onEdit, onRefresh }) {
     </div>
   );
 
-  // Group by status
-  const drafts    = uploads.filter(u => u.status === 'draft');
-  const submitted = uploads.filter(u => u.status === 'submitted');
+  const saved = uploads.filter(u => u.status === 'submitted');
 
   return (
-    <div className="space-y-6">
-      {drafts.length > 0 && (
-        <div>
-          <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
-            Drafts ({drafts.length})
-          </h3>
-          <div className="space-y-3">
-            {drafts.map(u => (
-              <UploadCard key={u.id} upload={u} onEdit={onEdit} />
-            ))}
-          </div>
-        </div>
-      )}
-      {submitted.length > 0 && (
-        <div>
-          <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
-            Submitted ({submitted.length})
-          </h3>
-          <div className="space-y-3">
-            {submitted.map(u => (
-              <UploadCard key={u.id} upload={u} onEdit={onEdit} />
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="space-y-3">
+      {saved.map(u => (
+        <UploadCard key={u.id} upload={u} onEdit={onEdit} />
+      ))}
     </div>
   );
 }

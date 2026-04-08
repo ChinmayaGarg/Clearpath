@@ -50,7 +50,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileUploading, setFileUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
-  const fileInputRef = React.useRef(null);
+  const fileInputRef = useRef(null);
 
   // Load existing upload if editing
   useEffect(() => {
@@ -107,25 +107,40 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
   }, []);
 
   async function handleSaveDetails() {
-    // Validate file upload requirement
-    if (form.delivery === "file_upload" && !uploadedFile) {
-      toast("Please upload the exam PDF file before continuing", "error");
+    if (form.delivery === "file_upload" && !uploadedFile && !selectedFile) {
+      toast("Please select an exam PDF file before continuing", "error");
       return;
     }
 
     setSaving(true);
     try {
-      if (uploadId_) {
-        await api.put(`/portal/uploads/${uploadId_}`, form);
+      let currentUploadId = uploadId_;
+      if (currentUploadId) {
+        await api.put(`/portal/uploads/${currentUploadId}`, form);
       } else {
         const data = await api.post("/portal/uploads", form);
-        setUploadId_(data.uploadId);
+        currentUploadId = data.uploadId;
+        setUploadId_(currentUploadId);
       }
+
+      // Upload the file now that we have an uploadId
+      if (form.delivery === "file_upload" && selectedFile && !uploadedFile) {
+        setFileUploading(true);
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        const result = await api.upload(
+          `/portal/uploads/${currentUploadId}/file`,
+          formData,
+        );
+        setUploadedFile(result.file);
+      }
+
       setStep("dates");
     } catch (err) {
       toast(err.message, "error");
     } finally {
       setSaving(false);
+      setFileUploading(false);
     }
   }
 
@@ -168,13 +183,13 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
   async function handleSubmit() {
     if (!dates.length) {
-      toast("Add at least one exam date before submitting", "warning");
+      toast("Add at least one exam date before saving", "warning");
       return;
     }
     setSubmitting(true);
     try {
       await api.post(`/portal/uploads/${uploadId_}/submit`, {});
-      toast("Exam submitted successfully", "success");
+      toast("Exam saved successfully", "success");
       onSaved?.();
     } catch (err) {
       toast(err.message, "error");
@@ -348,10 +363,9 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                           try {
                             const formData = new FormData();
                             formData.append("file", selectedFile);
-                            const result = await api.post(
+                            const result = await api.upload(
                               `/portal/uploads/${uploadId_}/file`,
                               formData,
-                              { headers: {} } // Let browser set content-type with boundary
                             );
                             setUploadedFile(result.file);
                             toast("File uploaded successfully", "success");
@@ -502,12 +516,12 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
             disabled={
               saving ||
               !form.courseCode ||
-              (form.delivery === "file_upload" && !uploadedFile)
+              (form.delivery === "file_upload" && !uploadedFile && !selectedFile)
             }
             className="w-full py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
                        font-medium rounded-lg transition-colors disabled:opacity-50"
           >
-            {saving ? "Saving…" : "Save and add dates →"}
+            {fileUploading ? "Uploading file…" : saving ? "Saving…" : "Next →"}
           </button>
         </div>
       )}
@@ -609,7 +623,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white text-sm
                          font-medium rounded-lg transition-colors disabled:opacity-50"
             >
-              {submitting ? "Submitting…" : "Submit exam"}
+              {submitting ? "Saving…" : "Save exam"}
             </button>
           </div>
         </div>

@@ -282,6 +282,25 @@ router.put("/uploads/:id", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
+    // Enforce 2-day edit lock: reject if any exam date is within 2 days
+    const datesResult = await tenantQuery(
+      req.tenantSchema,
+      `SELECT MIN(exam_date) AS earliest_date
+       FROM exam_upload_date
+       WHERE exam_upload_id = $1`,
+      [req.params.id],
+    );
+    const earliest = datesResult.rows[0]?.earliest_date;
+    if (earliest) {
+      const diffDays = (new Date(earliest) - new Date()) / (1000 * 60 * 60 * 24);
+      if (diffDays <= 2) {
+        return res.status(403).json({
+          ok: false,
+          error: "This exam can no longer be edited — it is within 2 days of the exam date.",
+        });
+      }
+    }
+
     const data = createUploadSchema.partial().parse(req.body);
     const dbFields = {};
     if (data.courseCode !== undefined) {

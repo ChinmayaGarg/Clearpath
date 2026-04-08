@@ -237,8 +237,7 @@ export async function updateUpload(
     schema,
     `UPDATE exam_upload
      SET ${setClauses.join(", ")}
-     WHERE id = $${idx++} AND professor_profile_id = $${idx}
-       AND status = 'draft'`,
+     WHERE id = $${idx++} AND professor_profile_id = $${idx}`,
     values,
   );
 }
@@ -256,7 +255,6 @@ export async function submitUpload(schema, uploadId, professorProfileId) {
          updated_at   = NOW()
      WHERE id = $1
        AND professor_profile_id = $2
-       AND status = 'draft'
        AND EXISTS (
          SELECT 1 FROM exam_upload_date
          WHERE exam_upload_id = $1
@@ -266,7 +264,7 @@ export async function submitUpload(schema, uploadId, professorProfileId) {
   );
   if (!result.rows.length) {
     throw Object.assign(
-      new Error("Cannot submit — add at least one exam date first"),
+      new Error("Please add at least one exam date before saving"),
       { status: 400 },
     );
   }
