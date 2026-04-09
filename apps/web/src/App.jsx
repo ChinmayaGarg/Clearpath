@@ -14,6 +14,7 @@ import Analytics                  from './pages/Analytics.jsx';
 import Board                      from './pages/Board.jsx';
 import { ClaimStart, ClaimSetPassword } from './pages/ClaimAccount.jsx';
 import ProfessorPortal            from './pages/portal/ProfessorPortal.jsx';
+import CounsellorPortal           from './pages/portal/CounsellorPortal.jsx';
 import Spinner                    from './components/ui/Spinner.jsx';
 
 /**
@@ -37,6 +38,20 @@ function ProtectedRoute({ children, requiredRole }) {
   return children;
 }
 
+/**
+ * Redirect users to their role-appropriate home on first landing.
+ * Counsellors and professors who have no elevated role go to their portal.
+ */
+function RoleHome() {
+  const roles = useAuthStore(s => s.roles);
+  const canAccessBook = roles.includes('institution_admin') || roles.includes('lead');
+  if (!canAccessBook) {
+    if (roles.includes('counsellor')) return <Navigate to="/counsellor" replace />;
+    if (roles.includes('professor'))  return <Navigate to="/portal"     replace />;
+  }
+  return <Book />;
+}
+
 export default function App() {
   // Use a ref to guarantee init() runs exactly once,
   // even under React 18 StrictMode which mounts effects twice in dev.
@@ -57,10 +72,13 @@ export default function App() {
         <Route path="/portal" element={
           <ProtectedRoute requiredRole="professor"><ProfessorPortal /></ProtectedRoute>
         } />
+        <Route path="/counsellor" element={
+          <ProtectedRoute requiredRole="counsellor"><CounsellorPortal /></ProtectedRoute>
+        } />
         <Route path="/claim" element={<ClaimStart />} />
         <Route path="/claim/:token" element={<ClaimSetPassword />} />
         <Route path="/" element={
-          <ProtectedRoute><Book /></ProtectedRoute>
+          <ProtectedRoute><RoleHome /></ProtectedRoute>
         } />
         <Route path="/calendar" element={
           <ProtectedRoute><Calendar /></ProtectedRoute>

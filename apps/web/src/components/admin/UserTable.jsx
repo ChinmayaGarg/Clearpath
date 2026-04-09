@@ -18,6 +18,50 @@ const ROLE_COLOURS = {
   counsellor:        'bg-amber-100 text-amber-800',
 };
 
+function ReinviteModal({ email, password, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(password);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-md">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h2 className="text-base font-medium text-gray-900">New temporary password</h2>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-sm text-gray-600">
+            A new temporary password has been set for <span className="font-medium">{email}</span>.
+            Share it with them — it won't be shown again.
+          </p>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3
+                          flex items-center justify-between gap-3">
+            <code className="text-sm font-mono text-gray-900 break-all">{password}</code>
+            <button
+              onClick={handleCopy}
+              className="shrink-0 text-xs font-medium text-brand-600 hover:text-brand-800
+                         transition-colors"
+            >
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
+                       font-medium rounded-lg transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RoleBadge({ role }) {
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLOURS[role] ?? 'bg-gray-100 text-gray-700'}`}>
@@ -28,9 +72,10 @@ function RoleBadge({ role }) {
 
 export default function UserTable({ onInvite }) {
   const { user: currentUser } = useAuth();
-  const [users,   setUsers]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
+  const [users,     setUsers]     = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState('');
+  const [reinvited, setReinvited] = useState(null); // { email, password }
 
   async function load() {
     setLoading(true);
@@ -59,6 +104,23 @@ export default function UserTable({ onInvite }) {
       await api.put(`/users/${userId}/enable`, {});
       load();
     } catch (err) { alert(err.message); }
+  }
+
+  async function handleReinvite(userId, email) {
+    if (!confirm(`Reset the password for ${email} and generate a new temporary password?`)) return;
+    try {
+      const result = await api.post(`/users/${userId}/reinvite`, {});
+      if (result._dev_temporaryPassword) {
+        setReinvited({ email, password: result._dev_temporaryPassword });
+      } else {
+        alert('Password reset. The user will receive an email with their new credentials.');
+      }
+    } catch (err) { alert(err.message); }
+  }
+
+  if (reinvited) {
+    return <ReinviteModal email={reinvited.email} password={reinvited.password}
+                          onClose={() => setReinvited(null)} />;
   }
 
   if (loading) return (
@@ -135,19 +197,28 @@ export default function UserTable({ onInvite }) {
                 </td>
                 <td className="px-4 py-3 text-right">
                   {u.id !== currentUser?.id && (
-                    u.is_active
-                      ? <button
-                          onClick={() => handleDisable(u.id)}
-                          className="text-xs text-red-500 hover:text-red-700 transition-colors"
-                        >
-                          Disable
-                        </button>
-                      : <button
-                          onClick={() => handleEnable(u.id)}
-                          className="text-xs text-green-600 hover:text-green-800 transition-colors"
-                        >
-                          Enable
-                        </button>
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => handleReinvite(u.id, u.email)}
+                        className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
+                      >
+                        Reinvite
+                      </button>
+                      {u.is_active
+                        ? <button
+                            onClick={() => handleDisable(u.id)}
+                            className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                          >
+                            Disable
+                          </button>
+                        : <button
+                            onClick={() => handleEnable(u.id)}
+                            className="text-xs text-green-600 hover:text-green-800 transition-colors"
+                          >
+                            Enable
+                          </button>
+                      }
+                    </div>
                   )}
                 </td>
               </tr>

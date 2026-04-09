@@ -16,8 +16,10 @@ export default function InviteModal({ onClose, onSuccess }) {
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', roles: [],
   });
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState('');
+  const [tempPass, setTempPass] = useState(null);
+  const [copied,   setCopied]   = useState(false);
 
   function toggleRole(role) {
     setForm(f => ({
@@ -39,14 +41,60 @@ export default function InviteModal({ onClose, onSuccess }) {
 
     setLoading(true);
     try {
-      await api.post('/users/invite', form);
-      onSuccess?.();
-      onClose?.();
+      const result = await api.post('/users/invite', form);
+      if (result._dev_temporaryPassword) {
+        setTempPass(result._dev_temporaryPassword);
+      } else {
+        onSuccess?.();
+        onClose?.();
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleCopy() {
+    navigator.clipboard.writeText(tempPass);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (tempPass) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-lg w-full max-w-md">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-base font-medium text-gray-900">User invited</h2>
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            <p className="text-sm text-gray-600">
+              <span className="font-medium">{form.email}</span> has been created.
+              Share this temporary password with them — it won't be shown again.
+            </p>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3
+                            flex items-center justify-between gap-3">
+              <code className="text-sm font-mono text-gray-900 break-all">{tempPass}</code>
+              <button
+                onClick={handleCopy}
+                className="shrink-0 text-xs font-medium text-brand-600 hover:text-brand-800
+                           transition-colors"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+            <button
+              onClick={() => { onSuccess?.(); onClose?.(); }}
+              className="w-full py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
+                         font-medium rounded-lg transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

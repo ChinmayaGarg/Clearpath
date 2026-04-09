@@ -24,6 +24,7 @@ import {
   getAllUsers,
   getUser,
   inviteUser,
+  reinviteUser,
   addRole,
   removeRole,
   disableUser,
@@ -89,6 +90,26 @@ router.post('/invite',
       }
 
       res.status(201).json(response);
+    } catch (err) { next(err); }
+  }
+);
+
+// ── POST /api/users/:id/reinvite ──────────────────────────────────────────────
+router.post('/:id/reinvite',
+  requireRole('institution_admin'),
+  async (req, res, next) => {
+    try {
+      const result = await reinviteUser(req.tenantSchema, {
+        targetUserId: req.params.id,
+        reinvitedBy:  req.user.id,
+      });
+
+      const response = { ok: true, message: 'Temporary password reset' };
+      if (process.env.NODE_ENV !== 'production') {
+        response._dev_temporaryPassword = result.temporaryPassword;
+      }
+
+      res.json(response);
     } catch (err) { next(err); }
   }
 );

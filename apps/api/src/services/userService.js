@@ -15,6 +15,7 @@ import {
   upsertStudentProfile,
   upsertProfessorProfile,
   upsertCounsellorProfile,
+  updatePassword,
 } from '../db/queries/users.js';
 import { deleteAllUserSessions } from '../db/queries/sessions.js';
 import { logAction }             from '../db/queries/audit.js';
@@ -126,6 +127,33 @@ export async function inviteUser(schema, {
   logger.info('User invited', { email, roles, schema, invitedBy });
 
   return { userId, temporaryPassword };
+}
+
+/**
+ * Reset a user's password to a new temporary one (reinvite).
+ * Returns { temporaryPassword }.
+ */
+export async function reinviteUser(schema, { targetUserId, reinvitedBy }) {
+  const user = await findUserById(schema, targetUserId);
+  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
+
+  const temporaryPassword = generateToken(12);
+  const salt              = generateSalt();
+  const passwordHash      = hashPassword(temporaryPassword, salt);
+
+  await updatePassword(schema, targetUserId, { passwordHash, salt });
+
+  await logAction(schema, {
+    entityType: 'user',
+    entityId:   targetUserId,
+    action:     'password_set',
+    newValue:   'temporary_password_reset',
+    changedBy:  reinvitedBy,
+  });
+
+  logger.info('User reinvited', { userId: targetUserId, schema, reinvitedBy });
+
+  return { temporaryPassword };
 }
 
 /**

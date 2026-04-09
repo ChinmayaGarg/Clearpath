@@ -30,6 +30,7 @@ const migrationMap = {
   6: "006_add_file_upload_to_exam_upload.sql",
   7: "007_add_dropoff_tracking.sql",
   8: "008_add_estimated_copies.sql",
+  9: "009_student_accommodations.sql",
 };
 
 const filename = migrationMap[targetVersion];

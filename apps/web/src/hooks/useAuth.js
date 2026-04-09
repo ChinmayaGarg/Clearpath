@@ -21,7 +21,8 @@ export function useAuth() {
     logout,
     hasRole,
     hasFeature,
-    isAdmin: hasRole('institution_admin'),
-    isLead:  hasRole('lead'),
+    isAdmin:      hasRole('institution_admin'),
+    isLead:       hasRole('lead'),
+    isCounsellor: hasRole('counsellor'),
   };
 }

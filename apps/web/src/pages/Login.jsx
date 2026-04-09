@@ -1,6 +1,6 @@
-import { useState }     from 'react';
-import { useNavigate }  from 'react-router-dom';
-import { useAuthStore } from '../store/authStore.js';
+import { useState }             from 'react';
+import { useNavigate, Navigate } from 'react-router-dom';
+import { useAuthStore }          from '../store/authStore.js';
 
 export default function Login() {
   const navigate  = useNavigate();
@@ -13,10 +13,16 @@ export default function Login() {
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
 
-  // Already logged in — redirect immediately without re-rendering
+  // Already logged in — redirect based on role
   if (user) {
-    navigate('/', { replace: true });
-    return null;
+    const roles = useAuthStore.getState().roles ?? [];
+    if (roles.includes('counsellor') && !roles.includes('lead') && !roles.includes('institution_admin')) {
+      return <Navigate to="/counsellor" replace />;
+    }
+    if (roles.includes('professor') && !roles.includes('lead') && !roles.includes('institution_admin')) {
+      return <Navigate to="/portal" replace />;
+    }
+    return <Navigate to="/" replace />;
   }
 
   async function handleSubmit(e) {
@@ -25,11 +31,15 @@ export default function Login() {
     setLoading(true);
     try {
       const result = await login(email, password);
-      // Route professors to their portal, others to the book
       const roles = result?.roles ?? [];
-      const isOnlyProfessor = roles.includes('professor') &&
-        !roles.includes('lead') && !roles.includes('institution_admin');
-      navigate(isOnlyProfessor ? '/portal' : '/', { replace: true });
+      const elevated = roles.includes('lead') || roles.includes('institution_admin');
+      if (!elevated && roles.includes('counsellor')) {
+        navigate('/counsellor', { replace: true });
+      } else if (!elevated && roles.includes('professor')) {
+        navigate('/portal', { replace: true });
+      } else {
+        navigate('/', { replace: true });
+      }
     } catch (err) {
       setError(err.message || 'Invalid credentials');
     } finally {

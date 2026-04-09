@@ -22,7 +22,8 @@ import analyticsRoutes      from './routes/analytics.js';
 import notificationRoutes from './routes/notifications.js';
 import statusRoutes       from './routes/status.js';
 import claimRoutes        from './routes/claim.js';
-import portalRoutes       from './routes/professorPortal.js';
+import portalRoutes           from './routes/professorPortal.js';
+import counsellorPortalRoutes from './routes/counsellorPortal.js';
 import healthRoutes  from './routes/health.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -68,7 +69,8 @@ app.use('/api/analytics',      analyticsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/status',        statusRoutes);
 app.use('/api/claim',         claimRoutes);
-app.use('/api/portal',        portalRoutes);  // platform admin only
+app.use('/api/portal',        portalRoutes);  // professor portal
+app.use('/api/counsellor',    counsellorPortalRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);
