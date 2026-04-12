@@ -22,9 +22,11 @@ async function request(path, options = {}) {
   });
 
   if (res.status === 401) {
-    // Only redirect if we're not already on the login page
-    // and not already redirecting — prevents loops
-    if (!redirecting && !window.location.pathname.includes('/login')) {
+    // Don't redirect on public pages — /login, /register, /claim/*
+    const publicPage = ['/login', '/register', '/claim'].some(
+      p => window.location.pathname.startsWith(p)
+    );
+    if (!redirecting && !publicPage) {
       redirecting = true;
       window.location.href = '/login';
     }
