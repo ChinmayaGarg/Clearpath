@@ -24,5 +24,6 @@ export function useAuth() {
     isAdmin:      hasRole('institution_admin'),
     isLead:       hasRole('lead'),
     isCounsellor: hasRole('counsellor'),
+    isStudent:    hasRole('student'),
   };
 }

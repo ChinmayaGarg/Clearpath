@@ -15,6 +15,8 @@ import Board                      from './pages/Board.jsx';
 import { ClaimStart, ClaimSetPassword } from './pages/ClaimAccount.jsx';
 import ProfessorPortal            from './pages/portal/ProfessorPortal.jsx';
 import CounsellorPortal           from './pages/portal/CounsellorPortal.jsx';
+import StudentPortal              from './pages/portal/StudentPortal.jsx';
+import Register                   from './pages/Register.jsx';
 import Spinner                    from './components/ui/Spinner.jsx';
 
 /**
@@ -48,6 +50,7 @@ function RoleHome() {
   if (!canAccessBook) {
     if (roles.includes('counsellor')) return <Navigate to="/counsellor" replace />;
     if (roles.includes('professor'))  return <Navigate to="/portal"     replace />;
+    if (roles.includes('student'))    return <Navigate to="/student"    replace />;
   }
   return <Book />;
 }
@@ -67,13 +70,17 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login"    element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route path="/board/:token" element={<Board />} />
         <Route path="/portal" element={
           <ProtectedRoute requiredRole="professor"><ProfessorPortal /></ProtectedRoute>
         } />
         <Route path="/counsellor" element={
           <ProtectedRoute requiredRole="counsellor"><CounsellorPortal /></ProtectedRoute>
+        } />
+        <Route path="/student" element={
+          <ProtectedRoute requiredRole="student"><StudentPortal /></ProtectedRoute>
         } />
         <Route path="/claim" element={<ClaimStart />} />
         <Route path="/claim/:token" element={<ClaimSetPassword />} />

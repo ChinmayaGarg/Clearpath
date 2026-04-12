@@ -24,6 +24,8 @@ import statusRoutes       from './routes/status.js';
 import claimRoutes        from './routes/claim.js';
 import portalRoutes           from './routes/professorPortal.js';
 import counsellorPortalRoutes from './routes/counsellorPortal.js';
+import registerRoutes         from './routes/register.js';
+import studentPortalRoutes    from './routes/studentPortal.js';
 import healthRoutes  from './routes/health.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -71,6 +73,8 @@ app.use('/api/status',        statusRoutes);
 app.use('/api/claim',         claimRoutes);
 app.use('/api/portal',        portalRoutes);  // professor portal
 app.use('/api/counsellor',    counsellorPortalRoutes);
+app.use('/api/register',      registerRoutes); // public student registration
+app.use('/api/student',       studentPortalRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);

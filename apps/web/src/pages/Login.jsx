@@ -16,11 +16,11 @@ export default function Login() {
   // Already logged in — redirect based on role
   if (user) {
     const roles = useAuthStore.getState().roles ?? [];
-    if (roles.includes('counsellor') && !roles.includes('lead') && !roles.includes('institution_admin')) {
-      return <Navigate to="/counsellor" replace />;
-    }
-    if (roles.includes('professor') && !roles.includes('lead') && !roles.includes('institution_admin')) {
-      return <Navigate to="/portal" replace />;
+    const elevated = roles.includes('lead') || roles.includes('institution_admin');
+    if (!elevated) {
+      if (roles.includes('counsellor')) return <Navigate to="/counsellor" replace />;
+      if (roles.includes('professor'))  return <Navigate to="/portal"     replace />;
+      if (roles.includes('student'))    return <Navigate to="/student"    replace />;
     }
     return <Navigate to="/" replace />;
   }
@@ -37,6 +37,8 @@ export default function Login() {
         navigate('/counsellor', { replace: true });
       } else if (!elevated && roles.includes('professor')) {
         navigate('/portal', { replace: true });
+      } else if (!elevated && roles.includes('student')) {
+        navigate('/student', { replace: true });
       } else {
         navigate('/', { replace: true });
       }
@@ -121,6 +123,13 @@ export default function Login() {
           <a href="/claim"
             className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
             First time? Activate account
+          </a>
+        </div>
+
+        <div className="mt-3 text-center border-t border-gray-100 pt-3">
+          <a href="/register"
+            className="text-xs text-brand-600 hover:text-brand-800 transition-colors">
+            New student? Register with Accessibility Centre
           </a>
         </div>
 
