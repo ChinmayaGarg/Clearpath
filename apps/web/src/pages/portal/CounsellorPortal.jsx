@@ -5,10 +5,20 @@ import { api }                        from '../../lib/api.js';
 import { toast }                      from '../../components/ui/Toast.jsx';
 import Spinner                        from '../../components/ui/Spinner.jsx';
 
+const PORTAL_TABS = ['Students', 'Registrations'];
+
 export default function CounsellorPortal() {
   const { user, logout }         = useAuth();
   const navigate                 = useNavigate();
+  const [tab,             setTab]             = useState('Students');
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [selectedReg,     setSelectedReg]     = useState(null);
+
+  function handleTabChange(t) {
+    setTab(t);
+    setSelectedStudent(null);
+    setSelectedReg(null);
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -32,17 +42,46 @@ export default function CounsellorPortal() {
             </button>
           </div>
         </div>
+
+        {/* Tab bar */}
+        <div className="max-w-4xl mx-auto px-4 flex gap-1">
+          {PORTAL_TABS.map(t => (
+            <button
+              key={t}
+              onClick={() => handleTabChange(t)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
+                ${tab === t
+                  ? 'border-brand-600 text-brand-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
 
-        {selectedStudent ? (
-          <StudentDetail
-            student={selectedStudent}
-            onBack={() => setSelectedStudent(null)}
-          />
-        ) : (
-          <StudentSearch onSelect={setSelectedStudent} />
+        {tab === 'Students' && (
+          selectedStudent ? (
+            <StudentDetail
+              student={selectedStudent}
+              onBack={() => setSelectedStudent(null)}
+            />
+          ) : (
+            <StudentSearch onSelect={setSelectedStudent} />
+          )
+        )}
+
+        {tab === 'Registrations' && (
+          selectedReg ? (
+            <RegistrationDetail
+              reg={selectedReg}
+              onBack={() => setSelectedReg(null)}
+            />
+          ) : (
+            <RegistrationsTab onSelect={setSelectedReg} />
+          )
         )}
 
       </div>
@@ -495,5 +534,472 @@ function ExamStatusBadge({ status }) {
     <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${colour}`}>
       {status.replace('_', ' ')}
     </span>
+  );
+}
+
+// ── Registration status badge ─────────────────────────────────────────────────
+const REG_STATUS_COLOURS = {
+  submitted:    'bg-blue-100 text-blue-700',
+  under_review: 'bg-yellow-100 text-yellow-700',
+  approved:     'bg-green-100 text-green-700',
+  rejected:     'bg-red-100 text-red-700',
+};
+
+function RegStatusBadge({ status }) {
+  if (!status) return null;
+  const colour = REG_STATUS_COLOURS[status] ?? 'bg-gray-100 text-gray-500';
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${colour}`}>
+      {status.replace('_', ' ')}
+    </span>
+  );
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('en-CA', {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+}
+
+// ── Registrations tab ─────────────────────────────────────────────────────────
+function RegistrationsTab({ onSelect }) {
+  const [registrations, setRegistrations] = useState([]);
+  const [loading,       setLoading]       = useState(true);
+
+  useEffect(() => {
+    api.get('/counsellor/registrations')
+      .then(d => setRegistrations(d.registrations ?? []))
+      .catch(err => toast(err.message, 'error'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  if (registrations.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+        <p className="text-sm font-medium text-gray-700">No pending registrations</p>
+        <p className="text-xs text-gray-400 mt-1">
+          New student registrations will appear here for review.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-xl font-semibold text-gray-900 mb-4">Registrations</h1>
+      <div className="space-y-2">
+        {registrations.map(r => (
+          <button
+            key={r.id}
+            onClick={() => onSelect(r)}
+            className="w-full text-left px-4 py-3 bg-white rounded-xl border
+                       border-gray-200 hover:border-brand-300 hover:bg-brand-50 transition-colors"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-gray-900">
+                      {r.first_name} {r.last_name}
+                    </span>
+                    <RegStatusBadge status={r.status} />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">{r.email}</p>
+                  {r.disability_categories?.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                      {r.disability_categories.slice(0, 3).join(', ')}
+                      {r.disability_categories.length > 3 ? ` +${r.disability_categories.length - 3} more` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <span className="text-xs text-gray-400 flex-shrink-0">
+                {formatDate(r.created_at)}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Registration detail ────────────────────────────────────────────────────────
+function RegistrationDetail({ reg: initialReg, onBack }) {
+  const [reg,         setReg]         = useState(null);
+  const [codes,       setCodes]       = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [submitting,  setSubmitting]  = useState(false);
+  // approve state: selected code ids + per-code notes
+  const [selectedCodes, setSelectedCodes] = useState({});  // { [codeId]: { checked, notes } }
+  const [rejectReason,  setRejectReason]  = useState('');
+  const [action,        setAction]        = useState(null); // 'approve' | 'reject' | null
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [regData, codesData] = await Promise.all([
+        api.get(`/counsellor/registrations/${initialReg.id}`),
+        api.get('/counsellor/accommodation-codes'),
+      ]);
+      setReg(regData.registration);
+      const codeList = codesData.codes ?? [];
+      setCodes(codeList);
+      // Initialise selectedCodes with all unchecked
+      const init = {};
+      codeList.forEach(c => { init[c.id] = { checked: false, notes: '' }; });
+      setSelectedCodes(init);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [initialReg.id]); // eslint-disable-line
+
+  async function handleStartReview() {
+    setSubmitting(true);
+    try {
+      await api.post(`/counsellor/registrations/${initialReg.id}/start-review`, {});
+      toast('Marked as under review');
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleApprove(e) {
+    e.preventDefault();
+    const grantedCodes = Object.entries(selectedCodes)
+      .filter(([, v]) => v.checked)
+      .map(([id, v]) => ({ accommodationCodeId: id, notes: v.notes || undefined }));
+    setSubmitting(true);
+    try {
+      await api.post(`/counsellor/registrations/${initialReg.id}/approve`, { grantedCodes });
+      toast('Registration approved');
+      onBack();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleReject(e) {
+    e.preventDefault();
+    if (!rejectReason.trim()) { toast('Enter a rejection reason', 'warning'); return; }
+    setSubmitting(true);
+    try {
+      await api.post(`/counsellor/registrations/${initialReg.id}/reject`, { reason: rejectReason });
+      toast('Registration rejected');
+      onBack();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleProviderForm(status) {
+    try {
+      await api.patch(`/counsellor/registrations/${initialReg.id}/provider-form`, { status });
+      toast(`Provider form marked as ${status}`);
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+  if (!reg) return null;
+
+  const canAct = reg.status === 'submitted' || reg.status === 'under_review';
+
+  return (
+    <div>
+      {/* Back */}
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
+      >
+        ← Back to registrations
+      </button>
+
+      {/* Header card */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {reg.first_name} {reg.last_name}
+              </h2>
+              <RegStatusBadge status={reg.status} />
+            </div>
+            <div className="flex flex-wrap gap-3 mt-1">
+              <span className="text-sm text-gray-500">{reg.email}</span>
+              {reg.student_number && (
+                <span className="text-sm text-gray-500">#{reg.student_number}</span>
+              )}
+              {reg.phone && (
+                <span className="text-sm text-gray-500">{reg.phone}</span>
+              )}
+            </div>
+          </div>
+          <span className="text-xs text-gray-400 flex-shrink-0">
+            Submitted {formatDate(reg.created_at)}
+          </span>
+        </div>
+
+        {/* Student status flags */}
+        {reg.student_status_flags?.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {reg.student_status_flags.map(f => (
+              <span key={f} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full capitalize">
+                {f.replace('_', ' ')}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Disability info */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4 space-y-4">
+        <h3 className="text-sm font-semibold text-gray-800">Disability information</h3>
+
+        {reg.disability_categories?.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1.5">Categories</p>
+            <div className="flex flex-wrap gap-1.5">
+              {reg.disability_categories.map(c => (
+                <span key={c} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{c}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {reg.academic_impact && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1">Academic impact</p>
+            <p className="text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg whitespace-pre-wrap">
+              {reg.academic_impact}
+            </p>
+          </div>
+        )}
+
+        {reg.on_medication && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1">On medication</p>
+            {reg.medication_details ? (
+              <p className="text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">
+                {reg.medication_details}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500">Yes (no details provided)</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Accommodations requested */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4 space-y-4">
+        <h3 className="text-sm font-semibold text-gray-800">Accommodations</h3>
+
+        {reg.requested_accommodations?.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1.5">Requested</p>
+            <div className="flex flex-wrap gap-1.5">
+              {reg.requested_accommodations.map(a => (
+                <span key={a} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full">{a}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {reg.past_accommodations?.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-1.5">Previous accommodations</p>
+            <div className="flex flex-wrap gap-1.5">
+              {reg.past_accommodations.map(a => (
+                <span key={a} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{a}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Provider form */}
+      {(reg.provider_name || reg.provider_phone) && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 mb-1">Medical provider</h3>
+              {reg.provider_name  && <p className="text-sm text-gray-600">{reg.provider_name}</p>}
+              {reg.provider_phone && <p className="text-sm text-gray-500">{reg.provider_phone}</p>}
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize
+                ${reg.provider_form_status === 'received' ? 'bg-green-100 text-green-700'
+                : reg.provider_form_status === 'waived'   ? 'bg-gray-100 text-gray-500'
+                                                          : 'bg-yellow-100 text-yellow-700'}`}>
+                Form: {reg.provider_form_status ?? 'pending'}
+              </span>
+              {reg.provider_form_status === 'pending' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleProviderForm('received')}
+                    className="text-xs text-green-600 hover:text-green-800 px-2 py-1 border border-green-200 rounded-lg"
+                  >
+                    Mark received
+                  </button>
+                  <button
+                    onClick={() => handleProviderForm('waived')}
+                    className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 border border-gray-200 rounded-lg"
+                  >
+                    Waive
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rejection reason (if rejected) */}
+      {reg.status === 'rejected' && reg.rejection_reason && (
+        <div className="bg-red-50 rounded-xl border border-red-200 p-4 mb-4">
+          <p className="text-xs font-medium text-red-700 mb-1">Rejection reason</p>
+          <p className="text-sm text-red-800">{reg.rejection_reason}</p>
+        </div>
+      )}
+
+      {/* Action panel */}
+      {canAct && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-800">Review actions</h3>
+            {reg.status === 'submitted' && (
+              <button
+                onClick={handleStartReview}
+                disabled={submitting}
+                className="text-xs px-3 py-1.5 border border-yellow-300 text-yellow-700
+                           hover:bg-yellow-50 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Mark as under review
+              </button>
+            )}
+          </div>
+
+          {/* Toggle approve / reject */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAction(a => a === 'approve' ? null : 'approve')}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg border transition-colors
+                ${action === 'approve'
+                  ? 'bg-green-600 text-white border-green-600'
+                  : 'border-green-300 text-green-700 hover:bg-green-50'}`}
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => setAction(a => a === 'reject' ? null : 'reject')}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg border transition-colors
+                ${action === 'reject'
+                  ? 'bg-red-600 text-white border-red-600'
+                  : 'border-red-300 text-red-700 hover:bg-red-50'}`}
+            >
+              Reject
+            </button>
+          </div>
+
+          {/* Approve form */}
+          {action === 'approve' && (
+            <form onSubmit={handleApprove} className="space-y-3 pt-2 border-t border-gray-100">
+              <p className="text-xs font-medium text-gray-600">
+                Select accommodation codes to grant (leave all unchecked to approve without grants):
+              </p>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {codes.map(c => (
+                  <div key={c.id} className="space-y-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedCodes[c.id]?.checked ?? false}
+                        onChange={e => setSelectedCodes(prev => ({
+                          ...prev,
+                          [c.id]: { ...prev[c.id], checked: e.target.checked },
+                        }))}
+                        className="rounded border-gray-300 text-brand-600"
+                      />
+                      <span className="text-sm text-gray-800">
+                        <span className="font-mono text-xs text-gray-500 mr-1">{c.code}</span>
+                        {c.label}
+                        {c.triggers_rwg_flag && (
+                          <span className="ml-1.5 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">RWG</span>
+                        )}
+                      </span>
+                    </label>
+                    {selectedCodes[c.id]?.checked && (
+                      <input
+                        type="text"
+                        value={selectedCodes[c.id]?.notes ?? ''}
+                        onChange={e => setSelectedCodes(prev => ({
+                          ...prev,
+                          [c.id]: { ...prev[c.id], notes: e.target.value },
+                        }))}
+                        placeholder="Notes (optional)"
+                        className="ml-6 w-[calc(100%-1.5rem)] px-2.5 py-1.5 text-xs border border-gray-300
+                                   rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-600"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm
+                           font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                {submitting ? 'Approving…' : 'Confirm approval'}
+              </button>
+            </form>
+          )}
+
+          {/* Reject form */}
+          {action === 'reject' && (
+            <form onSubmit={handleReject} className="space-y-3 pt-2 border-t border-gray-100">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Reason for rejection <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={rejectReason}
+                  onChange={e => setRejectReason(e.target.value)}
+                  rows={3}
+                  placeholder="Explain why this registration is being rejected…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-sm
+                           font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                {submitting ? 'Rejecting…' : 'Confirm rejection'}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

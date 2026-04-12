@@ -8,6 +8,12 @@
  * GET    /api/counsellor/students/:id/exams
  * POST   /api/counsellor/students/:id/accommodations
  * DELETE /api/counsellor/students/:id/accommodations/:accId
+ * GET    /api/counsellor/registrations
+ * GET    /api/counsellor/registrations/:id
+ * POST   /api/counsellor/registrations/:id/start-review
+ * POST   /api/counsellor/registrations/:id/approve
+ * POST   /api/counsellor/registrations/:id/reject
+ * PATCH  /api/counsellor/registrations/:id/provider-form
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -24,6 +30,14 @@ import {
   addStudentAccommodation,
   removeStudentAccommodation,
 } from "../db/queries/counsellor.js";
+import {
+  listPendingRegistrations,
+  getRegistrationRequest,
+  markUnderReview,
+  approveRegistration,
+  rejectRegistration,
+  updateProviderFormStatus,
+} from "../db/queries/studentRegistration.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -169,5 +183,79 @@ router.delete(
     }
   },
 );
+
+// ── GET /api/counsellor/registrations ────────────────────────────────────────
+router.get("/registrations", async (req, res, next) => {
+  try {
+    const registrations = await listPendingRegistrations(req.user.schema);
+    res.json({ registrations });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/counsellor/registrations/:id ─────────────────────────────────────
+router.get("/registrations/:id", async (req, res, next) => {
+  try {
+    const registration = await getRegistrationRequest(req.user.schema, req.params.id);
+    if (!registration) return res.status(404).json({ error: "Registration not found" });
+    res.json({ registration });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/counsellor/registrations/:id/start-review ──────────────────────
+router.post("/registrations/:id/start-review", async (req, res, next) => {
+  try {
+    await markUnderReview(req.user.schema, req.params.id, req.user.id);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/counsellor/registrations/:id/approve ───────────────────────────
+const ApproveSchema = z.object({
+  grantedCodes: z.array(z.object({
+    accommodationCodeId: z.string().uuid(),
+    notes:     z.string().max(1000).optional().nullable(),
+    expiresAt: z.string().datetime().optional().nullable(),
+  })).default([]),
+});
+
+router.post("/registrations/:id/approve", async (req, res, next) => {
+  try {
+    const { grantedCodes } = ApproveSchema.parse(req.body);
+    await approveRegistration(req.user.schema, req.params.id, {
+      reviewedBy:  req.user.id,
+      grantedCodes,
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/counsellor/registrations/:id/reject ─────────────────────────────
+const RejectSchema = z.object({
+  reason: z.string().min(1, "Rejection reason is required").max(2000),
+});
+
+router.post("/registrations/:id/reject", async (req, res, next) => {
+  try {
+    const { reason } = RejectSchema.parse(req.body);
+    await rejectRegistration(req.user.schema, req.params.id, {
+      reviewedBy: req.user.id,
+      reason,
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/counsellor/registrations/:id/provider-form ─────────────────────
+const ProviderFormSchema = z.object({
+  status: z.enum(["received", "waived"]),
+});
+
+router.patch("/registrations/:id/provider-form", async (req, res, next) => {
+  try {
+    const { status } = ProviderFormSchema.parse(req.body);
+    await updateProviderFormStatus(req.user.schema, req.params.id, status);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
 
 export default router;
