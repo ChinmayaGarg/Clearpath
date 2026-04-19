@@ -633,8 +633,10 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
   const [codes,       setCodes]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [submitting,  setSubmitting]  = useState(false);
-  // approve state: selected code ids + per-code notes
-  const [selectedCodes, setSelectedCodes] = useState({});  // { [codeId]: { checked, notes } }
+  // per-requested-accommodation decisions: { [index]: { decision: 'pending'|'accept'|'reject', codeId, notes } }
+  const [requestedDecisions, setRequestedDecisions] = useState({});
+  // counsellor-added grants not in the student's request: [{ codeId, notes }]
+  const [additionalGrants,   setAdditionalGrants]   = useState([]);
   const [rejectReason,  setRejectReason]  = useState('');
   const [action,        setAction]        = useState(null); // 'approve' | 'reject' | null
 
@@ -648,10 +650,12 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
       setReg(regData.registration);
       const codeList = codesData.codes ?? [];
       setCodes(codeList);
-      // Initialise selectedCodes with all unchecked
-      const init = {};
-      codeList.forEach(c => { init[c.id] = { checked: false, notes: '' }; });
-      setSelectedCodes(init);
+      // Initialise one pending decision per requested accommodation
+      const reqAccs = regData.registration?.requested_accommodations ?? [];
+      const initDecisions = {};
+      reqAccs.forEach((_, i) => { initDecisions[i] = { decision: 'pending', codeId: '', notes: '' }; });
+      setRequestedDecisions(initDecisions);
+      setAdditionalGrants([]);
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -676,9 +680,34 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
 
   async function handleApprove(e) {
     e.preventDefault();
-    const grantedCodes = Object.entries(selectedCodes)
-      .filter(([, v]) => v.checked)
-      .map(([id, v]) => ({ accommodationCodeId: id, notes: v.notes || undefined }));
+    const grantedCodes = [];
+    const seen = new Set();
+
+    // Accepted requested accommodations
+    Object.values(requestedDecisions).forEach(v => {
+      if (v.decision === 'accept' && v.codeId && !seen.has(v.codeId)) {
+        seen.add(v.codeId);
+        grantedCodes.push({ accommodationCodeId: v.codeId, notes: v.notes || undefined });
+      }
+    });
+
+    // Counsellor-added accommodations
+    additionalGrants.forEach(g => {
+      if (g.codeId && !seen.has(g.codeId)) {
+        seen.add(g.codeId);
+        grantedCodes.push({ accommodationCodeId: g.codeId, notes: g.notes || undefined });
+      }
+    });
+
+    const pendingCount = Object.values(requestedDecisions).filter(v => v.decision === 'pending').length;
+    if (pendingCount > 0) {
+      const ok = window.confirm(
+        `${pendingCount} requested accommodation${pendingCount !== 1 ? 's' : ''} ` +
+        `still have no decision and will be treated as rejected. Continue?`
+      );
+      if (!ok) return;
+    }
+
     setSubmitting(true);
     try {
       await api.post(`/counsellor/registrations/${initialReg.id}/approve`, { grantedCodes });
@@ -689,6 +718,32 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function setDecision(index, decision) {
+    setRequestedDecisions(prev => ({
+      ...prev,
+      [index]: { ...(prev[index] ?? { codeId: '', notes: '' }), decision },
+    }));
+  }
+
+  function updateDecision(index, patch) {
+    setRequestedDecisions(prev => ({
+      ...prev,
+      [index]: { ...prev[index], ...patch },
+    }));
+  }
+
+  function addAdditionalGrant() {
+    setAdditionalGrants(prev => [...prev, { codeId: '', notes: '' }]);
+  }
+
+  function updateAdditionalGrant(index, patch) {
+    setAdditionalGrants(prev => prev.map((g, i) => i === index ? { ...g, ...patch } : g));
+  }
+
+  function removeAdditionalGrant(index) {
+    setAdditionalGrants(prev => prev.filter((_, i) => i !== index));
   }
 
   async function handleReject(e) {
@@ -919,47 +974,143 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
 
           {/* Approve form */}
           {action === 'approve' && (
-            <form onSubmit={handleApprove} className="space-y-3 pt-2 border-t border-gray-100">
-              <p className="text-xs font-medium text-gray-600">
-                Select accommodation codes to grant (leave all unchecked to approve without grants):
-              </p>
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                {codes.map(c => (
-                  <div key={c.id} className="space-y-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedCodes[c.id]?.checked ?? false}
-                        onChange={e => setSelectedCodes(prev => ({
-                          ...prev,
-                          [c.id]: { ...prev[c.id], checked: e.target.checked },
-                        }))}
-                        className="rounded border-gray-300 text-brand-600"
-                      />
-                      <span className="text-sm text-gray-800">
-                        <span className="font-mono text-xs text-gray-500 mr-1">{c.code}</span>
-                        {c.label}
-                        {c.triggers_rwg_flag && (
-                          <span className="ml-1.5 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">RWG</span>
-                        )}
-                      </span>
-                    </label>
-                    {selectedCodes[c.id]?.checked && (
-                      <input
-                        type="text"
-                        value={selectedCodes[c.id]?.notes ?? ''}
-                        onChange={e => setSelectedCodes(prev => ({
-                          ...prev,
-                          [c.id]: { ...prev[c.id], notes: e.target.value },
-                        }))}
-                        placeholder="Notes (optional)"
-                        className="ml-6 w-[calc(100%-1.5rem)] px-2.5 py-1.5 text-xs border border-gray-300
-                                   rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-600"
-                      />
-                    )}
+            <form onSubmit={handleApprove} className="space-y-4 pt-2 border-t border-gray-100">
+
+              {/* ── Requested accommodations ── */}
+              {reg.requested_accommodations?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Requested by student ({reg.requested_accommodations.length})
+                  </p>
+                  <div className="space-y-2">
+                    {reg.requested_accommodations.map((reqText, i) => {
+                      const d = requestedDecisions[i] ?? { decision: 'pending', codeId: '', notes: '' };
+                      return (
+                        <div key={i} className={`rounded-lg border p-3 transition-colors ${
+                          d.decision === 'accept' ? 'border-green-200 bg-green-50' :
+                          d.decision === 'reject' ? 'border-red-100 bg-red-50/60' :
+                          'border-gray-200 bg-gray-50'
+                        }`}>
+                          {/* Request text + Accept / Reject buttons */}
+                          <div className="flex items-start justify-between gap-3">
+                            <span className={`text-sm flex-1 ${d.decision === 'reject' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                              {reqText}
+                            </span>
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setDecision(i, d.decision === 'accept' ? 'pending' : 'accept')}
+                                className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
+                                  d.decision === 'accept'
+                                    ? 'bg-green-600 text-white border-green-600'
+                                    : 'border-green-300 text-green-700 hover:bg-green-50'
+                                }`}
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDecision(i, d.decision === 'reject' ? 'pending' : 'reject')}
+                                className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
+                                  d.decision === 'reject'
+                                    ? 'bg-red-500 text-white border-red-500'
+                                    : 'border-red-200 text-red-500 hover:bg-red-50'
+                                }`}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Code picker + notes when accepted */}
+                          {d.decision === 'accept' && (
+                            <div className="mt-2.5 pt-2.5 border-t border-green-200 space-y-2">
+                              <select
+                                value={d.codeId}
+                                onChange={e => updateDecision(i, { codeId: e.target.value })}
+                                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs
+                                           focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
+                              >
+                                <option value="">Select accommodation code…</option>
+                                {codes.map(c => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.code} — {c.label}{c.triggers_rwg_flag ? ' (RWG)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                value={d.notes}
+                                onChange={e => updateDecision(i, { notes: e.target.value })}
+                                placeholder="Notes / modifications (optional)"
+                                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs
+                                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* ── Additional accommodations (counsellor-suggested) ── */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Additional accommodations
+                  </p>
+                  <button
+                    type="button"
+                    onClick={addAdditionalGrant}
+                    className="text-xs text-brand-600 hover:text-brand-800 font-medium"
+                  >
+                    + Add
+                  </button>
+                </div>
+                {additionalGrants.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">
+                    None — click + Add to grant accommodations the student did not request
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {additionalGrants.map((g, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <select
+                          value={g.codeId}
+                          onChange={e => updateAdditionalGrant(i, { codeId: e.target.value })}
+                          className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs
+                                     focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
+                        >
+                          <option value="">Select code…</option>
+                          {codes.map(c => (
+                            <option key={c.id} value={c.id}>
+                              {c.code} — {c.label}{c.triggers_rwg_flag ? ' (RWG)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={g.notes}
+                          onChange={e => updateAdditionalGrant(i, { notes: e.target.value })}
+                          placeholder="Notes (optional)"
+                          className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs
+                                     focus:outline-none focus:ring-2 focus:ring-brand-600"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeAdditionalGrant(i)}
+                          className="shrink-0 text-gray-400 hover:text-red-500 px-1 text-base leading-none"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
               <button
                 type="submit"
                 disabled={submitting}
