@@ -394,7 +394,7 @@ router.patch("/exam-requests/:id/confirm", async (req, res, next) => {
       req.tenantSchema,
       `UPDATE exam_booking_request
        SET status = 'confirmed', confirmed_by = $2, confirmed_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND status = 'pending'
+       WHERE id = $1 AND status = 'professor_approved'
        RETURNING id`,
       [req.params.id, req.user.id],
     );
@@ -412,7 +412,7 @@ router.patch("/exam-requests/:id/cancel", async (req, res, next) => {
       req.tenantSchema,
       `UPDATE exam_booking_request
        SET status = 'cancelled', updated_at = NOW()
-       WHERE id = $1 AND status = 'pending'
+       WHERE id = $1 AND status = 'professor_approved'
        RETURNING id`,
       [req.params.id],
     );

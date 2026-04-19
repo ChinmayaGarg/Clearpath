@@ -41,6 +41,8 @@ const migrationMap = {
   17: "017_booking_request_duration.sql",
   18: "018_remove_brightspace_accommodation.sql",
   19: "019_booking_request_student_duration.sql",
+  20: "020_booking_rooms.sql",
+  21: "021_booking_schedule.sql",
 };
 
 const filename = migrationMap[targetVersion];
