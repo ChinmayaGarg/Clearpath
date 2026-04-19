@@ -27,7 +27,7 @@ router.use(requireRole('student'));
 // ── GET /api/student/me ───────────────────────────────────────────────────────
 router.get('/me', async (req, res, next) => {
   try {
-    const schema           = req.user.schema;
+    const schema           = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
@@ -42,7 +42,7 @@ router.get('/me', async (req, res, next) => {
 // ── GET /api/student/accommodations ──────────────────────────────────────────
 router.get('/accommodations', async (req, res, next) => {
   try {
-    const schema           = req.user.schema;
+    const schema           = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
@@ -57,7 +57,7 @@ router.get('/accommodations', async (req, res, next) => {
 // ── GET /api/student/exam-requests ────────────────────────────────────────────
 router.get('/exam-requests', async (req, res, next) => {
   try {
-    const schema           = req.user.schema;
+    const schema           = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
@@ -80,7 +80,7 @@ const BookingSchema = z.object({
 
 router.post('/exam-requests', async (req, res, next) => {
   try {
-    const schema           = req.user.schema;
+    const schema           = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
@@ -110,7 +110,7 @@ router.post('/exam-requests', async (req, res, next) => {
 // ── DELETE /api/student/exam-requests/:id ─────────────────────────────────────
 router.delete('/exam-requests/:id', async (req, res, next) => {
   try {
-    const schema           = req.user.schema;
+    const schema           = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {

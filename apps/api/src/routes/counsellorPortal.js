@@ -46,7 +46,7 @@ router.use(requireRole("counsellor", "institution_admin"));
 // ── GET /api/counsellor/me ────────────────────────────────────────────────────
 router.get("/me", async (req, res, next) => {
   try {
-    const schema = req.user.schema;
+    const schema = req.tenantSchema;
     const result = await tenantQuery(
       schema,
       `SELECT cp.id, cp.department, cp.created_at,
@@ -65,7 +65,7 @@ router.get("/me", async (req, res, next) => {
 // ── GET /api/counsellor/accommodation-codes ───────────────────────────────────
 router.get("/accommodation-codes", async (req, res, next) => {
   try {
-    const codes = await listAccommodationCodes(req.user.schema);
+    const codes = await listAccommodationCodes(req.tenantSchema);
     res.json({ codes });
   } catch (err) {
     next(err);
@@ -77,7 +77,7 @@ router.get("/students", async (req, res, next) => {
   try {
     const q = (req.query.q ?? "").trim();
     if (!q) return res.json({ students: [] });
-    const students = await searchStudents(req.user.schema, q);
+    const students = await searchStudents(req.tenantSchema, q);
     res.json({ students });
   } catch (err) {
     next(err);
@@ -87,7 +87,7 @@ router.get("/students", async (req, res, next) => {
 // ── GET /api/counsellor/students/:id ─────────────────────────────────────────
 router.get("/students/:id", async (req, res, next) => {
   try {
-    const student = await getStudentDetail(req.user.schema, req.params.id);
+    const student = await getStudentDetail(req.tenantSchema, req.params.id);
     if (!student) return res.status(404).json({ error: "Student not found" });
     res.json({ student });
   } catch (err) {
@@ -98,12 +98,12 @@ router.get("/students/:id", async (req, res, next) => {
 // ── GET /api/counsellor/students/:id/exams ───────────────────────────────────
 router.get("/students/:id/exams", async (req, res, next) => {
   try {
-    const rows = await getStudentExams(req.user.schema, req.params.id);
+    const rows = await getStudentExams(req.tenantSchema, req.params.id);
     const exams = await Promise.all(
       rows.map(async (row) => ({
         ...row,
         accommodations: await getAppointmentAccommodations(
-          req.user.schema,
+          req.tenantSchema,
           row.appointment_id,
         ),
       })),
@@ -135,11 +135,11 @@ router.post(
 
       const { accommodationCodeId, term, notes } = parsed.data;
       const counsellorProfileId = await getCounsellorProfileId(
-        req.user.schema,
+        req.tenantSchema,
         req.user.id,
       );
 
-      const row = await addStudentAccommodation(req.user.schema, {
+      const row = await addStudentAccommodation(req.tenantSchema, {
         studentProfileId: req.params.id,
         counsellorProfileId,
         accommodationCodeId,
@@ -163,10 +163,10 @@ router.delete(
       const isAdmin = req.user.roles?.includes("institution_admin");
       const counsellorProfileId = isAdmin
         ? null
-        : await getCounsellorProfileId(req.user.schema, req.user.id);
+        : await getCounsellorProfileId(req.tenantSchema, req.user.id);
 
       const deleted = await removeStudentAccommodation(
-        req.user.schema,
+        req.tenantSchema,
         req.params.accId,
         counsellorProfileId,
       );
@@ -187,7 +187,7 @@ router.delete(
 // ── GET /api/counsellor/registrations ────────────────────────────────────────
 router.get("/registrations", async (req, res, next) => {
   try {
-    const registrations = await listPendingRegistrations(req.user.schema);
+    const registrations = await listPendingRegistrations(req.tenantSchema);
     res.json({ registrations });
   } catch (err) { next(err); }
 });
@@ -195,7 +195,7 @@ router.get("/registrations", async (req, res, next) => {
 // ── GET /api/counsellor/registrations/:id ─────────────────────────────────────
 router.get("/registrations/:id", async (req, res, next) => {
   try {
-    const registration = await getRegistrationRequest(req.user.schema, req.params.id);
+    const registration = await getRegistrationRequest(req.tenantSchema, req.params.id);
     if (!registration) return res.status(404).json({ error: "Registration not found" });
     res.json({ registration });
   } catch (err) { next(err); }
@@ -204,7 +204,7 @@ router.get("/registrations/:id", async (req, res, next) => {
 // ── POST /api/counsellor/registrations/:id/start-review ──────────────────────
 router.post("/registrations/:id/start-review", async (req, res, next) => {
   try {
-    await markUnderReview(req.user.schema, req.params.id, req.user.id);
+    await markUnderReview(req.tenantSchema, req.params.id, req.user.id);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -221,7 +221,7 @@ const ApproveSchema = z.object({
 router.post("/registrations/:id/approve", async (req, res, next) => {
   try {
     const { grantedCodes } = ApproveSchema.parse(req.body);
-    await approveRegistration(req.user.schema, req.params.id, {
+    await approveRegistration(req.tenantSchema, req.params.id, {
       reviewedBy:  req.user.id,
       grantedCodes,
     });
@@ -237,7 +237,7 @@ const RejectSchema = z.object({
 router.post("/registrations/:id/reject", async (req, res, next) => {
   try {
     const { reason } = RejectSchema.parse(req.body);
-    await rejectRegistration(req.user.schema, req.params.id, {
+    await rejectRegistration(req.tenantSchema, req.params.id, {
       reviewedBy: req.user.id,
       reason,
     });
@@ -253,7 +253,7 @@ const ProviderFormSchema = z.object({
 router.patch("/registrations/:id/provider-form", async (req, res, next) => {
   try {
     const { status } = ProviderFormSchema.parse(req.body);
-    await updateProviderFormStatus(req.user.schema, req.params.id, status);
+    await updateProviderFormStatus(req.tenantSchema, req.params.id, status);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

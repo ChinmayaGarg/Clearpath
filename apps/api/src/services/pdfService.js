@@ -309,7 +309,7 @@ async function upsertAppointment(client, { examId, roomId, appt }) {
   );
   const appointmentId = apptResult.rows[0].id;
 
-  // ── Create accommodation links ────────────────────────────────────────────
+  // ── Create accommodation links from PDF codes ────────────────────────────
   if (rawCodes.length) {
     for (const rawCode of rawCodes) {
       // Look up the accommodation code in the tenant's code table
@@ -330,6 +330,27 @@ async function upsertAppointment(client, { examId, roomId, appt }) {
         );
       }
     }
+  }
+
+  // ── Auto-apply active accommodation grants ────────────────────────────────
+  // Pull any formally approved grants for this student and add them to the
+  // appointment so counsellors don't have to manually re-apply them.
+  const grantsResult = await client.query(
+    `SELECT accommodation_code_id
+     FROM accommodation_grant
+     WHERE student_profile_id = $1
+       AND is_active = TRUE
+       AND (expires_at IS NULL OR expires_at > NOW())`,
+    [studentProfileId]
+  );
+  for (const grant of grantsResult.rows) {
+    await client.query(
+      `INSERT INTO appointment_accommodation
+         (appointment_id, code_id)
+       VALUES ($1, $2)
+       ON CONFLICT (appointment_id, code_id) DO NOTHING`,
+      [appointmentId, grant.accommodation_code_id]
+    );
   }
 }
 
