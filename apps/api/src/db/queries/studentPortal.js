@@ -29,10 +29,11 @@ export async function getStudentPortalMe(schema, studentProfileId) {
        u.first_name,
        u.last_name,
        u.email,
-       srr.id             AS registration_request_id,
-       srr.status         AS registration_status,
-       srr.created_at     AS registration_submitted_at,
-       srr.reviewed_at    AS registration_reviewed_at
+       srr.id                       AS registration_request_id,
+       srr.status                   AS registration_status,
+       srr.requested_accommodations AS requested_accommodations,
+       srr.created_at               AS registration_submitted_at,
+       srr.reviewed_at              AS registration_reviewed_at
      FROM student_profile sp
      JOIN "user" u ON u.id = sp.user_id
      LEFT JOIN student_registration_request srr

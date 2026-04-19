@@ -49,79 +49,109 @@ function AccommodationsTab({ me }) {
 
   if (loading) return <div className="py-12 flex justify-center"><Spinner /></div>;
 
-  const regStatus = me?.registration_status;
+  const regStatus    = me?.registration_status;
+  const requested    = me?.requested_accommodations ?? [];
 
-  if (grants.length === 0) {
+  // Not registered at all
+  if (!regStatus) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-        {regStatus === 'approved' ? (
-          <>
-            <p className="text-sm font-medium text-gray-700">No active accommodations</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Your registration was approved but no accommodation codes have been assigned yet.
-              Contact your accessibility counsellor.
-            </p>
-          </>
-        ) : regStatus === 'rejected' ? (
-          <>
-            <p className="text-sm font-medium text-red-600">Registration not approved</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Your registration request was not approved.
-              Contact your accessibility centre for more information.
-            </p>
-          </>
-        ) : regStatus ? (
-          <>
-            <p className="text-sm font-medium text-gray-700">Registration under review</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Your registration is being reviewed by a counsellor.
-              Accommodations will appear here once approved.
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-sm font-medium text-gray-700">No accommodations on file</p>
-            <p className="text-xs text-gray-400 mt-1">
-              You have not yet registered with the Accessibility Centre.
-            </p>
-            <a
-              href="/register"
-              className="mt-3 inline-block text-sm text-brand-600 hover:text-brand-800"
-            >
-              Register now
-            </a>
-          </>
-        )}
+        <p className="text-sm font-medium text-gray-700">No accommodations on file</p>
+        <p className="text-xs text-gray-400 mt-1">
+          You have not yet registered with the Accessibility Centre.
+        </p>
+        <a href="/register" className="mt-3 inline-block text-sm text-brand-600 hover:text-brand-800">
+          Register now
+        </a>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
-      {grants.map(g => (
-        <div key={g.id}
-             className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-800">{g.label}</span>
-              <span className="text-xs text-gray-400 font-mono">{g.code}</span>
-              {g.triggers_rwg_flag && (
-                <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">RWG</span>
-              )}
-            </div>
-            {g.notes && (
-              <p className="text-xs text-gray-500 mt-0.5">{g.notes}</p>
-            )}
-          </div>
-          <div className="text-right flex-shrink-0">
-            {g.expires_at ? (
-              <p className="text-xs text-gray-400">Expires {formatDate(g.expires_at)}</p>
-            ) : (
-              <p className="text-xs text-gray-300">No expiry</p>
-            )}
+    <div className="space-y-6">
+
+      {/* Requested accommodations — always shown once registered */}
+      {requested.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Requested
+          </h2>
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            {requested.map((acc, i) => (
+              <div key={i} className="px-4 py-2.5 flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-700">{acc}</span>
+                {regStatus === 'approved' && grants.some(g => g.label === acc || g.code === acc) ? (
+                  <span className="text-xs text-green-600 font-medium">Approved</span>
+                ) : regStatus === 'approved' ? (
+                  <span className="text-xs text-gray-400">Not granted</span>
+                ) : regStatus === 'rejected' ? (
+                  <span className="text-xs text-red-500">Not approved</span>
+                ) : (
+                  <span className="text-xs text-yellow-600">Pending review</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
-      ))}
+      )}
+
+      {/* Approved grants */}
+      {grants.length > 0 ? (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Active accommodations
+          </h2>
+          <div className="space-y-2">
+            {grants.map(g => (
+              <div key={g.id}
+                   className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-800">{g.label}</span>
+                    <span className="text-xs text-gray-400 font-mono">{g.code}</span>
+                    {g.triggers_rwg_flag && (
+                      <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">RWG</span>
+                    )}
+                  </div>
+                  {g.notes && (
+                    <p className="text-xs text-gray-500 mt-0.5">{g.notes}</p>
+                  )}
+                </div>
+                <div className="text-right flex-shrink-0">
+                  {g.expires_at ? (
+                    <p className="text-xs text-gray-400">Expires {formatDate(g.expires_at)}</p>
+                  ) : (
+                    <p className="text-xs text-gray-300">No expiry</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : regStatus === 'approved' ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+          <p className="text-sm font-medium text-gray-700">No active accommodations</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Your registration was approved but no codes have been assigned yet.
+            Contact your accessibility counsellor.
+          </p>
+        </div>
+      ) : regStatus === 'rejected' ? (
+        <div className="bg-white rounded-xl border border-red-100 p-6 text-center">
+          <p className="text-sm font-medium text-red-600">Registration not approved</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Contact your accessibility centre for more information.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+          <p className="text-sm font-medium text-gray-700">Registration under review</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Accommodations will appear here once a counsellor approves your registration.
+          </p>
+        </div>
+      )}
+
     </div>
   );
 }
