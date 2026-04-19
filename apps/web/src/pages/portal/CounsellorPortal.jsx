@@ -5,7 +5,33 @@ import { api }                        from '../../lib/api.js';
 import { toast }                      from '../../components/ui/Toast.jsx';
 import Spinner                        from '../../components/ui/Spinner.jsx';
 
-const PORTAL_TABS = ['Students', 'Registrations', 'Exam requests'];
+const PORTAL_TABS = ['Students', 'Registrations'];
+
+// Generate academic terms: Winter / Summer / Fall for current year ±2
+// Returns strings like "Winter 2025", sorted chronologically
+function generateTermOptions() {
+  const now   = new Date();
+  const year  = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-indexed
+
+  // Current term
+  const currentTerm =
+    month <= 4 ? 'Winter' :
+    month <= 8 ? 'Summer' : 'Fall';
+
+  const seasons = ['Winter', 'Summer', 'Fall'];
+  const terms   = [];
+
+  for (let y = year - 2; y <= year + 2; y++) {
+    for (const s of seasons) {
+      terms.push(`${s} ${y}`);
+    }
+  }
+
+  return { terms, currentTerm: `${currentTerm} ${year}` };
+}
+
+const { terms: TERM_OPTIONS, currentTerm: CURRENT_TERM } = generateTermOptions();
 
 export default function CounsellorPortal() {
   const { user, logout }         = useAuth();
@@ -84,7 +110,6 @@ export default function CounsellorPortal() {
           )
         )}
 
-        {tab === 'Exam requests' && <ExamRequestsTab />}
 
       </div>
     </div>
@@ -183,25 +208,35 @@ function StudentSearch({ onSelect }) {
 // ── Student detail ────────────────────────────────────────────────────────────
 function StudentDetail({ student: initialStudent, onBack }) {
   const { isCounsellor, isAdmin } = useAuth();
-  const [student,  setStudent]  = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [codes,    setCodes]    = useState([]);
-  const [exams,    setExams]    = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [form,     setForm]     = useState({ accommodationCodeId: '', term: '', notes: '' });
-  const [saving,   setSaving]   = useState(false);
+  const [student,        setStudent]       = useState(null);
+  const [loading,        setLoading]       = useState(true);
+  const [codes,          setCodes]         = useState([]);
+  const [exams,          setExams]         = useState([]);
+  const [showForm,       setShowForm]      = useState(false);
+  const [form,           setForm]          = useState({ accommodationCodeId: '', term: CURRENT_TERM, notes: '' });
+  const [saving,         setSaving]        = useState(false);
+  const [courses,           setCourses]          = useState([]);
+  const [courseInput,       setCourseInput]      = useState('');
+  const [savingCourse,      setSavingCourse]     = useState(false);
+  const [showCourseForm,    setShowCourseForm]   = useState(false);
+  const [examRequests,      setExamRequests]     = useState([]);
+  const [profModal,         setProfModal]        = useState(null); // { courseCode, professor|null, loading }
 
   async function load() {
     setLoading(true);
     try {
-      const [studentData, codesData, examsData] = await Promise.all([
+      const [studentData, codesData, examsData, coursesData, examReqData] = await Promise.all([
         api.get(`/counsellor/students/${initialStudent.id}`),
         api.get('/counsellor/accommodation-codes'),
         api.get(`/counsellor/students/${initialStudent.id}/exams`),
+        api.get(`/counsellor/students/${initialStudent.id}/courses`),
+        api.get(`/counsellor/students/${initialStudent.id}/exam-requests`),
       ]);
       setStudent(studentData.student);
       setCodes(codesData.codes ?? []);
       setExams(examsData.exams ?? []);
+      setCourses(coursesData.courses ?? []);
+      setExamRequests(examReqData.examRequests ?? []);
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -217,6 +252,25 @@ function StudentDetail({ student: initialStudent, onBack }) {
       toast('Please select a code and enter a term', 'warning');
       return;
     }
+
+    // Prevent duplicate extra-time or STB rates for the same term
+    const selectedCode = codes.find(c => c.id === form.accommodationCodeId)?.code ?? '';
+    const existingForTerm = (student?.accommodations ?? []).filter(a => a.term === form.term);
+    if (/^\d+MIN\/HR$/.test(selectedCode)) {
+      const conflict = existingForTerm.find(a => /^\d+MIN\/HR$/.test(a.code) && a.code !== selectedCode);
+      if (conflict) {
+        toast(`Student already has ${conflict.code} extra time for ${form.term}. Remove it first.`, 'error');
+        return;
+      }
+    }
+    if (/^\d+MIN\/HR STB$/.test(selectedCode)) {
+      const conflict = existingForTerm.find(a => /^\d+MIN\/HR STB$/.test(a.code) && a.code !== selectedCode);
+      if (conflict) {
+        toast(`Student already has ${conflict.code} STB for ${form.term}. Remove it first.`, 'error');
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       await api.post(`/counsellor/students/${initialStudent.id}/accommodations`, {
@@ -226,7 +280,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
       });
       toast('Accommodation added', 'success');
       setShowForm(false);
-      setForm({ accommodationCodeId: '', term: '', notes: '' });
+      setForm({ accommodationCodeId: '', term: CURRENT_TERM, notes: '' });
       load();
     } catch (err) {
       toast(err.message, 'error');
@@ -245,11 +299,50 @@ function StudentDetail({ student: initialStudent, onBack }) {
     }
   }
 
+  async function handleAddCourse(e) {
+    e.preventDefault();
+    const code = courseInput.trim().toUpperCase();
+    if (!code) { toast('Enter a course code', 'warning'); return; }
+    setSavingCourse(true);
+    try {
+      await api.post(`/counsellor/students/${initialStudent.id}/courses`, { courseCode: code });
+      toast('Course added', 'success');
+      setCourseInput('');
+      setShowCourseForm(false);
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSavingCourse(false);
+    }
+  }
+
+  async function handleRemoveCourse(courseCode) {
+    try {
+      await api.delete(`/counsellor/students/${initialStudent.id}/courses/${encodeURIComponent(courseCode)}`);
+      toast('Course removed', 'success');
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function handleCourseClick(courseCode) {
+    setProfModal({ courseCode, professor: null, loading: true });
+    try {
+      const data = await api.get(`/counsellor/courses/${encodeURIComponent(courseCode)}/professor`);
+      setProfModal({ courseCode, professor: data.professor, loading: false });
+    } catch (err) {
+      setProfModal({ courseCode, professor: null, loading: false });
+    }
+  }
+
   if (loading) return (
     <div className="flex justify-center py-12"><Spinner /></div>
   );
 
-  const canEdit = isCounsellor || isAdmin;
+  const canEdit        = isCounsellor || isAdmin;
+  const canEditCourses = isAdmin;
 
   // Group accommodations by term
   const byTerm = (student?.accommodations ?? []).reduce((acc, row) => {
@@ -321,14 +414,17 @@ function StudentDetail({ student: initialStudent, onBack }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Term</label>
-                <input
+                <select
                   required
                   value={form.term}
                   onChange={e => setForm(prev => ({ ...prev, term: e.target.value }))}
-                  placeholder="e.g. Winter 2026"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                              focus:outline-none focus:ring-2 focus:ring-brand-600"
-                />
+                >
+                  {TERM_OPTIONS.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -342,11 +438,17 @@ function StudentDetail({ student: initialStudent, onBack }) {
                              focus:outline-none focus:ring-2 focus:ring-brand-600"
                 >
                   <option value="" disabled>Select accommodation…</option>
-                  {codes.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.label}
-                    </option>
-                  ))}
+                  {codes.map(c => {
+                    const existingForTerm = (student?.accommodations ?? []).filter(a => a.term === form.term);
+                    const blocked =
+                      (/^\d+MIN\/HR$/.test(c.code) && existingForTerm.some(a => /^\d+MIN\/HR$/.test(a.code) && a.code !== c.code)) ||
+                      (/^\d+MIN\/HR STB$/.test(c.code) && existingForTerm.some(a => /^\d+MIN\/HR STB$/.test(a.code) && a.code !== c.code));
+                    return (
+                      <option key={c.id} value={c.id} disabled={blocked}>
+                        {c.code} — {c.label}{blocked ? ' (conflicts with existing)' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>
@@ -366,7 +468,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => { setShowForm(false); setForm({ accommodationCodeId: '', term: '', notes: '' }); }}
+                onClick={() => { setShowForm(false); setForm({ accommodationCodeId: '', term: CURRENT_TERM, notes: '' }); }}
                 className="flex-1 py-2 border border-gray-300 text-gray-700 text-sm
                            font-medium rounded-lg hover:bg-gray-50 transition-colors"
               >
@@ -412,12 +514,150 @@ function StudentDetail({ student: initialStudent, onBack }) {
         )}
       </div>
 
-      {/* Exam bookings */}
+      {/* Courses */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900">Courses</h3>
+          {canEditCourses && !showCourseForm && (
+            <button
+              onClick={() => setShowCourseForm(true)}
+              className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white
+                         text-xs font-medium rounded-lg transition-colors"
+            >
+              + Add course
+            </button>
+          )}
+        </div>
+
+        {showCourseForm && (
+          <form onSubmit={handleAddCourse} className="flex gap-2 mb-3">
+            <input
+              autoFocus
+              value={courseInput}
+              onChange={e => setCourseInput(e.target.value.toUpperCase())}
+              placeholder="e.g. CSCI3110"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm
+                         focus:outline-none focus:ring-2 focus:ring-brand-600"
+            />
+            <button
+              type="button"
+              onClick={() => { setShowCourseForm(false); setCourseInput(''); }}
+              className="px-3 py-2 border border-gray-300 text-gray-700 text-sm
+                         rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={savingCourse}
+              className="px-3 py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
+                         font-medium rounded-lg transition-colors disabled:opacity-50"
+            >
+              {savingCourse ? 'Adding…' : 'Add'}
+            </button>
+          </form>
+        )}
+
+        {courses.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">
+            No manually-added courses
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {courses.map(c => (
+              <div
+                key={c.id}
+                className="flex items-center justify-between px-3 py-2 rounded-lg
+                           border border-gray-100 bg-gray-50"
+              >
+                <button
+                  onClick={() => handleCourseClick(c.course_code)}
+                  className="text-sm font-medium text-brand-700 hover:text-brand-900
+                             hover:underline transition-colors text-left"
+                >
+                  {c.course_code}
+                </button>
+                {canEditCourses && (
+                  <button
+                    onClick={() => handleRemoveCourse(c.course_code)}
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Exam booking requests */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">Exam requests</h3>
+        {examRequests.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">
+            No exam requests from this student
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {examRequests.map(r => (
+              <div key={r.id} className="rounded-lg border border-gray-200 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-900">{r.course_code}</span>
+                      <span className="text-xs text-gray-400 capitalize">{r.exam_type.replace('_', ' ')}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {formatDate(r.exam_date)}
+                      {r.exam_time ? ` at ${r.exam_time.slice(0, 5)}` : ''}
+                      {' · '}Submitted {formatDate(r.created_at)}
+                    </p>
+                    {r.computed_duration_mins ? (
+                      <p className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded mt-1.5 inline-block">
+                        {r.computed_duration_mins} min total
+                        {r.base_duration_mins ? (
+                          <>
+                            {' '}({r.base_duration_mins} min base
+                            {r.extra_mins > 0 && ` + ${r.extra_mins} min extra time`}
+                            {r.stb_mins   > 0 && ` + ${r.stb_mins} min STB`})
+                          </>
+                        ) : null}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-400 mt-1.5">Duration unknown — exam not yet uploaded</p>
+                    )}
+                    {r.special_materials_note && (
+                      <p className="text-xs text-gray-500 mt-1 italic">{r.special_materials_note}</p>
+                    )}
+                    {r.rejection_reason && (
+                      <p className="text-xs text-red-500 mt-1">Rejected: {r.rejection_reason}</p>
+                    )}
+                  </div>
+                  <BookingRequestStatusBadge status={r.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Professor modal */}
+      {profModal && (
+        <ProfessorModal
+          courseCode={profModal.courseCode}
+          professor={profModal.professor}
+          loading={profModal.loading}
+          onClose={() => setProfModal(null)}
+        />
+      )}
+
+      {/* SARS appointment bookings */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">Exam bookings</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">Scheduled appointments</h3>
         {exams.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-4">
-            No exam bookings found for this student
+            No scheduled appointments found for this student
           </p>
         ) : (
           <div className="space-y-3">
@@ -428,7 +668,6 @@ function StudentDetail({ student: initialStudent, onBack }) {
                        ? 'border-gray-100 bg-gray-50 opacity-60'
                        : 'border-gray-200 bg-white'
                    }`}>
-                {/* Row 1: course + date + status */}
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={`text-sm font-semibold text-gray-900 ${e.is_cancelled ? 'line-through' : ''}`}>
@@ -454,7 +693,6 @@ function StudentDetail({ student: initialStudent, onBack }) {
                     {!e.is_cancelled && <ExamStatusBadge status={e.status} />}
                   </div>
                 </div>
-                {/* Row 2: room + time */}
                 <p className="text-xs text-gray-500 mb-2">
                   {[
                     e.room_name,
@@ -462,7 +700,6 @@ function StudentDetail({ student: initialStudent, onBack }) {
                     e.duration_mins ? `${e.duration_mins} min` : null,
                   ].filter(Boolean).join('  •  ')}
                 </p>
-                {/* Row 3: appointment accommodations */}
                 {e.accommodations.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {e.accommodations.map(ac => (
@@ -483,6 +720,91 @@ function StudentDetail({ student: initialStudent, onBack }) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const BOOKING_REQUEST_STATUS = {
+  pending:             { label: 'Awaiting professor',  cls: 'bg-yellow-100 text-yellow-700' },
+  professor_approved:  { label: 'Professor approved',  cls: 'bg-blue-100 text-blue-700'   },
+  professor_rejected:  { label: 'Professor rejected',  cls: 'bg-red-100 text-red-600'     },
+  confirmed:           { label: 'Confirmed',           cls: 'bg-green-100 text-green-700' },
+  cancelled:           { label: 'Cancelled',           cls: 'bg-gray-100 text-gray-400'   },
+};
+
+function BookingRequestStatusBadge({ status }) {
+  const s = BOOKING_REQUEST_STATUS[status] ?? { label: status, cls: 'bg-gray-100 text-gray-500' };
+  return (
+    <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${s.cls}`}>
+      {s.label}
+    </span>
+  );
+}
+
+// ── Professor modal ────────────────────────────────────────────────────────────
+function ProfessorModal({ courseCode, professor, loading, onClose }) {
+  // Close on backdrop click
+  function handleBackdrop(e) {
+    if (e.target === e.currentTarget) onClose();
+  }
+
+  return (
+    <div
+      onClick={handleBackdrop}
+      className="fixed inset-0 z-50 flex items-center justify-center
+                 bg-black/40 backdrop-blur-sm px-4"
+    >
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">{courseCode}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Professor details</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors text-lg leading-none"
+          >
+            ×
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-8"><Spinner /></div>
+        ) : professor ? (
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Name</span>
+              <span className="text-gray-900 font-medium">
+                {professor.first_name} {professor.last_name}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Phone</span>
+              <span className="text-gray-700">{professor.phone || '—'}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-400 shrink-0">Email</span>
+              {professor.email
+                ? <a href={`mailto:${professor.email}`} className="text-brand-700 hover:underline truncate">{professor.email}</a>
+                : <span className="text-gray-700">—</span>
+              }
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-6">
+            No professor linked to <span className="font-medium text-gray-600">{courseCode}</span> yet.
+          </p>
+        )}
+
+        <button
+          onClick={onClose}
+          className="mt-5 w-full py-2 border border-gray-200 text-gray-600 text-sm
+                     font-medium rounded-xl hover:bg-gray-50 transition-colors"
+        >
+          Close
+        </button>
       </div>
     </div>
   );
@@ -562,125 +884,6 @@ function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-CA', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
-}
-
-// ── Exam requests tab ─────────────────────────────────────────────────────────
-function ExamRequestsTab() {
-  const [requests, setRequests] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [acting,   setActing]   = useState(null); // id being confirmed/cancelled
-
-  async function load() {
-    setLoading(true);
-    try {
-      const data = await api.get('/counsellor/exam-requests');
-      setRequests(data.examRequests ?? []);
-    } catch (err) {
-      toast(err.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function handleConfirm(id) {
-    setActing(id);
-    try {
-      await api.patch(`/counsellor/exam-requests/${id}/confirm`, {});
-      toast('Request confirmed');
-      load();
-    } catch (err) {
-      toast(err.message, 'error');
-    } finally {
-      setActing(null);
-    }
-  }
-
-  async function handleCancel(id) {
-    setActing(id);
-    try {
-      await api.patch(`/counsellor/exam-requests/${id}/cancel`, {});
-      toast('Request cancelled');
-      load();
-    } catch (err) {
-      toast(err.message, 'error');
-    } finally {
-      setActing(null);
-    }
-  }
-
-  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
-
-  if (requests.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-        <p className="text-sm font-medium text-gray-700">No pending exam requests</p>
-        <p className="text-xs text-gray-400 mt-1">
-          Student exam scheduling requests will appear here.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <h1 className="text-xl font-semibold text-gray-900 mb-4">
-        Exam requests
-        <span className="ml-2 text-sm font-normal text-gray-400">
-          {requests.length} pending
-        </span>
-      </h1>
-      <div className="space-y-2">
-        {requests.map(r => (
-          <div
-            key={r.id}
-            className="bg-white rounded-xl border border-gray-200 px-4 py-3"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-semibold text-gray-900">{r.course_code}</span>
-                  <span className="text-xs text-gray-500 capitalize">{r.exam_type.replace('_', ' ')}</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {r.first_name} {r.last_name}
-                  {r.student_number ? ` · #${r.student_number}` : ''}
-                  {' · '}{r.email}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {formatDate(r.exam_date)}
-                  {r.exam_time ? ` at ${r.exam_time.slice(0, 5)}` : ''}
-                  {' · '}Submitted {formatDate(r.created_at)}
-                </p>
-                {r.special_materials_note && (
-                  <p className="text-xs text-gray-500 mt-1 italic">{r.special_materials_note}</p>
-                )}
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <button
-                  onClick={() => handleConfirm(r.id)}
-                  disabled={acting === r.id}
-                  className="px-3 py-1.5 text-xs font-medium text-green-700 border border-green-300
-                             rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
-                >
-                  Confirm
-                </button>
-                <button
-                  onClick={() => handleCancel(r.id)}
-                  disabled={acting === r.id}
-                  className="px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200
-                             rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 // ── Registrations tab ─────────────────────────────────────────────────────────

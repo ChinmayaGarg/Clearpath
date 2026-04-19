@@ -80,7 +80,7 @@ export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
     <p className="text-sm text-gray-400 py-6 text-center">Professor not found</p>
   );
 
-  const tabs = ['profile', 'uploads', 'history'];
+  const tabs = ['profile', 'courses', 'uploads', 'history'];
 
   return (
     <div>
@@ -174,6 +174,11 @@ export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
         )
       )}
 
+      {/* Courses tab */}
+      {tab === 'courses' && (
+        <CoursesPanel dossiers={prof.dossiers ?? []} />
+      )}
+
       {/* Uploads tab */}
       {tab === 'uploads' && (
         <LeadUploadPanel professorId={prof.id} />
@@ -209,6 +214,80 @@ export default function ProfessorDetail({ professorId, onClose, onUpdated }) {
               No exam history yet
             </p>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Courses panel ─────────────────────────────────────────────────────────────
+function CoursesPanel({ dossiers }) {
+  // Collect unique terms in descending order
+  const terms = [...new Set(dossiers.map(d => d.term))].sort((a, b) => b.localeCompare(a));
+  const [selectedTerm, setSelectedTerm] = useState(terms[0] ?? '');
+
+  const visible = selectedTerm
+    ? dossiers.filter(d => d.term === selectedTerm)
+    : dossiers;
+
+  if (dossiers.length === 0) {
+    return (
+      <p className="text-sm text-gray-400 text-center py-6">
+        No courses linked to this professor yet
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Term filter */}
+      {terms.length > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setSelectedTerm('')}
+            className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+              selectedTerm === ''
+                ? 'bg-brand-600 text-white border-brand-600'
+                : 'border-gray-200 text-gray-500 hover:border-gray-400'
+            }`}
+          >
+            All terms
+          </button>
+          {terms.map(t => (
+            <button
+              key={t}
+              onClick={() => setSelectedTerm(t)}
+              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                selectedTerm === t
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'border-gray-200 text-gray-500 hover:border-gray-400'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Course list */}
+      {visible.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-4">
+          No courses for this term
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {visible.map(d => (
+            <div
+              key={d.id}
+              className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg
+                         border border-gray-100 bg-gray-50"
+            >
+              <span className="text-sm font-medium text-gray-900 shrink-0 whitespace-nowrap">
+                {d.course_code}
+              </span>
+              <span className="text-xs text-gray-400 truncate text-right">{d.term}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -100,14 +100,14 @@ export async function getProfessor(schema, professorId) {
     tenantQuery(
       schema,
       `SELECT
-         cd.id, cd.course_code, cd.preferred_delivery,
+         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
          cd.typical_materials, cd.password_reminder, cd.notes,
          cd.updated_at,
          u.first_name || ' ' || u.last_name AS last_updated_by_name
        FROM course_dossier cd
        LEFT JOIN "user" u ON u.id = cd.last_updated_by
        WHERE cd.professor_id = $1
-       ORDER BY cd.updated_at DESC`,
+       ORDER BY cd.term DESC, UPPER(cd.course_code)`,
       [professorId],
     ),
     tenantQuery(

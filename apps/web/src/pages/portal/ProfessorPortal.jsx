@@ -8,7 +8,7 @@ import UploadList              from '../../components/portal/UploadList.jsx';
 import UploadForm              from '../../components/portal/UploadForm.jsx';
 import ReuseRequests           from '../../components/portal/ReuseRequests.jsx';
 
-const TABS = ['My uploads', 'Reuse requests', 'Notifications'];
+const TABS = ['My uploads', 'Reuse requests', 'Exam requests', 'Notifications'];
 
 export default function ProfessorPortal() {
   const { user, logout }       = useAuth();
@@ -163,6 +163,8 @@ export default function ProfessorPortal() {
           <ReuseRequests key={refreshKey} onRefresh={refresh} />
         )}
 
+        {tab === 'Exam requests' && <ProfessorExamRequestsTab />}
+
         {tab === 'Notifications' && (
           <NotificationsTab onRead={refresh} />
         )}
@@ -178,6 +180,174 @@ export default function ProfessorPortal() {
           onSaved={() => { setShowForm(false); refresh(); }}
         />
       )}
+    </div>
+  );
+}
+
+function ProfessorExamRequestsTab() {
+  const [requests,     setRequests]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [acting,       setActing]       = useState(null);
+  const [rejectingId,  setRejectingId]  = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  async function load() {
+    setLoading(true);
+    try {
+      const data = await api.get('/portal/exam-requests');
+      setRequests(data.examRequests ?? []);
+    } catch (err) {
+      toast(err.message || 'Failed to load exam requests', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []); // eslint-disable-line
+
+  async function handleApprove(id) {
+    setActing(id);
+    try {
+      await api.patch(`/portal/exam-requests/${id}/approve`, {});
+      toast('Request approved — forwarded to accommodation centre');
+      load();
+    } catch (err) {
+      toast(err.message || 'Failed to approve request', 'error');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function handleReject(id) {
+    if (!rejectReason.trim()) { toast('Enter a reason for rejection', 'warning'); return; }
+    setActing(id);
+    try {
+      await api.patch(`/portal/exam-requests/${id}/reject`, { reason: rejectReason });
+      toast('Request rejected');
+      setRejectingId(null);
+      setRejectReason('');
+      load();
+    } catch (err) {
+      toast(err.message || 'Failed to reject request', 'error');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
+
+  if (requests.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+        <p className="text-sm font-medium text-gray-700">No pending exam requests</p>
+        <p className="text-xs text-gray-400 mt-1">
+          Student exam scheduling requests for your courses will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-gray-500">{requests.length} pending request{requests.length !== 1 ? 's' : ''}</p>
+      {requests.map(r => (
+        <div key={r.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+          {/* Student-submitted details — professor should verify these */}
+          <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-1.5">
+              Student-submitted details — please verify
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div>
+                <span className="text-[10px] text-amber-600 uppercase tracking-wide">Course</span>
+                <p className="text-sm font-semibold text-gray-900">{r.course_code}</p>
+              </div>
+              <div>
+                <span className="text-[10px] text-amber-600 uppercase tracking-wide">Exam type</span>
+                <p className="text-sm text-gray-800 capitalize">{r.exam_type.replace('_', ' ')}</p>
+              </div>
+              <div>
+                <span className="text-[10px] text-amber-600 uppercase tracking-wide">Exam date</span>
+                <p className="text-sm text-gray-800">
+                  {new Date(r.exam_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                </p>
+              </div>
+              <div>
+                <span className="text-[10px] text-amber-600 uppercase tracking-wide">Start time</span>
+                <p className="text-sm text-gray-800">{r.exam_time ? r.exam_time.slice(0, 5) : <span className="text-gray-400 italic">not specified</span>}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-[10px] text-amber-600 uppercase tracking-wide">Exam duration (without accommodations)</span>
+                <p className="text-sm text-gray-800">
+                  {r.student_duration_mins ? `${r.student_duration_mins} min` : <span className="text-gray-400 italic">not specified</span>}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs text-gray-600 font-medium">
+                {r.first_name} {r.last_name}
+                {r.student_number ? ` · #${r.student_number}` : ''}
+              </p>
+              {r.special_materials_note && (
+                <p className="text-xs text-gray-500 mt-1 italic">{r.special_materials_note}</p>
+              )}
+            </div>
+            {rejectingId !== r.id && (
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => handleApprove(r.id)}
+                  disabled={acting === r.id}
+                  className="px-3 py-1.5 text-xs font-medium text-green-700 border border-green-300
+                             rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => { setRejectingId(r.id); setRejectReason(''); }}
+                  disabled={acting === r.id}
+                  className="px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200
+                             rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </div>
+
+          {rejectingId === r.id && (
+            <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+              <textarea
+                autoFocus
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                rows={2}
+                placeholder="Reason for rejection…"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs
+                           focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => { setRejectingId(null); setRejectReason(''); }}
+                  className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleReject(r.id)}
+                  disabled={acting === r.id}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-red-500
+                             hover:bg-red-600 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {acting === r.id ? 'Rejecting…' : 'Confirm rejection'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

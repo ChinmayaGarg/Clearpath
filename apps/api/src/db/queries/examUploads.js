@@ -112,7 +112,7 @@ export async function listUploadsForProfessor(schema, professorProfileId) {
  * Get a single upload with dates and custom field values.
  */
 export async function getUpload(schema, uploadId, professorProfileId) {
-  const [uploadResult, datesResult, valuesResult] = await Promise.all([
+  const [uploadResult, datesResult, valuesResult, filesResult] = await Promise.all([
     tenantQuery(
       schema,
       `SELECT eu.*
@@ -137,24 +137,31 @@ export async function getUpload(schema, uploadId, professorProfileId) {
        WHERE euv.exam_upload_id = $1`,
       [uploadId],
     ),
+    tenantQuery(
+      schema,
+      `SELECT id, file_path, file_original_name, file_size, file_uploaded_at
+       FROM exam_upload_file
+       WHERE exam_upload_id = $1
+       ORDER BY file_uploaded_at ASC`,
+      [uploadId],
+    ),
   ]);
 
   if (!uploadResult.rows.length) return null;
 
   const upload = uploadResult.rows[0];
+  const { getFileUrl } = await import("../../services/fileStorage.js");
 
-  // Build file URL if file exists
-  let fileUrl = null;
-  if (upload.file_path) {
-    const { getFileUrl } = await import("../../services/fileStorage.js");
-    fileUrl = getFileUrl(upload.file_path);
-  }
+  const files = filesResult.rows.map(f => ({
+    ...f,
+    url: getFileUrl(f.file_path),
+  }));
 
   return {
     ...upload,
-    dates: datesResult.rows,
+    dates:  datesResult.rows,
     values: valuesResult.rows,
-    file_url: fileUrl,
+    files,
   };
 }
 
@@ -175,6 +182,11 @@ export async function createUpload(
     isMakeup,
     makeupNotes,
     estimatedCopies,
+    examDurationMins,
+    examFormat,
+    bookletType,
+    scantronNeeded,
+    calculatorAllowed,
   },
 ) {
   const result = await tenantQuery(
@@ -182,21 +194,27 @@ export async function createUpload(
     `INSERT INTO exam_upload
        (professor_profile_id, course_code, exam_type_label, version_label,
         delivery, materials, password, rwg_flag, is_makeup, makeup_notes,
-        estimated_copies, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft')
+        estimated_copies, exam_duration_mins, exam_format, booklet_type,
+        scantron_needed, calculator_allowed, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'draft')
      RETURNING id`,
     [
       professorProfileId,
       courseCode,
       examTypeLabel,
-      versionLabel ?? null,
-      delivery ?? "pending",
-      materials ?? null,
-      password ?? null,
-      rwgFlag ?? false,
-      isMakeup ?? false,
-      makeupNotes ?? null,
-      estimatedCopies ?? null,
+      versionLabel       ?? null,
+      delivery           ?? "pending",
+      materials          ?? null,
+      password           ?? null,
+      rwgFlag            ?? false,
+      isMakeup           ?? false,
+      makeupNotes        ?? null,
+      estimatedCopies    ?? null,
+      examDurationMins   ?? null,
+      examFormat         ?? null,
+      bookletType        ?? null,
+      scantronNeeded     ?? null,
+      calculatorAllowed  ?? null,
     ],
   );
   return result.rows[0].id;

@@ -33,6 +33,14 @@ const migrationMap = {
   9: "009_student_accommodations.sql",
   10: "010_student_registration.sql",
   11: "011_exam_booking_request.sql",
+  12: "012_exam_booking_professor_routing.sql",
+  13: "013_student_course.sql",
+  14: "014_exam_upload_extra_fields.sql",
+  15: "015_exam_upload_files.sql",
+  16: "016_add_accommodation_codes.sql",
+  17: "017_booking_request_duration.sql",
+  18: "018_remove_brightspace_accommodation.sql",
+  19: "019_booking_request_student_duration.sql",
 };
 
 const filename = migrationMap[targetVersion];

@@ -71,7 +71,7 @@ export async function getStudentPortalGrants(schema, studentProfileId) {
 }
 
 /**
- * Get all exam booking requests for a student.
+ * Get all exam booking requests for a student (includes computed duration fields).
  */
 export async function getStudentExamBookings(schema, studentProfileId) {
   const result = await tenantQuery(
@@ -79,6 +79,7 @@ export async function getStudentExamBookings(schema, studentProfileId) {
     `SELECT
        id, course_code, exam_date, exam_time, exam_type,
        special_materials_note, status,
+       base_duration_mins, extra_mins, stb_mins, computed_duration_mins,
        confirmed_at, created_at, updated_at
      FROM exam_booking_request
      WHERE student_profile_id = $1
@@ -89,7 +90,84 @@ export async function getStudentExamBookings(schema, studentProfileId) {
 }
 
 /**
- * Create a new exam booking request.
+ * Get all active accommodation code strings for a student (across all terms).
+ */
+export async function getStudentAccommodationCodes(schema, studentProfileId) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT DISTINCT ac.code
+     FROM student_accommodation sa
+     JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+     WHERE sa.student_profile_id = $1
+       AND ac.is_active = TRUE`,
+    [studentProfileId],
+  );
+  return result.rows.map((r) => r.code);
+}
+
+/**
+ * Find the base exam duration (minutes) from the most recently submitted
+ * exam_upload matching the given course code and exam type.
+ * Returns null if no upload is found.
+ */
+export async function findExamUploadDuration(schema, courseCode, examType) {
+  // exam_type_label uses 'endterm' while booking requests use 'final' — normalise
+  const label = examType === 'final' ? 'endterm' : examType;
+  const result = await tenantQuery(
+    schema,
+    `SELECT exam_duration_mins
+     FROM exam_upload
+     WHERE UPPER(course_code) = UPPER($1)
+       AND exam_type_label    = $2
+       AND status             = 'submitted'
+     ORDER BY submitted_at DESC
+     LIMIT 1`,
+    [courseCode, label],
+  );
+  return result.rows[0]?.exam_duration_mins ?? null;
+}
+
+/**
+ * Get existing booking requests for a student on a given date that have
+ * a time and a computed duration (used for overlap detection).
+ */
+export async function getStudentBookingsOnDate(schema, studentProfileId, examDate) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT exam_time, computed_duration_mins, course_code
+     FROM exam_booking_request
+     WHERE student_profile_id = $1
+       AND exam_date           = $2
+       AND status NOT IN ('cancelled', 'professor_rejected')
+       AND exam_time IS NOT NULL
+       AND computed_duration_mins IS NOT NULL`,
+    [studentProfileId, examDate],
+  );
+  return result.rows;
+}
+
+/**
+ * Get existing SARS appointments for a student on a given date.
+ */
+export async function getSarsAppointmentsOnDate(schema, studentProfileId, examDate) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT a.start_time, a.duration_mins, e.course_code
+     FROM appointment a
+     JOIN exam_room er ON er.id = a.exam_room_id
+     JOIN exam      e  ON e.id  = er.exam_id
+     JOIN exam_day  ed ON ed.id = e.exam_day_id
+     WHERE a.student_profile_id = $1
+       AND ed.date              = $2
+       AND a.is_cancelled       = FALSE
+       AND a.start_time IS NOT NULL`,
+    [studentProfileId, examDate],
+  );
+  return result.rows;
+}
+
+/**
+ * Create a new exam booking request (with precomputed duration fields).
  */
 export async function createExamBookingRequest(schema, {
   studentProfileId,
@@ -98,20 +176,46 @@ export async function createExamBookingRequest(schema, {
   examTime,
   examType,
   specialMaterialsNote,
+  studentDurationMins,
+  baseDurationMins,
+  extraMins,
+  stbMins,
+  computedDurationMins,
 }) {
+  const normalizedCode = courseCode.toUpperCase().trim();
+
+  // Look up the professor responsible for this course via course_dossier
+  const profResult = await tenantQuery(
+    schema,
+    `SELECT professor_id FROM course_dossier
+     WHERE UPPER(course_code) = $1
+     LIMIT 1`,
+    [normalizedCode],
+  );
+  const professorProfileId = profResult.rows[0]?.professor_id ?? null;
+
   const result = await tenantQuery(
     schema,
     `INSERT INTO exam_booking_request
-       (student_profile_id, course_code, exam_date, exam_time, exam_type, special_materials_note)
-     VALUES ($1, $2, $3, $4, $5, $6)
+       (student_profile_id, course_code, exam_date, exam_time, exam_type,
+        special_materials_note, professor_profile_id,
+        student_duration_mins,
+        base_duration_mins, extra_mins, stb_mins, computed_duration_mins)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id`,
     [
       studentProfileId,
-      courseCode.toUpperCase().trim(),
+      normalizedCode,
       examDate,
-      examTime ?? null,
-      examType ?? 'midterm',
+      examTime             ?? null,
+      examType             ?? 'midterm',
       specialMaterialsNote ?? null,
+      professorProfileId,
+      studentDurationMins  ?? null,
+      baseDurationMins     ?? null,
+      extraMins            ?? 0,
+      stbMins              ?? 0,
+      computedDurationMins ?? null,
     ],
   );
   return result.rows[0].id;

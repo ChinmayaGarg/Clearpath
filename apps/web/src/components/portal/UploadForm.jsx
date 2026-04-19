@@ -16,25 +16,41 @@ const EXAM_TYPES = [
 const DELIVERIES = [
   { value: "pending", label: "Not sure yet" },
   { value: "dropped", label: "I will drop it off" },
-  { value: "pickup", label: "AC picks it up" },
   { value: "delivery", label: "Delivered to room" },
   { value: "file_upload", label: "I will upload the file" },
+];
+
+const EXAM_FORMATS = [
+  { value: "", label: "Select…" },
+  { value: "paper", label: "Paper" },
+  { value: "crowdmark", label: "Crowdmark" },
+  { value: "brightspace", label: "Brightspace" },
+];
+
+const BOOKLET_TYPES = [
+  { value: "", label: "Select…" },
+  { value: "not_needed", label: "Not needed" },
+  { value: "engineering_booklet", label: "Engineering booklet" },
+  { value: "essay_booklet", label: "Essay booklet" },
 ];
 
 export default function UploadForm({ uploadId, onClose, onSaved }) {
   const isEdit = !!uploadId;
 
   const [form, setForm] = useState({
-    courseCode: "",
-    examTypeLabel: "midterm",
-    versionLabel: "",
-    delivery: "pending",
-    materials: "",
-    password: "",
-    rwgFlag: false,
-    isMakeup: false,
-    makeupNotes: "",
-    estimatedCopies: "",
+    courseCode:        "",
+    examTypeLabel:     "midterm",
+    delivery:          "pending",
+    materials:         "",
+    password:          "",
+    isMakeup:          false,
+    makeupNotes:       "",
+    estimatedCopies:   "",
+    examDurationMins:  "",
+    examFormat:        "",
+    bookletType:       "",
+    scantronNeeded:    "",
+    calculatorAllowed: "",
   });
   const [dates, setDates] = useState([]);
   const [newDate, setNewDate] = useState("");
@@ -47,10 +63,10 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
   const [submitting, setSubmitting] = useState(false);
   const [step, setStep] = useState("details"); // 'details' | 'dates'
 
-  // File upload state
-  const [selectedFile, setSelectedFile] = useState(null);
+  // Multi-file state
+  const [uploadedFiles, setUploadedFiles] = useState([]); // server-side files
+  const [pendingFile, setPendingFile] = useState(null);   // selected but not yet uploaded
   const [fileUploading, setFileUploading] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState(null);
   const fileInputRef = useRef(null);
 
   // Load existing upload if editing
@@ -61,27 +77,22 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
       .then((d) => {
         const u = d.upload;
         setForm({
-          courseCode: u.course_code,
-          examTypeLabel: u.exam_type_label,
-          versionLabel: u.version_label ?? "",
-          delivery: u.delivery,
-          materials: u.materials ?? "",
-          password: u.password ?? "",
-          rwgFlag: u.rwg_flag,
-          isMakeup: u.is_makeup,
-          makeupNotes: u.makeup_notes ?? "",
-          estimatedCopies: u.estimated_copies ?? "",
+          courseCode:        u.course_code,
+          examTypeLabel:     u.exam_type_label,
+          delivery:          u.delivery,
+          materials:         u.materials          ?? "",
+          password:          u.password           ?? "",
+          isMakeup:          u.is_makeup,
+          makeupNotes:       u.makeup_notes       ?? "",
+          estimatedCopies:   u.estimated_copies   ?? "",
+          examDurationMins:  u.exam_duration_mins ?? "",
+          examFormat:        u.exam_format        ?? "",
+          bookletType:       u.booklet_type       ?? "",
+          scantronNeeded:    u.scantron_needed    === true ? "yes" : u.scantron_needed === false ? "no" : "",
+          calculatorAllowed: u.calculator_allowed === true ? "yes" : u.calculator_allowed === false ? "no" : "",
         });
         setDates(u.dates ?? []);
-        // Load existing file info if present
-        if (u.file_path) {
-          setUploadedFile({
-            originalName: u.file_original_name,
-            size: u.file_size,
-            uploadedAt: u.file_uploaded_at,
-            url: u.file_url,
-          });
-        }
+        setUploadedFiles(u.files ?? []);
       })
       .catch((err) => toast(err.message, "error"))
       .finally(() => setLoading(false));
@@ -108,18 +119,79 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     };
   }, []);
 
+  function buildPayload() {
+    return {
+      ...form,
+      estimatedCopies:   form.estimatedCopies   !== "" ? Number(form.estimatedCopies)   : null,
+      examDurationMins:  form.examDurationMins  !== "" ? Number(form.examDurationMins)  : null,
+      examFormat:        form.examFormat        || null,
+      bookletType:       form.bookletType       || null,
+      scantronNeeded:    form.scantronNeeded    === "" ? null : form.scantronNeeded    === "yes",
+      calculatorAllowed: form.calculatorAllowed === "" ? null : form.calculatorAllowed === "yes",
+    };
+  }
+
+  async function handleUploadFile() {
+    if (!pendingFile) return;
+
+    // If no upload exists yet, create the draft first
+    let currentUploadId = uploadId_;
+    if (!currentUploadId) {
+      if (!form.courseCode)        { toast("Please select a course before uploading", "error"); return; }
+      if (!form.examDurationMins)  { toast("Exam duration is required", "error"); return; }
+      if (!form.examFormat)        { toast("Exam type is required", "error"); return; }
+      if (!form.bookletType)       { toast("Booklet selection is required", "error"); return; }
+      if (form.scantronNeeded === "") { toast("Scantron selection is required", "error"); return; }
+      if (form.calculatorAllowed === "") { toast("Calculator selection is required", "error"); return; }
+      try {
+        const data = await api.post("/portal/uploads", buildPayload());
+        currentUploadId = data.uploadId;
+        setUploadId_(currentUploadId);
+      } catch (err) {
+        toast(err.message, "error");
+        return;
+      }
+    }
+
+    setFileUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", pendingFile);
+      const result = await api.upload(`/portal/uploads/${currentUploadId}/files`, formData);
+      setUploadedFiles((prev) => [...prev, result.file]);
+      setPendingFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      toast("File uploaded", "success");
+    } catch (err) {
+      toast(err.message || "Failed to upload file", "error");
+    } finally {
+      setFileUploading(false);
+    }
+  }
+
+  async function handleRemoveFile(fileId) {
+    try {
+      await api.delete(`/portal/uploads/${uploadId_}/files/${fileId}`);
+      setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
   async function handleSaveDetails() {
-    if (form.delivery === "file_upload" && !uploadedFile && !selectedFile) {
-      toast("Please select an exam PDF file before continuing", "error");
+    if (!form.examDurationMins)  { toast("Exam duration is required", "error"); return; }
+    if (!form.examFormat)        { toast("Exam type is required", "error"); return; }
+    if (!form.bookletType)       { toast("Booklet selection is required", "error"); return; }
+    if (form.scantronNeeded === "") { toast("Scantron selection is required", "error"); return; }
+    if (form.calculatorAllowed === "") { toast("Calculator selection is required", "error"); return; }
+    if (form.delivery === "file_upload" && uploadedFiles.length === 0) {
+      toast("Please upload at least one exam file before continuing", "error");
       return;
     }
 
     setSaving(true);
     try {
-      const payload = {
-        ...form,
-        estimatedCopies: form.estimatedCopies !== "" ? Number(form.estimatedCopies) : null,
-      };
+      const payload = buildPayload();
       let currentUploadId = uploadId_;
       if (currentUploadId) {
         await api.put(`/portal/uploads/${currentUploadId}`, payload);
@@ -128,30 +200,27 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
         currentUploadId = data.uploadId;
         setUploadId_(currentUploadId);
       }
-
-      // Upload the file now that we have an uploadId
-      if (form.delivery === "file_upload" && selectedFile && !uploadedFile) {
-        setFileUploading(true);
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-        const result = await api.upload(
-          `/portal/uploads/${currentUploadId}/file`,
-          formData,
-        );
-        setUploadedFile(result.file);
-      }
-
       setStep("dates");
     } catch (err) {
       toast(err.message, "error");
     } finally {
       setSaving(false);
-      setFileUploading(false);
     }
   }
 
   async function handleAddDate() {
     if (!newDate) return;
+
+    // Enforce 1-hour minimum from now when a time is specified
+    if (newTime) {
+      const examDateTime = new Date(`${newDate}T${newTime}`);
+      const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+      if (examDateTime < oneHourFromNow) {
+        toast("Exam time must be at least 1 hour from now", "error");
+        return;
+      }
+    }
+
     try {
       const data = await api.post(`/portal/uploads/${uploadId_}/dates`, {
         examDate: newDate,
@@ -295,22 +364,6 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
-              Version label{" "}
-              <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <input
-              value={form.versionLabel}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, versionLabel: e.target.value }))
-              }
-              placeholder="e.g. Midterm 2 — Section A"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
               How will the exam be delivered?
             </label>
             <select
@@ -318,12 +371,6 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               onChange={(e) => {
                 const newDelivery = e.target.value;
                 setForm((f) => ({ ...f, delivery: newDelivery }));
-                // Clear file selection if not file_upload
-                if (newDelivery !== "file_upload") {
-                  setSelectedFile(null);
-                  setUploadedFile(null);
-                }
-                // Clear estimated copies if not dropped
                 if (newDelivery !== "dropped") {
                   setForm((f) => ({ ...f, estimatedCopies: "" }));
                 }
@@ -365,102 +412,186 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
           {/* File upload section - shown when delivery is file_upload */}
           {form.delivery === "file_upload" && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <label className="block text-xs font-medium text-gray-700 mb-2">
-                Exam file <span className="text-red-500">*</span>
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+              <label className="block text-xs font-medium text-gray-700">
+                Exam files <span className="text-red-500">*</span>
               </label>
 
-              {!uploadedFile ? (
-                <div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/pdf"
-                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                    className="hidden"
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm
-                                 font-medium rounded-lg transition-colors"
+              {/* List of uploaded files */}
+              {uploadedFiles.length > 0 && (
+                <div className="space-y-1.5">
+                  {uploadedFiles.map((f) => (
+                    <div
+                      key={f.id}
+                      className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-blue-100"
                     >
-                      {selectedFile ? "Change file" : "Choose PDF file"}
-                    </button>
-                    {selectedFile && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!uploadId_ || !selectedFile) return;
-                          setFileUploading(true);
-                          try {
-                            const formData = new FormData();
-                            formData.append("file", selectedFile);
-                            const result = await api.upload(
-                              `/portal/uploads/${uploadId_}/file`,
-                              formData,
-                            );
-                            setUploadedFile(result.file);
-                            toast("File uploaded successfully", "success");
-                          } catch (err) {
-                            toast(err.message || "Failed to upload file", "error");
-                          } finally {
-                            setFileUploading(false);
-                          }
-                        }}
-                        disabled={fileUploading}
-                        className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm
-                                   font-medium rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        {fileUploading ? "Uploading..." : "Upload"}
-                      </button>
-                    )}
-                  </div>
-                  {selectedFile && (
-                    <p className="text-xs text-gray-600 mt-2">
-                      Selected: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
-                    </p>
-                  )}
-                  <p className="text-xs text-blue-600 mt-2">
-                    Only PDF files up to 10MB are allowed.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {uploadedFile.originalName}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {(uploadedFile.size / 1024).toFixed(1)} KB • Uploaded{" "}
-                      {new Date(uploadedFile.uploadedAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <a
-                      href={uploadedFile.url}
-                      download
-                      className="text-xs text-blue-600 hover:text-blue-800"
-                    >
-                      Download
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFile(null);
-                        setUploadedFile(null);
-                        if (fileInputRef.current) fileInputRef.current.value = "";
-                      }}
-                      className="text-xs text-red-500 hover:text-red-700"
-                    >
-                      Remove
-                    </button>
-                  </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {f.file_original_name}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {f.file_size ? `${(f.file_size / 1024).toFixed(1)} KB` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {f.url && (
+                          <a
+                            href={f.url}
+                            download
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Download
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(f.id)}
+                          className="text-xs text-red-400 hover:text-red-600"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
+
+              {/* Add new file */}
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => setPendingFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm
+                               font-medium rounded-lg transition-colors"
+                  >
+                    {pendingFile ? "Change file" : "Add PDF file"}
+                  </button>
+                  {pendingFile && (
+                    <button
+                      type="button"
+                      onClick={handleUploadFile}
+                      disabled={fileUploading}
+                      className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm
+                                 font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {fileUploading ? "Uploading…" : "Upload"}
+                    </button>
+                  )}
+                </div>
+                {pendingFile && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    Selected: {pendingFile.name} ({(pendingFile.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+                <p className="text-xs text-blue-600 mt-1">
+                  PDF files up to 10 MB each.
+                </p>
+              </div>
             </div>
           )}
+
+          {/* Exam duration + format */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Exam duration <span className="text-red-500">*</span>{" "}
+                <span className="text-gray-400 font-normal">(minutes)</span>
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="600"
+                value={form.examDurationMins}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, examDurationMins: e.target.value }))
+                }
+                placeholder="e.g. 120"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Exam type <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={form.examFormat}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, examFormat: e.target.value }))
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+              >
+                {EXAM_FORMATS.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Booklet + scantron + calculator */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Booklet required? <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={form.bookletType}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, bookletType: e.target.value }))
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                         focus:outline-none focus:ring-2 focus:ring-brand-600"
+            >
+              {BOOKLET_TYPES.map((b) => (
+                <option key={b.value} value={b.value}>{b.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Scantron needed? <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={form.scantronNeeded}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, scantronNeeded: e.target.value }))
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+              >
+                <option value="">Select…</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Calculator? <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={form.calculatorAllowed}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, calculatorAllowed: e.target.value }))
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+              >
+                <option value="">Select…</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+          </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -472,7 +603,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                 setForm((f) => ({ ...f, materials: e.target.value }))
               }
               rows={2}
-              placeholder="e.g. Scientific calculator, one double-sided cue sheet"
+              placeholder="e.g. one double-sided cue sheet"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                          resize-none focus:outline-none focus:ring-2 focus:ring-brand-600"
             />
@@ -497,21 +628,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.rwgFlag}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, rwgFlag: e.target.checked }))
-                }
-                className="accent-brand-600"
-              />
-              <span className="text-sm text-gray-700">
-                Some students require a Word file (RWG accommodation)
-              </span>
-            </label>
-
+          <div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -521,9 +638,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                 }
                 className="accent-purple-600"
               />
-              <span className="text-sm text-gray-700">
-                This is a makeup exam
-              </span>
+              <span className="text-sm text-gray-700">This is a makeup exam</span>
             </label>
           </div>
 
@@ -549,13 +664,19 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
             onClick={handleSaveDetails}
             disabled={
               saving ||
+              fileUploading ||
               !form.courseCode ||
-              (form.delivery === "file_upload" && !uploadedFile && !selectedFile)
+              !form.examDurationMins ||
+              !form.examFormat ||
+              !form.bookletType ||
+              form.scantronNeeded === "" ||
+              form.calculatorAllowed === "" ||
+              (form.delivery === "file_upload" && uploadedFiles.length === 0)
             }
             className="w-full py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
                        font-medium rounded-lg transition-colors disabled:opacity-50"
           >
-            {fileUploading ? "Uploading file…" : saving ? "Saving…" : "Next →"}
+            {saving ? "Saving…" : "Next →"}
           </button>
         </div>
       )}
@@ -594,7 +715,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
             </div>
             <p className="text-xs text-gray-400 mt-1">
               Leave time blank if this exam applies to all time slots on that
-              date
+              date. If a time is set, it must be at least 1 hour from now.
             </p>
           </div>
 

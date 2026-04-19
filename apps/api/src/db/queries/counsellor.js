@@ -233,3 +233,48 @@ export async function removeStudentAccommodation(
   );
   return result.rows[0]?.id ?? null;
 }
+
+/**
+ * List manually-added course codes for a student (admin-assigned).
+ */
+export async function listStudentCourses(schema, studentProfileId) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT id, course_code, created_at
+     FROM student_course
+     WHERE student_profile_id = $1
+     ORDER BY course_code`,
+    [studentProfileId],
+  );
+  return result.rows;
+}
+
+/**
+ * Manually assign a course code to a student (admin only).
+ * Normalises courseCode to UPPER. Throws pg error 23505 on duplicate.
+ */
+export async function addStudentCourse(schema, { studentProfileId, courseCode, addedBy }) {
+  const result = await tenantQuery(
+    schema,
+    `INSERT INTO student_course (student_profile_id, course_code, added_by)
+     VALUES ($1, $2, $3)
+     RETURNING id, course_code, created_at`,
+    [studentProfileId, courseCode.trim().toUpperCase(), addedBy],
+  );
+  return result.rows[0];
+}
+
+/**
+ * Remove a manually-assigned course code from a student.
+ * Returns the deleted id, or null if not found.
+ */
+export async function removeStudentCourse(schema, studentProfileId, courseCode) {
+  const result = await tenantQuery(
+    schema,
+    `DELETE FROM student_course
+     WHERE student_profile_id = $1 AND course_code = $2
+     RETURNING id`,
+    [studentProfileId, courseCode],
+  );
+  return result.rows[0]?.id ?? null;
+}

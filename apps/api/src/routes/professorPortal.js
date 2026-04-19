@@ -55,8 +55,7 @@ router.use(requireRole("professor", "institution_admin", "lead"));
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 1,
+    fileSize: 10 * 1024 * 1024, // 10MB per file
   },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype !== "application/pdf") {
@@ -80,16 +79,21 @@ const EXAM_TYPES = [
 const DELIVERIES = ["pickup", "dropped", "delivery", "pending", "file_upload"];
 
 const createUploadSchema = z.object({
-  courseCode: z.string().min(1).max(50).trim().toUpperCase(),
-  examTypeLabel: z.enum(EXAM_TYPES),
-  versionLabel: z.string().max(100).optional().nullable(),
-  delivery: z.enum(DELIVERIES).default("pending"),
-  materials: z.string().max(500).optional().nullable(),
-  password: z.string().max(200).optional().nullable(),
-  rwgFlag: z.boolean().default(false),
-  isMakeup: z.boolean().default(false),
-  makeupNotes: z.string().max(500).optional().nullable(),
-  estimatedCopies: z.number().int().min(1).optional().nullable(),
+  courseCode:        z.string().min(1).max(50).trim().toUpperCase(),
+  examTypeLabel:     z.enum(EXAM_TYPES),
+  versionLabel:      z.string().max(100).optional().nullable(),
+  delivery:          z.enum(DELIVERIES).default("pending"),
+  materials:         z.string().max(500).optional().nullable(),
+  password:          z.string().max(200).optional().nullable(),
+  rwgFlag:           z.boolean().default(false),
+  isMakeup:          z.boolean().default(false),
+  makeupNotes:       z.string().max(500).optional().nullable(),
+  estimatedCopies:   z.number().int().min(1).optional().nullable(),
+  examDurationMins:  z.number().int().min(1).max(600),
+  examFormat:        z.enum(['crowdmark', 'paper', 'brightspace']),
+  bookletType:       z.enum(['engineering_booklet', 'essay_booklet', 'not_needed']),
+  scantronNeeded:    z.boolean(),
+  calculatorAllowed: z.boolean(),
 });
 
 const addDateSchema = z.object({
@@ -266,16 +270,21 @@ router.post("/uploads", async (req, res, next) => {
     await ensureCourseAllowed(req.tenantSchema, profId, data.courseCode);
     const uploadId = await createUpload(req.tenantSchema, {
       professorProfileId: profId,
-      courseCode: data.courseCode,
-      examTypeLabel: data.examTypeLabel,
-      versionLabel: data.versionLabel,
-      delivery: data.delivery,
-      materials: data.materials,
-      password: data.password,
-      rwgFlag: data.rwgFlag,
-      isMakeup: data.isMakeup,
-      makeupNotes: data.makeupNotes,
-      estimatedCopies: data.estimatedCopies,
+      courseCode:        data.courseCode,
+      examTypeLabel:     data.examTypeLabel,
+      versionLabel:      data.versionLabel,
+      delivery:          data.delivery,
+      materials:         data.materials,
+      password:          data.password,
+      rwgFlag:           data.rwgFlag,
+      isMakeup:          data.isMakeup,
+      makeupNotes:       data.makeupNotes,
+      estimatedCopies:   data.estimatedCopies,
+      examDurationMins:  data.examDurationMins,
+      examFormat:        data.examFormat,
+      bookletType:       data.bookletType,
+      scantronNeeded:    data.scantronNeeded,
+      calculatorAllowed: data.calculatorAllowed,
     });
 
     await persistUploadDossier(req.tenantSchema, uploadId, req.user.id);
@@ -308,21 +317,26 @@ router.put("/uploads/:id", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
-    // Enforce 2-day edit lock: reject if any exam date is within 2 days
+    // Lock editing once the earliest exam date+time has passed (exam has started)
     const datesResult = await tenantQuery(
       req.tenantSchema,
-      `SELECT MIN(exam_date) AS earliest_date
+      `SELECT exam_date, time_slot
        FROM exam_upload_date
-       WHERE exam_upload_id = $1`,
+       WHERE exam_upload_id = $1
+       ORDER BY exam_date ASC, time_slot ASC NULLS LAST
+       LIMIT 1`,
       [req.params.id],
     );
-    const earliest = datesResult.rows[0]?.earliest_date;
+    const earliest = datesResult.rows[0];
     if (earliest) {
-      const diffDays = (new Date(earliest) - new Date()) / (1000 * 60 * 60 * 24);
-      if (diffDays <= 2) {
+      const dateStr = new Date(earliest.exam_date).toISOString().split("T")[0];
+      const examStart = earliest.time_slot
+        ? new Date(`${dateStr}T${earliest.time_slot}`)
+        : new Date(`${dateStr}T00:00:00`);
+      if (examStart <= new Date()) {
         return res.status(403).json({
           ok: false,
-          error: "This exam can no longer be edited — it is within 2 days of the exam date.",
+          error: "This exam can no longer be edited — it has already started.",
         });
       }
     }
@@ -340,12 +354,15 @@ router.put("/uploads/:id", async (req, res, next) => {
     if (data.delivery !== undefined) dbFields.delivery = data.delivery;
     if (data.materials !== undefined) dbFields.materials = data.materials;
     if (data.password !== undefined) dbFields.password = data.password;
-    if (data.rwgFlag !== undefined) dbFields.rwg_flag = data.rwgFlag;
-    if (data.isMakeup !== undefined) dbFields.is_makeup = data.isMakeup;
-    if (data.makeupNotes !== undefined)
-      dbFields.makeup_notes = data.makeupNotes;
-    if (data.estimatedCopies !== undefined)
-      dbFields.estimated_copies = data.estimatedCopies;
+    if (data.rwgFlag !== undefined)           dbFields.rwg_flag           = data.rwgFlag;
+    if (data.isMakeup !== undefined)          dbFields.is_makeup          = data.isMakeup;
+    if (data.makeupNotes !== undefined)       dbFields.makeup_notes       = data.makeupNotes;
+    if (data.estimatedCopies !== undefined)   dbFields.estimated_copies   = data.estimatedCopies;
+    if (data.examDurationMins !== undefined)  dbFields.exam_duration_mins = data.examDurationMins;
+    if (data.examFormat !== undefined)        dbFields.exam_format        = data.examFormat;
+    if (data.bookletType !== undefined)       dbFields.booklet_type       = data.bookletType;
+    if (data.scantronNeeded !== undefined)    dbFields.scantron_needed    = data.scantronNeeded;
+    if (data.calculatorAllowed !== undefined) dbFields.calculator_allowed = data.calculatorAllowed;
 
     await updateUpload(req.tenantSchema, req.params.id, profId, dbFields);
     await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
@@ -491,8 +508,93 @@ router.post(
   },
 );
 
+// ── POST /api/portal/uploads/:id/files ───────────────────────────────────────
+// Add a file to an upload (supports multiple files)
+router.post(
+  "/uploads/:id/files",
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      const profId = await getProfId(req, res);
+      if (!profId) return;
+
+      if (!req.file) {
+        return res.status(400).json({ ok: false, error: "No file provided" });
+      }
+
+      // Verify upload belongs to professor
+      const check = await tenantQuery(
+        req.tenantSchema,
+        `SELECT id FROM exam_upload WHERE id = $1 AND professor_profile_id = $2`,
+        [req.params.id, profId],
+      );
+      if (!check.rows.length) {
+        return res.status(404).json({ ok: false, error: "Upload not found" });
+      }
+
+      const storagePath = generateFilePath(req.tenantSchema, req.params.id, req.file.originalname);
+      const { size } = await saveFile(req.file.buffer, storagePath);
+
+      const result = await tenantQuery(
+        req.tenantSchema,
+        `INSERT INTO exam_upload_file
+           (exam_upload_id, file_path, file_original_name, file_size)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, file_original_name, file_size, file_uploaded_at`,
+        [req.params.id, storagePath, req.file.originalname, size],
+      );
+
+      const row = result.rows[0];
+      res.status(201).json({
+        ok: true,
+        file: {
+          id:           row.id,
+          originalName: row.file_original_name,
+          size:         row.file_size,
+          uploadedAt:   row.file_uploaded_at,
+          url:          getFileUrl(storagePath),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── DELETE /api/portal/uploads/:id/files/:fileId ──────────────────────────────
+router.delete("/uploads/:id/files/:fileId", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    // Verify ownership via join
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `DELETE FROM exam_upload_file f
+       USING exam_upload eu
+       WHERE f.id = $1
+         AND f.exam_upload_id = eu.id
+         AND eu.id = $2
+         AND eu.professor_profile_id = $3
+       RETURNING f.file_path`,
+      [req.params.fileId, req.params.id, profId],
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ ok: false, error: "File not found" });
+    }
+
+    const { deleteFile } = await import("../services/fileStorage.js");
+    await deleteFile(result.rows[0].file_path);
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET /api/portal/uploads/:id/file ─────────────────────────────────────────
-// Download the uploaded file
+// Download the uploaded file (legacy single-file endpoint)
 router.get("/uploads/:id/file", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
@@ -605,6 +707,121 @@ router.post("/notifications/read", async (req, res, next) => {
     if (!profId) return;
 
     await markNotificationsRead(req.tenantSchema, profId);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/portal/exam-requests ────────────────────────────────────────────
+router.get("/exam-requests", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time,
+         ebr.exam_type, ebr.special_materials_note, ebr.status, ebr.created_at,
+         ebr.student_duration_mins,
+         u.first_name, u.last_name, u.email,
+         sp.student_number
+       FROM exam_booking_request ebr
+       JOIN student_profile sp ON sp.id = ebr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       WHERE (
+         ebr.professor_profile_id = $1
+         OR EXISTS (
+           SELECT 1 FROM course_dossier cd
+           WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+             AND cd.professor_id = $1
+         )
+       )
+         AND ebr.status = 'pending'
+       ORDER BY ebr.exam_date ASC, ebr.created_at ASC`,
+      [profId],
+    );
+    res.json({ ok: true, examRequests: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/portal/exam-requests/:id/approve ──────────────────────────────
+router.patch("/exam-requests/:id/approve", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE exam_booking_request
+       SET status = 'professor_approved',
+           professor_profile_id = COALESCE(professor_profile_id, $2),
+           updated_at = NOW()
+       WHERE id = $1
+         AND status = 'pending'
+         AND (
+           professor_profile_id = $2
+           OR EXISTS (
+             SELECT 1 FROM course_dossier cd
+             WHERE UPPER(cd.course_code) = UPPER(
+               (SELECT course_code FROM exam_booking_request WHERE id = $1)
+             )
+               AND cd.professor_id = $2
+           )
+         )
+       RETURNING id`,
+      [req.params.id, profId],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Request not found or already actioned" });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/portal/exam-requests/:id/reject ───────────────────────────────
+const examRejectSchema = z.object({
+  reason: z.string().min(1).max(1000),
+});
+
+router.patch("/exam-requests/:id/reject", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const { reason } = examRejectSchema.parse(req.body);
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE exam_booking_request
+       SET status = 'professor_rejected',
+           professor_profile_id = COALESCE(professor_profile_id, $2),
+           rejection_reason = $3,
+           rejected_by = $4,
+           updated_at = NOW()
+       WHERE id = $1
+         AND status = 'pending'
+         AND (
+           professor_profile_id = $2
+           OR EXISTS (
+             SELECT 1 FROM course_dossier cd
+             WHERE UPPER(cd.course_code) = UPPER(
+               (SELECT course_code FROM exam_booking_request WHERE id = $1)
+             )
+               AND cd.professor_id = $2
+           )
+         )
+       RETURNING id`,
+      [req.params.id, profId, reason, req.user.id],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Request not found or already actioned" });
+    }
     res.json({ ok: true });
   } catch (err) {
     next(err);

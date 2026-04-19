@@ -581,15 +581,27 @@ FROM schema_id,
 
 -- Seed: Default accommodation codes
 INSERT INTO :schema_name.accommodation_code (code, label, triggers_rwg_flag) VALUES
-    ('RWG',       'Read/Write/Graph',              TRUE),
-    ('DRAGON',    'Dragon Naturally Speaking',      TRUE),
-    ('STB',       'Separate test-taking building',  FALSE),
-    ('20MIN/HR',  '20 min/hr extra time',           FALSE),
-    ('30MIN/HR',  '30 min/hr extra time',           FALSE),
-    ('WP',        'Word processor',                 FALSE),
-    ('OR',        'Oral response',                  FALSE),
-    ('READER',    'Reader/Scribe',                  FALSE),
-    ('BRIGHTSPACE','Brightspace exam',              FALSE);
+    ('RWG',          'Read/Write/Graph',              TRUE),
+    ('DRAGON',       'Dragon Naturally Speaking',      TRUE),
+    ('STB',          'Separate test-taking building',  FALSE),
+    ('10MIN/HR',     '10 min/hr extra time',           FALSE),
+    ('15MIN/HR',     '15 min/hr extra time',           FALSE),
+    ('20MIN/HR',     '20 min/hr extra time',           FALSE),
+    ('30MIN/HR',     '30 min/hr extra time',           FALSE),
+    ('45MIN/HR',     '45 min/hr extra time',           FALSE),
+    ('60MIN/HR',     '60 min/hr extra time',           FALSE),
+    ('10MIN/HR STB', '10 min/hr Stop Time Break',      FALSE),
+    ('15MIN/HR STB', '15 min/hr Stop Time Break',      FALSE),
+    ('20MIN/HR STB', '20 min/hr Stop Time Break',      FALSE),
+    ('30MIN/HR STB', '30 min/hr Stop Time Break',      FALSE),
+    ('45MIN/HR STB', '45 min/hr Stop Time Break',      FALSE),
+    ('60MIN/HR STB', '60 min/hr Stop Time Break',      FALSE),
+    ('COMPUTER',     'Computer',                       FALSE),
+    ('24HR SPACE',   'Exam spaced 24 hours apart',     FALSE),
+    ('NO AFTER 5PM', 'Cannot write after 5 PM',        FALSE),
+    ('WP',           'Word processor',                 FALSE),
+    ('OR',           'Oral response',                  FALSE),
+    ('READER',       'Reader/Scribe',                  FALSE);
 
 -- ===========================================================================
 -- Updated_at trigger function (reusable)

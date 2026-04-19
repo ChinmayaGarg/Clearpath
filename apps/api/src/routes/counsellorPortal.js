@@ -29,6 +29,9 @@ import {
   getAppointmentAccommodations,
   addStudentAccommodation,
   removeStudentAccommodation,
+  listStudentCourses,
+  addStudentCourse,
+  removeStudentCourse,
 } from "../db/queries/counsellor.js";
 import {
   listPendingRegistrations,
@@ -113,6 +116,66 @@ router.get("/students/:id/exams", async (req, res, next) => {
     next(err);
   }
 });
+
+// ── GET /api/counsellor/students/:id/courses ─────────────────────────────────
+router.get("/students/:id/courses", async (req, res, next) => {
+  try {
+    const courses = await listStudentCourses(req.tenantSchema, req.params.id);
+    res.json({ courses });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/counsellor/students/:id/courses — admin only ────────────────────
+const addCourseSchema = z.object({
+  courseCode: z.string().min(1).max(30),
+});
+
+router.post(
+  "/students/:id/courses",
+  requireRole("institution_admin"),
+  async (req, res, next) => {
+    try {
+      const parsed = addCourseSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues[0].message });
+      }
+      const row = await addStudentCourse(req.tenantSchema, {
+        studentProfileId: req.params.id,
+        courseCode:       parsed.data.courseCode,
+        addedBy:          req.user.id,
+      });
+      res.status(201).json({ course: row });
+    } catch (err) {
+      if (err.code === "23505") {
+        return res.status(409).json({ error: "This course code is already assigned to this student" });
+      }
+      next(err);
+    }
+  },
+);
+
+// ── DELETE /api/counsellor/students/:id/courses/:courseCode — admin only ──────
+router.delete(
+  "/students/:id/courses/:courseCode",
+  requireRole("institution_admin"),
+  async (req, res, next) => {
+    try {
+      const deleted = await removeStudentCourse(
+        req.tenantSchema,
+        req.params.id,
+        req.params.courseCode,
+      );
+      if (!deleted) {
+        return res.status(404).json({ error: "Course not found for this student" });
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ── POST /api/counsellor/students/:id/accommodations ─────────────────────────
 const addAccSchema = z.object({
@@ -258,6 +321,51 @@ router.patch("/registrations/:id/provider-form", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/counsellor/courses/:courseCode/professor ─────────────────────────
+router.get("/courses/:courseCode/professor", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         pp.id, pp.department, pp.phone, pp.office,
+         u.first_name, u.last_name, u.email,
+         cd.term, cd.preferred_delivery, cd.typical_materials,
+         cd.notes, cd.course_code
+       FROM course_dossier cd
+       JOIN professor_profile pp ON pp.id = cd.professor_id
+       JOIN "user" u ON u.id = pp.user_id
+       WHERE UPPER(cd.course_code) = UPPER($1)
+       ORDER BY cd.term DESC
+       LIMIT 1`,
+      [req.params.courseCode],
+    );
+    if (!result.rows.length) {
+      return res.json({ professor: null });
+    }
+    res.json({ professor: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/counsellor/students/:id/exam-requests ───────────────────────────
+router.get("/students/:id/exam-requests", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time,
+         ebr.exam_type, ebr.special_materials_note, ebr.status,
+         ebr.rejection_reason, ebr.confirmed_at, ebr.created_at,
+         ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
+         ebr.computed_duration_mins
+       FROM exam_booking_request ebr
+       WHERE ebr.student_profile_id = $1
+       ORDER BY ebr.exam_date ASC, ebr.created_at ASC`,
+      [req.params.id],
+    );
+    res.json({ examRequests: result.rows });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/counsellor/exam-requests ────────────────────────────────────────
 router.get("/exam-requests", async (req, res, next) => {
   try {
@@ -272,7 +380,7 @@ router.get("/exam-requests", async (req, res, next) => {
        FROM exam_booking_request ebr
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
-       WHERE ebr.status = 'pending'
+       WHERE ebr.status = 'professor_approved'
        ORDER BY ebr.exam_date ASC, ebr.created_at ASC`,
     );
     res.json({ examRequests: result.rows });

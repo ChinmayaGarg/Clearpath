@@ -23,7 +23,7 @@ import Spinner                    from './components/ui/Spinner.jsx';
  * ProtectedRoute — uses granular selectors to avoid re-rendering
  * on every store change. Each selector subscribes only to what it needs.
  */
-function ProtectedRoute({ children, requiredRole }) {
+function ProtectedRoute({ children, requiredRole, requiredRoles }) {
   const user    = useAuthStore(s => s.user);
   const roles   = useAuthStore(s => s.roles);
   const loading = useAuthStore(s => s.loading);
@@ -34,7 +34,8 @@ function ProtectedRoute({ children, requiredRole }) {
     </div>
   );
   if (!user) return <Navigate to="/login" replace />;
-  if (requiredRole && !roles.includes(requiredRole)) {
+  const allowed = requiredRoles ?? (requiredRole ? [requiredRole] : null);
+  if (allowed && !allowed.some(r => roles.includes(r))) {
     return <Navigate to="/" replace />;
   }
   return children;
@@ -77,7 +78,7 @@ export default function App() {
           <ProtectedRoute requiredRole="professor"><ProfessorPortal /></ProtectedRoute>
         } />
         <Route path="/counsellor" element={
-          <ProtectedRoute requiredRole="counsellor"><CounsellorPortal /></ProtectedRoute>
+          <ProtectedRoute requiredRoles={['counsellor', 'institution_admin']}><CounsellorPortal /></ProtectedRoute>
         } />
         <Route path="/student" element={
           <ProtectedRoute requiredRole="student"><StudentPortal /></ProtectedRoute>

@@ -7,10 +7,34 @@ import Spinner                 from '../../components/ui/Spinner.jsx';
 
 const EXAM_TYPES = ['midterm', 'final', 'quiz', 'assignment', 'other'];
 
+// Time slots: 7:45 AM – 8:00 PM in 5-minute intervals
+const TIME_SLOTS = (() => {
+  const slots = [];
+  for (let mins = 7 * 60 + 45; mins <= 20 * 60; mins += 5) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const period = h < 12 ? 'AM' : 'PM';
+    const displayH = h > 12 ? h - 12 : h;
+    slots.push({ value, label: `${displayH}:${String(m).padStart(2, '0')} ${period}` });
+  }
+  return slots;
+})();
+
 const STATUS_BADGE = {
-  pending:   'bg-yellow-100 text-yellow-700',
-  confirmed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-gray-100 text-gray-400',
+  pending:              'bg-yellow-100 text-yellow-700',
+  professor_approved:   'bg-blue-100 text-blue-700',
+  professor_rejected:   'bg-red-100 text-red-600',
+  confirmed:            'bg-green-100 text-green-700',
+  cancelled:            'bg-gray-100 text-gray-400',
+};
+
+const STATUS_LABEL = {
+  pending:              'Awaiting professor',
+  professor_approved:   'Professor approved',
+  professor_rejected:   'Professor rejected',
+  confirmed:            'Confirmed',
+  cancelled:            'Cancelled',
 };
 
 const REG_STATUS_BADGE = {
@@ -224,14 +248,22 @@ function ExamRequestsTab() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-gray-800">{b.course_code}</span>
                 <span className="text-xs text-gray-500 capitalize">{b.exam_type.replace('_', ' ')}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded font-medium capitalize ${STATUS_BADGE[b.status] ?? ''}`}>
-                  {b.status}
+                <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_BADGE[b.status] ?? ''}`}>
+                  {STATUS_LABEL[b.status] ?? b.status}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
                 {formatDate(b.exam_date)}
                 {b.exam_time ? ` at ${formatTime(b.exam_time)}` : ''}
               </p>
+              {b.computed_duration_mins ? (
+                <p className="text-xs text-indigo-600 mt-0.5">
+                  Est. {b.computed_duration_mins} min
+                  {b.base_duration_mins && b.computed_duration_mins !== b.base_duration_mins
+                    ? ` (${b.base_duration_mins} base + ${b.extra_mins > 0 ? `${b.extra_mins} extra time` : ''}${b.extra_mins > 0 && b.stb_mins > 0 ? ' + ' : ''}${b.stb_mins > 0 ? `${b.stb_mins} STB` : ''})`
+                    : ''}
+                </p>
+              ) : null}
               {b.special_materials_note && (
                 <p className="text-xs text-gray-400 mt-1">{b.special_materials_note}</p>
               )}
@@ -252,6 +284,21 @@ function ExamRequestsTab() {
   );
 }
 
+// ── Duration helpers (mirrors backend durationCalc.js) ────────────────────────
+function computeStudentTotalMins(baseMins, codes) {
+  let maxExtra = 0;
+  let maxStb   = 0;
+  for (const code of codes) {
+    const m = code.match(/^(\d+)MIN\/HR$/);
+    if (m) maxExtra = Math.max(maxExtra, parseInt(m[1], 10));
+    const s = code.match(/^(\d+)MIN\/HR STB$/);
+    if (s) maxStb   = Math.max(maxStb,   parseInt(s[1], 10));
+  }
+  const extra = Math.round((baseMins / 60) * maxExtra);
+  const stb   = Math.round((baseMins / 60) * maxStb);
+  return { extra, stb, total: baseMins + extra + stb };
+}
+
 // ── Booking form ───────────────────────────────────────────────────────────────
 function BookingForm({ onSuccess, onCancel }) {
   const [form, setForm] = useState({
@@ -259,10 +306,34 @@ function BookingForm({ onSuccess, onCancel }) {
     examDate:             '',
     examTime:             '',
     examType:             'midterm',
+    examDurationMins:     '',
     specialMaterialsNote: '',
   });
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
+  const [courses,          setCourses]          = useState([]);
+  const [accommodationCodes, setAccommodationCodes] = useState([]);
+  const [loading,          setLoading]          = useState(false);
+  const [error,            setError]            = useState('');
+
+  useEffect(() => {
+    api.get('/student/courses')
+      .then(d => setCourses(d.data ?? []))
+      .catch(() => {});
+    api.get('/student/accommodation-codes')
+      .then(d => setAccommodationCodes(d.data ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Live-compute estimated end time for display
+  const estimatedEnd = (() => {
+    const base = parseInt(form.examDurationMins, 10);
+    if (!form.examTime || !base) return null;
+    const [h, m] = form.examTime.split(':').map(Number);
+    const { extra, stb, total } = computeStudentTotalMins(base, accommodationCodes);
+    const endMins = h * 60 + m + total;
+    const endH = String(Math.floor(endMins / 60) % 24).padStart(2, '0');
+    const endM = String(endMins % 60).padStart(2, '0');
+    return { time: `${endH}:${endM}`, base, extra, stb, totalMins: total, past10pm: endMins > 22 * 60 };
+  })();
 
   function set(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -271,8 +342,16 @@ function BookingForm({ onSuccess, onCancel }) {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-    if (!form.courseCode.trim()) { setError('Course code is required.'); return; }
-    if (!form.examDate)          { setError('Exam date is required.'); return; }
+    if (!form.courseCode)       { setError('Course code is required.'); return; }
+    if (!form.examDate)         { setError('Exam date is required.'); return; }
+    if (!form.examTime)         { setError('Start time is required.'); return; }
+    if (!form.examDurationMins) { setError('Exam duration is required.'); return; }
+
+    // 10 PM check with accommodations applied
+    if (estimatedEnd?.past10pm) {
+      setError(`Your exam (including accommodations) would end at ${estimatedEnd.time}, which is past 10:00 PM. Please choose an earlier start time.`);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -281,6 +360,7 @@ function BookingForm({ onSuccess, onCancel }) {
         examDate:             form.examDate,
         examTime:             form.examTime || undefined,
         examType:             form.examType,
+        examDurationMins:     Number(form.examDurationMins),
         specialMaterialsNote: form.specialMaterialsNote || undefined,
       });
       toast('Exam request submitted');
@@ -292,10 +372,10 @@ function BookingForm({ onSuccess, onCancel }) {
     }
   }
 
-  // Minimum date = tomorrow
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split('T')[0];
+  // Minimum date = 9 days from today
+  const earliest = new Date();
+  earliest.setDate(earliest.getDate() + 9);
+  const minDate = earliest.toISOString().split('T')[0];
 
   return (
     <div className="bg-white rounded-xl border border-brand-200 p-4 space-y-3">
@@ -306,14 +386,23 @@ function BookingForm({ onSuccess, onCancel }) {
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Course code <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={form.courseCode}
-              onChange={e => set('courseCode', e.target.value.toUpperCase())}
-              placeholder="CSCI 3161"
-              className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
+            {courses.length > 0 ? (
+              <select
+                value={form.courseCode}
+                onChange={e => set('courseCode', e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
+              >
+                <option value="">Select course…</option>
+                {courses.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-xs text-gray-400 py-1.5">
+                No courses found. Contact your accessibility centre.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -348,21 +437,57 @@ function BookingForm({ onSuccess, onCancel }) {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              Start time (optional)
+              Start time <span className="text-red-500">*</span>
             </label>
-            <input
-              type="time"
+            <select
               value={form.examTime}
               onChange={e => set('examTime', e.target.value)}
               className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
+                         focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
+            >
+              <option value="">Select time…</option>
+              {TIME_SLOTS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
           </div>
         </div>
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            Special materials / notes (optional)
+            Exam duration <span className="text-red-500">*</span>{' '}
+            <span className="text-gray-400 font-normal">(minutes, without accommodations)</span>
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="600"
+            value={form.examDurationMins}
+            onChange={e => set('examDurationMins', e.target.value)}
+            placeholder="e.g. 120"
+            className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
+                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+          />
+          {estimatedEnd && (
+            <p className={`text-xs mt-1 ${estimatedEnd.past10pm ? 'text-red-600' : 'text-gray-400'}`}>
+              Est. end: {estimatedEnd.time}
+              {(estimatedEnd.extra > 0 || estimatedEnd.stb > 0) ? (
+                <> — {estimatedEnd.base} min
+                  {estimatedEnd.extra > 0 && ` + ${estimatedEnd.extra} min extra time`}
+                  {estimatedEnd.stb   > 0 && ` + ${estimatedEnd.stb} min STB`}
+                  {' '}= {estimatedEnd.totalMins} min total
+                </>
+              ) : (
+                <> — {estimatedEnd.totalMins} min</>
+              )}
+              {estimatedEnd.past10pm && ' — past 10:00 PM'}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Notes (optional)
           </label>
           <textarea
             value={form.specialMaterialsNote}
