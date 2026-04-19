@@ -5,7 +5,7 @@ import { api }                        from '../../lib/api.js';
 import { toast }                      from '../../components/ui/Toast.jsx';
 import Spinner                        from '../../components/ui/Spinner.jsx';
 
-const PORTAL_TABS = ['Students', 'Registrations'];
+const PORTAL_TABS = ['Students', 'Registrations', 'Exam requests'];
 
 export default function CounsellorPortal() {
   const { user, logout }         = useAuth();
@@ -83,6 +83,8 @@ export default function CounsellorPortal() {
             <RegistrationsTab onSelect={setSelectedReg} />
           )
         )}
+
+        {tab === 'Exam requests' && <ExamRequestsTab />}
 
       </div>
     </div>
@@ -560,6 +562,125 @@ function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-CA', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
+}
+
+// ── Exam requests tab ─────────────────────────────────────────────────────────
+function ExamRequestsTab() {
+  const [requests, setRequests] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [acting,   setActing]   = useState(null); // id being confirmed/cancelled
+
+  async function load() {
+    setLoading(true);
+    try {
+      const data = await api.get('/counsellor/exam-requests');
+      setRequests(data.examRequests ?? []);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function handleConfirm(id) {
+    setActing(id);
+    try {
+      await api.patch(`/counsellor/exam-requests/${id}/confirm`, {});
+      toast('Request confirmed');
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function handleCancel(id) {
+    setActing(id);
+    try {
+      await api.patch(`/counsellor/exam-requests/${id}/cancel`, {});
+      toast('Request cancelled');
+      load();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  if (requests.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+        <p className="text-sm font-medium text-gray-700">No pending exam requests</p>
+        <p className="text-xs text-gray-400 mt-1">
+          Student exam scheduling requests will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-xl font-semibold text-gray-900 mb-4">
+        Exam requests
+        <span className="ml-2 text-sm font-normal text-gray-400">
+          {requests.length} pending
+        </span>
+      </h1>
+      <div className="space-y-2">
+        {requests.map(r => (
+          <div
+            key={r.id}
+            className="bg-white rounded-xl border border-gray-200 px-4 py-3"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-gray-900">{r.course_code}</span>
+                  <span className="text-xs text-gray-500 capitalize">{r.exam_type.replace('_', ' ')}</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {r.first_name} {r.last_name}
+                  {r.student_number ? ` · #${r.student_number}` : ''}
+                  {' · '}{r.email}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {formatDate(r.exam_date)}
+                  {r.exam_time ? ` at ${r.exam_time.slice(0, 5)}` : ''}
+                  {' · '}Submitted {formatDate(r.created_at)}
+                </p>
+                {r.special_materials_note && (
+                  <p className="text-xs text-gray-500 mt-1 italic">{r.special_materials_note}</p>
+                )}
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => handleConfirm(r.id)}
+                  disabled={acting === r.id}
+                  className="px-3 py-1.5 text-xs font-medium text-green-700 border border-green-300
+                             rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => handleCancel(r.id)}
+                  disabled={acting === r.id}
+                  className="px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200
+                             rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── Registrations tab ─────────────────────────────────────────────────────────

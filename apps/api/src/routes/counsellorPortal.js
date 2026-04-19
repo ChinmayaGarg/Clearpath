@@ -258,4 +258,61 @@ router.patch("/registrations/:id/provider-form", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/counsellor/exam-requests ────────────────────────────────────────
+router.get("/exam-requests", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time,
+         ebr.exam_type, ebr.special_materials_note, ebr.status,
+         ebr.confirmed_at, ebr.created_at,
+         u.first_name, u.last_name, u.email,
+         sp.student_number
+       FROM exam_booking_request ebr
+       JOIN student_profile sp ON sp.id = ebr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       WHERE ebr.status = 'pending'
+       ORDER BY ebr.exam_date ASC, ebr.created_at ASC`,
+    );
+    res.json({ examRequests: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/counsellor/exam-requests/:id/confirm ──────────────────────────
+router.patch("/exam-requests/:id/confirm", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE exam_booking_request
+       SET status = 'confirmed', confirmed_by = $2, confirmed_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND status = 'pending'
+       RETURNING id`,
+      [req.params.id, req.user.id],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Request not found or already actioned" });
+    }
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/counsellor/exam-requests/:id/cancel ───────────────────────────
+router.patch("/exam-requests/:id/cancel", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE exam_booking_request
+       SET status = 'cancelled', updated_at = NOW()
+       WHERE id = $1 AND status = 'pending'
+       RETURNING id`,
+      [req.params.id],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Request not found or already actioned" });
+    }
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 export default router;
