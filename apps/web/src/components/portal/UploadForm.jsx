@@ -27,6 +27,22 @@ const EXAM_FORMATS = [
   { value: "brightspace", label: "Brightspace" },
 ];
 
+const CALCULATOR_TYPES = [
+  { value: "", label: "Select…" },
+  { value: "scientific", label: "Scientific calculator" },
+  { value: "non_programmable", label: "Non-programmable & non-communicable calculator" },
+  { value: "financial", label: "Financial calculator" },
+  { value: "basic", label: "Basic calculator" },
+  { value: "none", label: "No calculator" },
+];
+
+const COLLECTION_METHODS = [
+  { value: "", label: "Select…" },
+  { value: "delivery", label: "Delivered to room after exam" },
+  { value: "pickup_mah", label: "Pickup from MAH (Studley Campus)" },
+  { value: "pickup_sexton", label: "Pickup from Sexton Campus" },
+];
+
 const BOOKLET_TYPES = [
   { value: "", label: "Select…" },
   { value: "not_needed", label: "Not needed" },
@@ -46,11 +62,13 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     isMakeup:          false,
     makeupNotes:       "",
     estimatedCopies:   "",
-    examDurationMins:  "",
-    examFormat:        "",
-    bookletType:       "",
-    scantronNeeded:    "",
-    calculatorAllowed: "",
+    examDurationMins:     "",
+    examFormat:           "",
+    bookletType:          "",
+    scantronNeeded:       "",
+    calculatorType:       "",
+    studentInstructions:  "",
+    examCollectionMethod: "",
   });
   const [dates, setDates] = useState([]);
   const [newDate, setNewDate] = useState("");
@@ -85,11 +103,13 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
           isMakeup:          u.is_makeup,
           makeupNotes:       u.makeup_notes       ?? "",
           estimatedCopies:   u.estimated_copies   ?? "",
-          examDurationMins:  u.exam_duration_mins ?? "",
-          examFormat:        u.exam_format        ?? "",
-          bookletType:       u.booklet_type       ?? "",
-          scantronNeeded:    u.scantron_needed    === true ? "yes" : u.scantron_needed === false ? "no" : "",
-          calculatorAllowed: u.calculator_allowed === true ? "yes" : u.calculator_allowed === false ? "no" : "",
+          examDurationMins:     u.exam_duration_mins      ?? "",
+          examFormat:           u.exam_format             ?? "",
+          bookletType:          u.booklet_type            ?? "",
+          scantronNeeded:       u.scantron_needed === true ? "yes" : u.scantron_needed === false ? "no" : "",
+          calculatorType:       u.calculator_type         ?? "",
+          studentInstructions:  u.student_instructions    ?? "",
+          examCollectionMethod: u.exam_collection_method  ?? "",
         });
         setDates(u.dates ?? []);
         setUploadedFiles(u.files ?? []);
@@ -124,10 +144,12 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
       ...form,
       estimatedCopies:   form.estimatedCopies   !== "" ? Number(form.estimatedCopies)   : null,
       examDurationMins:  form.examDurationMins  !== "" ? Number(form.examDurationMins)  : null,
-      examFormat:        form.examFormat        || null,
-      bookletType:       form.bookletType       || null,
-      scantronNeeded:    form.scantronNeeded    === "" ? null : form.scantronNeeded    === "yes",
-      calculatorAllowed: form.calculatorAllowed === "" ? null : form.calculatorAllowed === "yes",
+      examFormat:           form.examFormat           || null,
+      bookletType:          form.bookletType          || null,
+      scantronNeeded:       form.scantronNeeded === "" ? null : form.scantronNeeded === "yes",
+      calculatorType:       form.calculatorType       || null,
+      studentInstructions:  form.studentInstructions  || null,
+      examCollectionMethod: form.examCollectionMethod || null,
     };
   }
 
@@ -137,12 +159,13 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     // If no upload exists yet, create the draft first
     let currentUploadId = uploadId_;
     if (!currentUploadId) {
-      if (!form.courseCode)        { toast("Please select a course before uploading", "error"); return; }
-      if (!form.examDurationMins)  { toast("Exam duration is required", "error"); return; }
-      if (!form.examFormat)        { toast("Exam type is required", "error"); return; }
-      if (!form.bookletType)       { toast("Booklet selection is required", "error"); return; }
-      if (form.scantronNeeded === "") { toast("Scantron selection is required", "error"); return; }
-      if (form.calculatorAllowed === "") { toast("Calculator selection is required", "error"); return; }
+      if (!form.courseCode)             { toast("Please select a course before uploading", "error"); return; }
+      if (!form.examDurationMins)       { toast("Exam duration is required", "error"); return; }
+      if (!form.examFormat)             { toast("Exam type is required", "error"); return; }
+      if (!form.bookletType)            { toast("Booklet selection is required", "error"); return; }
+      if (form.scantronNeeded === "")   { toast("Scantron selection is required", "error"); return; }
+      if (!form.calculatorType)         { toast("Calculator selection is required", "error"); return; }
+      if (!form.examCollectionMethod)   { toast("Exam collection method is required", "error"); return; }
       try {
         const data = await api.post("/portal/uploads", buildPayload());
         currentUploadId = data.uploadId;
@@ -179,11 +202,12 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
   }
 
   async function handleSaveDetails() {
-    if (!form.examDurationMins)  { toast("Exam duration is required", "error"); return; }
-    if (!form.examFormat)        { toast("Exam type is required", "error"); return; }
-    if (!form.bookletType)       { toast("Booklet selection is required", "error"); return; }
+    if (!form.examDurationMins)     { toast("Exam duration is required", "error"); return; }
+    if (!form.examFormat)           { toast("Exam type is required", "error"); return; }
+    if (!form.bookletType)          { toast("Booklet selection is required", "error"); return; }
     if (form.scantronNeeded === "") { toast("Scantron selection is required", "error"); return; }
-    if (form.calculatorAllowed === "") { toast("Calculator selection is required", "error"); return; }
+    if (!form.calculatorType)       { toast("Calculator selection is required", "error"); return; }
+    if (!form.examCollectionMethod) { toast("Exam collection method is required", "error"); return; }
     if (form.delivery === "file_upload" && uploadedFiles.length === 0) {
       toast("Please upload at least one exam file before continuing", "error");
       return;
@@ -556,41 +580,67 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Scantron needed? <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={form.scantronNeeded}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, scantronNeeded: e.target.value }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-600"
-              >
-                <option value="">Select…</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Calculator? <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={form.calculatorAllowed}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, calculatorAllowed: e.target.value }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-600"
-              >
-                <option value="">Select…</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Scantron needed? <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={form.scantronNeeded}
+              onChange={(e) => setForm((f) => ({ ...f, scantronNeeded: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                         focus:outline-none focus:ring-2 focus:ring-brand-600"
+            >
+              <option value="">Select…</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Calculator? <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={form.calculatorType}
+              onChange={(e) => setForm((f) => ({ ...f, calculatorType: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                         focus:outline-none focus:ring-2 focus:ring-brand-600"
+            >
+              {CALCULATOR_TYPES.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              How would you like to collect completed exams? <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={form.examCollectionMethod}
+              onChange={(e) => setForm((f) => ({ ...f, examCollectionMethod: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                         focus:outline-none focus:ring-2 focus:ring-brand-600"
+            >
+              {COLLECTION_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Instructions for students{" "}
+              <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <textarea
+              value={form.studentInstructions}
+              onChange={(e) => setForm((f) => ({ ...f, studentInstructions: e.target.value }))}
+              rows={3}
+              placeholder="e.g. Allowed to use phone/laptop to submit PDF during the last 10 minutes"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                         resize-none focus:outline-none focus:ring-2 focus:ring-brand-600"
+            />
           </div>
 
           <div>
@@ -670,7 +720,8 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               !form.examFormat ||
               !form.bookletType ||
               form.scantronNeeded === "" ||
-              form.calculatorAllowed === "" ||
+              !form.calculatorType ||
+              !form.examCollectionMethod ||
               (form.delivery === "file_upload" && uploadedFiles.length === 0)
             }
             className="w-full py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm

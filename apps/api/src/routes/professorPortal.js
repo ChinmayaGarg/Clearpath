@@ -89,11 +89,13 @@ const createUploadSchema = z.object({
   isMakeup:          z.boolean().default(false),
   makeupNotes:       z.string().max(500).optional().nullable(),
   estimatedCopies:   z.number().int().min(1).optional().nullable(),
-  examDurationMins:  z.number().int().min(1).max(600),
-  examFormat:        z.enum(['crowdmark', 'paper', 'brightspace']),
-  bookletType:       z.enum(['engineering_booklet', 'essay_booklet', 'not_needed']),
-  scantronNeeded:    z.boolean(),
-  calculatorAllowed: z.boolean(),
+  examDurationMins:      z.number().int().min(1).max(600),
+  examFormat:            z.enum(['crowdmark', 'paper', 'brightspace']),
+  bookletType:           z.enum(['engineering_booklet', 'essay_booklet', 'not_needed']),
+  scantronNeeded:        z.boolean(),
+  calculatorType:        z.enum(['scientific', 'non_programmable', 'financial', 'basic', 'none']),
+  studentInstructions:   z.string().max(1000).optional().nullable(),
+  examCollectionMethod:  z.enum(['delivery', 'pickup_mah', 'pickup_sexton']),
 });
 
 const addDateSchema = z.object({
@@ -269,22 +271,24 @@ router.post("/uploads", async (req, res, next) => {
     const data = createUploadSchema.parse(req.body);
     await ensureCourseAllowed(req.tenantSchema, profId, data.courseCode);
     const uploadId = await createUpload(req.tenantSchema, {
-      professorProfileId: profId,
-      courseCode:        data.courseCode,
-      examTypeLabel:     data.examTypeLabel,
-      versionLabel:      data.versionLabel,
-      delivery:          data.delivery,
-      materials:         data.materials,
-      password:          data.password,
-      rwgFlag:           data.rwgFlag,
-      isMakeup:          data.isMakeup,
-      makeupNotes:       data.makeupNotes,
-      estimatedCopies:   data.estimatedCopies,
-      examDurationMins:  data.examDurationMins,
-      examFormat:        data.examFormat,
-      bookletType:       data.bookletType,
-      scantronNeeded:    data.scantronNeeded,
-      calculatorAllowed: data.calculatorAllowed,
+      professorProfileId:  profId,
+      courseCode:          data.courseCode,
+      examTypeLabel:       data.examTypeLabel,
+      versionLabel:        data.versionLabel,
+      delivery:            data.delivery,
+      materials:           data.materials,
+      password:            data.password,
+      rwgFlag:             data.rwgFlag,
+      isMakeup:            data.isMakeup,
+      makeupNotes:         data.makeupNotes,
+      estimatedCopies:     data.estimatedCopies,
+      examDurationMins:    data.examDurationMins,
+      examFormat:          data.examFormat,
+      bookletType:         data.bookletType,
+      scantronNeeded:      data.scantronNeeded,
+      calculatorType:      data.calculatorType,
+      studentInstructions: data.studentInstructions,
+      examCollectionMethod: data.examCollectionMethod,
     });
 
     await persistUploadDossier(req.tenantSchema, uploadId, req.user.id);
@@ -357,12 +361,14 @@ router.put("/uploads/:id", async (req, res, next) => {
     if (data.rwgFlag !== undefined)           dbFields.rwg_flag           = data.rwgFlag;
     if (data.isMakeup !== undefined)          dbFields.is_makeup          = data.isMakeup;
     if (data.makeupNotes !== undefined)       dbFields.makeup_notes       = data.makeupNotes;
-    if (data.estimatedCopies !== undefined)   dbFields.estimated_copies   = data.estimatedCopies;
-    if (data.examDurationMins !== undefined)  dbFields.exam_duration_mins = data.examDurationMins;
-    if (data.examFormat !== undefined)        dbFields.exam_format        = data.examFormat;
-    if (data.bookletType !== undefined)       dbFields.booklet_type       = data.bookletType;
-    if (data.scantronNeeded !== undefined)    dbFields.scantron_needed    = data.scantronNeeded;
-    if (data.calculatorAllowed !== undefined) dbFields.calculator_allowed = data.calculatorAllowed;
+    if (data.estimatedCopies !== undefined)      dbFields.estimated_copies      = data.estimatedCopies;
+    if (data.examDurationMins !== undefined)     dbFields.exam_duration_mins     = data.examDurationMins;
+    if (data.examFormat !== undefined)           dbFields.exam_format            = data.examFormat;
+    if (data.bookletType !== undefined)          dbFields.booklet_type           = data.bookletType;
+    if (data.scantronNeeded !== undefined)       dbFields.scantron_needed        = data.scantronNeeded;
+    if (data.calculatorType !== undefined)       dbFields.calculator_type        = data.calculatorType;
+    if (data.studentInstructions !== undefined)  dbFields.student_instructions   = data.studentInstructions;
+    if (data.examCollectionMethod !== undefined) dbFields.exam_collection_method = data.examCollectionMethod;
 
     await updateUpload(req.tenantSchema, req.params.id, profId, dbFields);
     await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
@@ -682,6 +688,73 @@ router.post("/reuse/:id/respond", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ── GET /api/portal/my-students ──────────────────────────────────────────────
+// Returns all confirmed students whose exam bookings the professor approved,
+// grouped by course code then exam date.
+router.get("/my-students", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         ebr.id AS booking_id,
+         ebr.course_code, ebr.exam_type,
+         ebr.exam_date, ebr.exam_time, ebr.status,
+         ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
+         ebr.student_duration_mins,
+         u.first_name, u.last_name, u.email,
+         sp.student_number
+       FROM exam_booking_request ebr
+       JOIN student_profile sp ON sp.id = ebr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       WHERE ebr.professor_profile_id = $1
+         AND ebr.status IN ('professor_approved', 'confirmed')
+       ORDER BY ebr.course_code ASC, ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST, u.last_name ASC`,
+      [profId],
+    );
+
+    // Group: courseCode → { examDate, examTime, students[] }
+    const grouped = {};
+    for (const row of result.rows) {
+      const courseKey = row.course_code;
+      const dateKey   = `${row.exam_date}__${row.exam_time ?? ''}__${row.exam_type}`;
+
+      if (!grouped[courseKey]) grouped[courseKey] = { courseCode: courseKey, dates: {} };
+
+      if (!grouped[courseKey].dates[dateKey]) {
+        grouped[courseKey].dates[dateKey] = {
+          examDate:        row.exam_date,
+          examTime:        row.exam_time ? row.exam_time.slice(0, 5) : null,
+          examType:        row.exam_type,
+          students:        [],
+        };
+      }
+
+      grouped[courseKey].dates[dateKey].students.push({
+        bookingId:    row.booking_id,
+        firstName:    row.first_name,
+        lastName:     row.last_name,
+        email:        row.email,
+        studentNumber: row.student_number,
+        status:       row.status,
+        baseDurationMins:  row.base_duration_mins ?? row.student_duration_mins,
+        extraMins:    row.extra_mins ?? 0,
+        stbMins:      row.stb_mins  ?? 0,
+      });
+    }
+
+    // Flatten to array
+    const courses = Object.values(grouped).map(c => ({
+      courseCode: c.courseCode,
+      dates: Object.values(c.dates),
+    }));
+
+    res.json({ ok: true, courses });
+  } catch (err) { next(err); }
 });
 
 // ── GET /api/portal/notifications ────────────────────────────────────────────

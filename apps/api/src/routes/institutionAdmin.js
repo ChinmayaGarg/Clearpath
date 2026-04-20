@@ -90,12 +90,30 @@ router.patch('/bookings/:id/cancel', async (req, res, next) => {
       `UPDATE exam_booking_request
        SET status = 'cancelled', updated_at = NOW()
        WHERE id = $1 AND status = 'professor_approved'
-       RETURNING id`,
+       RETURNING id, course_code, exam_date, exam_time, professor_profile_id,
+                 (SELECT first_name || ' ' || last_name FROM "user" u
+                  JOIN student_profile sp ON sp.user_id = u.id
+                  WHERE sp.id = exam_booking_request.student_profile_id) AS student_name`,
       [req.params.id],
     );
     if (!result.rows.length) {
       return res.status(404).json({ ok: false, error: 'Request not found or already actioned' });
     }
+
+    // Notify professor (fire-and-forget)
+    const { professor_profile_id, student_name, course_code, exam_date, exam_time } = result.rows[0];
+    if (professor_profile_id) {
+      const dateStr = new Date(exam_date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = exam_time ? ` at ${exam_time.slice(0, 5)}` : '';
+      tenantQuery(
+        req.tenantSchema,
+        `INSERT INTO upload_notification (professor_profile_id, type, message)
+         VALUES ($1, 'booking_cancelled', $2)`,
+        [professor_profile_id,
+          `${student_name ?? 'A student'}'s booking for ${course_code} on ${dateStr}${timeStr} has been cancelled.`],
+      ).catch(() => {});
+    }
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

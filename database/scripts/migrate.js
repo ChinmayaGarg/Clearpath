@@ -44,6 +44,8 @@ const migrationMap = {
   20: "020_booking_rooms.sql",
   21: "021_booking_schedule.sql",
   22: "022_prep_notification_type.sql",
+  23: "023_exam_upload_extras.sql",
+  24: "024_notification_types.sql",
 };
 
 const filename = migrationMap[targetVersion];

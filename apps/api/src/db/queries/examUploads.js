@@ -186,7 +186,9 @@ export async function createUpload(
     examFormat,
     bookletType,
     scantronNeeded,
-    calculatorAllowed,
+    calculatorType,
+    studentInstructions,
+    examCollectionMethod,
   },
 ) {
   const result = await tenantQuery(
@@ -195,26 +197,28 @@ export async function createUpload(
        (professor_profile_id, course_code, exam_type_label, version_label,
         delivery, materials, password, rwg_flag, is_makeup, makeup_notes,
         estimated_copies, exam_duration_mins, exam_format, booklet_type,
-        scantron_needed, calculator_allowed, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'draft')
+        scantron_needed, calculator_type, student_instructions, exam_collection_method, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'draft')
      RETURNING id`,
     [
       professorProfileId,
       courseCode,
       examTypeLabel,
-      versionLabel       ?? null,
-      delivery           ?? "pending",
-      materials          ?? null,
-      password           ?? null,
-      rwgFlag            ?? false,
-      isMakeup           ?? false,
-      makeupNotes        ?? null,
-      estimatedCopies    ?? null,
-      examDurationMins   ?? null,
-      examFormat         ?? null,
-      bookletType        ?? null,
-      scantronNeeded     ?? null,
-      calculatorAllowed  ?? null,
+      versionLabel          ?? null,
+      delivery              ?? "pending",
+      materials             ?? null,
+      password              ?? null,
+      rwgFlag               ?? false,
+      isMakeup              ?? false,
+      makeupNotes           ?? null,
+      estimatedCopies       ?? null,
+      examDurationMins      ?? null,
+      examFormat            ?? null,
+      bookletType           ?? null,
+      scantronNeeded        ?? null,
+      calculatorType        ?? null,
+      studentInstructions   ?? null,
+      examCollectionMethod  ?? null,
     ],
   );
   return result.rows[0].id;
@@ -240,6 +244,13 @@ export async function updateUpload(
     "is_makeup",
     "makeup_notes",
     "estimated_copies",
+    "exam_duration_mins",
+    "exam_format",
+    "booklet_type",
+    "scantron_needed",
+    "calculator_type",
+    "student_instructions",
+    "exam_collection_method",
   ];
   const setClauses = [];
   const values = [];

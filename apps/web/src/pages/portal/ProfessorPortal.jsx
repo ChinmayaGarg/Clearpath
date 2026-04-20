@@ -8,7 +8,7 @@ import UploadList              from '../../components/portal/UploadList.jsx';
 import UploadForm              from '../../components/portal/UploadForm.jsx';
 import ReuseRequests           from '../../components/portal/ReuseRequests.jsx';
 
-const TABS = ['My uploads', 'Reuse requests', 'Exam requests', 'Notifications'];
+const TABS = ['My uploads', 'My students', 'Reuse requests', 'Exam requests', 'Notifications'];
 
 export default function ProfessorPortal() {
   const { user, logout }       = useAuth();
@@ -158,6 +158,8 @@ export default function ProfessorPortal() {
             )}
           </div>
         )}
+
+        {tab === 'My students' && <MyStudentsTab />}
 
         {tab === 'Reuse requests' && (
           <ReuseRequests key={refreshKey} onRefresh={refresh} />
@@ -352,6 +354,83 @@ function ProfessorExamRequestsTab() {
   );
 }
 
+function fmt12(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'pm' : 'am';
+  return `${h % 12 || 12}:${m.toString().padStart(2, '0')}${ampm}`;
+}
+
+function fmtDate(d) {
+  return new Date(d + 'T12:00:00').toLocaleDateString('en-CA', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  });
+}
+
+function MyStudentsTab() {
+  const [courses, setCourses] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/portal/my-students')
+      .then(d => setCourses(d.courses ?? []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []); // eslint-disable-line
+
+  if (loading) return <div className="flex justify-center py-10"><div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" /></div>;
+
+  if (!courses.length) return (
+    <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+      <p className="text-sm font-medium text-gray-700">No confirmed students yet</p>
+      <p className="text-xs text-gray-400 mt-1">Students whose exam requests you approved will appear here once confirmed by the accommodation centre.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {courses.map(course => (
+        <div key={course.courseCode} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+            <span className="text-sm font-semibold text-gray-900">{course.courseCode}</span>
+            <span className="text-xs text-gray-400 ml-2">
+              {course.dates.reduce((n, d) => n + d.students.length, 0)} student{course.dates.reduce((n, d) => n + d.students.length, 0) !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {course.dates.map((dateGroup, i) => (
+              <div key={i} className="px-4 py-3">
+                <p className="text-xs font-semibold text-gray-500 mb-2">
+                  {fmtDate(dateGroup.examDate)}
+                  {dateGroup.examTime && <span className="ml-1.5">at {fmt12(dateGroup.examTime)}</span>}
+                  <span className="ml-1.5 capitalize text-gray-400">· {dateGroup.examType}</span>
+                </p>
+                <div className="space-y-1.5">
+                  {dateGroup.students.map(s => (
+                    <div key={s.bookingId} className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm text-gray-900">{s.firstName} {s.lastName}</span>
+                        {s.studentNumber && <span className="text-xs text-gray-400 ml-1.5">#{s.studentNumber}</span>}
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        s.status === 'confirmed'
+                          ? 'bg-green-50 text-green-700'
+                          : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {s.status === 'confirmed' ? 'Confirmed' : 'Awaiting confirmation'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NotificationsTab({ onRead }) {
   const [notifications, setNotifications] = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -372,8 +451,10 @@ function NotificationsTab({ onRead }) {
     upload_received: { icon: '✓',  label: 'Upload received', colour: 'border-l-green-400 bg-green-50'   },
     reuse_requested: { icon: '🔄', label: 'Reuse requested', colour: 'border-l-blue-400 bg-blue-50'     },
     reuse_approved:  { icon: '✓',  label: 'Reuse approved',  colour: 'border-l-green-400 bg-green-50'   },
-    reuse_denied:           { icon: '✕',  label: 'Reuse denied',    colour: 'border-l-red-400 bg-red-50'       },
-    booking_upload_needed:  { icon: '📤', label: 'Upload needed',   colour: 'border-l-orange-400 bg-orange-50' },
+    reuse_denied:           { icon: '✕',  label: 'Reuse denied',      colour: 'border-l-red-400 bg-red-50'       },
+    booking_upload_needed:  { icon: '📤', label: 'Upload needed',     colour: 'border-l-orange-400 bg-orange-50' },
+    upload_reminder:        { icon: '⏰', label: 'Upload reminder',   colour: 'border-l-amber-400 bg-amber-50'   },
+    booking_cancelled:      { icon: '✕',  label: 'Booking cancelled', colour: 'border-l-red-400 bg-red-50'       },
   };
 
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
