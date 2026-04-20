@@ -13,6 +13,7 @@ import Students                   from './pages/Students.jsx';
 import Analytics                  from './pages/Analytics.jsx';
 import Board                      from './pages/Board.jsx';
 import { ClaimStart, ClaimSetPassword } from './pages/ClaimAccount.jsx';
+import Prep                             from './pages/Prep.jsx';
 import ProfessorPortal            from './pages/portal/ProfessorPortal.jsx';
 import CounsellorPortal           from './pages/portal/CounsellorPortal.jsx';
 import StudentPortal              from './pages/portal/StudentPortal.jsx';
@@ -99,6 +100,9 @@ export default function App() {
         } />
         <Route path="/analytics" element={
           <ProtectedRoute requiredRole="institution_admin"><Analytics /></ProtectedRoute>
+        } />
+        <Route path="/prep" element={
+          <ProtectedRoute requiredRoles={['lead', 'institution_admin']}><Prep /></ProtectedRoute>
         } />
         <Route path="/students" element={
           <ProtectedRoute><Students /></ProtectedRoute>

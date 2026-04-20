@@ -61,17 +61,23 @@ router.get('/bookings', async (req, res, next) => {
 // ── PATCH /api/institution/bookings/:id/confirm ───────────────────────────────
 router.patch('/bookings/:id/confirm', async (req, res, next) => {
   try {
+    const schema = req.tenantSchema;
     const result = await tenantQuery(
-      req.tenantSchema,
+      schema,
       `UPDATE exam_booking_request
        SET status = 'confirmed', confirmed_by = $2, confirmed_at = NOW(), updated_at = NOW()
        WHERE id = $1 AND status = 'professor_approved'
-       RETURNING id`,
+       RETURNING id, course_code, exam_date, exam_time`,
       [req.params.id, req.user.id],
     );
     if (!result.rows.length) {
       return res.status(404).json({ ok: false, error: 'Request not found or already actioned' });
     }
+
+    // Notify professor to upload exam file (fire-and-forget — don't block response)
+    const { course_code, exam_date, exam_time } = result.rows[0];
+    notifyProfessorUploadNeeded(schema, course_code, exam_date, exam_time).catch(() => {});
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -436,5 +442,42 @@ router.get('/schedule', async (req, res, next) => {
     res.json({ ok: true, data: { scheduleId, date, rooms: Object.values(roomMap) } });
   } catch (err) { next(err); }
 });
+
+// ── Professor notification helper ─────────────────────────────────────────────
+async function notifyProfessorUploadNeeded(schema, courseCode, examDate, examTime) {
+  // Look up professor for this course
+  const profResult = await tenantQuery(
+    schema,
+    `SELECT cd.professor_id
+     FROM course_dossier cd
+     WHERE UPPER(cd.course_code) = UPPER($1)
+     LIMIT 1`,
+    [courseCode],
+  );
+  const professorProfileId = profResult.rows[0]?.professor_id;
+  if (!professorProfileId) return;
+
+  // Count total confirmed students for this course/date
+  const countResult = await tenantQuery(
+    schema,
+    `SELECT COUNT(*) AS n FROM exam_booking_request
+     WHERE UPPER(course_code) = UPPER($1) AND exam_date = $2 AND status = 'confirmed'`,
+    [courseCode, examDate],
+  );
+  const studentCount = parseInt(countResult.rows[0]?.n ?? '0', 10);
+
+  const timeStr = examTime ? examTime.slice(0, 5) : '';
+  const dateStr = new Date(examDate).toLocaleDateString('en-CA', {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+  const message = `${studentCount} student${studentCount !== 1 ? 's' : ''} confirmed for ${courseCode} on ${dateStr}${timeStr ? ` at ${timeStr}` : ''}. Please upload your exam file and Word document (required for RWG students) via the Professor Portal.`;
+
+  await tenantQuery(
+    schema,
+    `INSERT INTO upload_notification (professor_profile_id, type, message)
+     VALUES ($1, 'booking_upload_needed', $2)`,
+    [professorProfileId, message],
+  );
+}
 
 export default router;

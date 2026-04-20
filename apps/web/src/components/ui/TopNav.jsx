@@ -3,7 +3,7 @@ import { useAuth } from "../../hooks/useAuth.js";
 import NotificationBell from "../notifications/NotificationBell.jsx";
 
 export default function TopNav() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isLead, logout } = useAuth();
 
   const navLinks = [
     { to: "/", label: "Book", end: true },
@@ -16,6 +16,10 @@ export default function TopNav() {
     navLinks.push({ to: "/counsellor", label: "Counsellor" });
     navLinks.push({ to: "/admin", label: "Admin" });
     navLinks.push({ to: "/analytics", label: "Analytics" });
+  }
+
+  if (isAdmin || isLead) {
+    navLinks.push({ to: "/prep", label: "Prep" });
   }
 
   return (

@@ -27,6 +27,7 @@ import counsellorPortalRoutes from './routes/counsellorPortal.js';
 import registerRoutes         from './routes/register.js';
 import studentPortalRoutes    from './routes/studentPortal.js';
 import institutionAdminRoutes from './routes/institutionAdmin.js';
+import prepRoutes             from './routes/prepPortal.js';
 import healthRoutes  from './routes/health.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,7 @@ app.use('/api/counsellor',    counsellorPortalRoutes);
 app.use('/api/register',      registerRoutes); // public student registration
 app.use('/api/student',       studentPortalRoutes);
 app.use('/api/institution',   institutionAdminRoutes);
+app.use('/api/prep',          prepRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);

@@ -372,7 +372,8 @@ function NotificationsTab({ onRead }) {
     upload_received: { icon: '✓',  label: 'Upload received', colour: 'border-l-green-400 bg-green-50'   },
     reuse_requested: { icon: '🔄', label: 'Reuse requested', colour: 'border-l-blue-400 bg-blue-50'     },
     reuse_approved:  { icon: '✓',  label: 'Reuse approved',  colour: 'border-l-green-400 bg-green-50'   },
-    reuse_denied:    { icon: '✕',  label: 'Reuse denied',    colour: 'border-l-red-400 bg-red-50'       },
+    reuse_denied:           { icon: '✕',  label: 'Reuse denied',    colour: 'border-l-red-400 bg-red-50'       },
+    booking_upload_needed:  { icon: '📤', label: 'Upload needed',   colour: 'border-l-orange-400 bg-orange-50' },
   };
 
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
