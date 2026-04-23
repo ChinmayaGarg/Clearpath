@@ -17,7 +17,7 @@ export function calcStudentDuration(baseMins, codes) {
   }
 
   let maxExtraRate = 0;
-  let maxStbRate   = 0;
+  let maxStbRate = 0;
 
   for (const code of codes) {
     const extraMatch = code.match(/^(\d+)MIN\/HR$/);
@@ -32,7 +32,7 @@ export function calcStudentDuration(baseMins, codes) {
   }
 
   const extraMins = Math.round((baseMins / 60) * maxExtraRate);
-  const stbMins   = Math.round((baseMins / 60) * maxStbRate);
+  const stbMins = Math.round((baseMins / 60) * maxStbRate);
 
   return {
     extraMins,
@@ -47,9 +47,9 @@ export function calcStudentDuration(baseMins, codes) {
  */
 export function addMinutes(timeStr, mins) {
   const [h, m] = timeStr.split(":").map(Number);
-  const total  = h * 60 + m + mins;
-  const hh     = String(Math.floor(total / 60) % 24).padStart(2, "0");
-  const mm     = String(total % 60).padStart(2, "0");
+  const total = h * 60 + m + mins;
+  const hh = String(Math.floor(total / 60) % 24).padStart(2, "0");
+  const mm = String(total % 60).padStart(2, "0");
   return `${hh}:${mm}`;
 }
 
@@ -63,8 +63,34 @@ export function timesOverlap(startA, durA, startB, durB) {
     return h * 60 + m;
   };
   const aStart = toMins(startA);
-  const aEnd   = aStart + durA;
+  const aEnd = aStart + durA;
   const bStart = toMins(startB);
-  const bEnd   = bStart + durB;
+  const bEnd = bStart + durB;
   return aStart < bEnd && bStart < aEnd;
+}
+
+/**
+ * Calculate hours until exam start.
+ * Returns number of hours (can be negative if in the past).
+ * If no time is provided, returns Infinity (no time restriction).
+ *
+ * @param {Date|string} examDate — exam date
+ * @param {string|null} examTime — exam time "HH:MM" or null
+ * @returns {number} hours until exam start
+ */
+export function hoursUntilExam(examDate, examTime) {
+  if (!examTime) {
+    return Infinity; // No time restriction if time is not set
+  }
+
+  const dateObj = typeof examDate === "string" ? new Date(examDate) : examDate;
+  const [hours, minutes] = examTime.split(":").map(Number);
+
+  const examDateTime = new Date(dateObj);
+  examDateTime.setHours(hours, minutes, 0, 0);
+
+  const now = new Date();
+  const hoursUntil = (examDateTime - now) / (1000 * 60 * 60);
+
+  return hoursUntil;
 }

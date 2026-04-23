@@ -6,6 +6,7 @@
  * GET    /api/student/exam-requests
  * POST   /api/student/exam-requests
  * DELETE /api/student/exam-requests/:id
+ * POST   /api/student/exam-requests/:id/cancellation-request
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -24,10 +25,13 @@ import {
   findExamUploadDuration,
   getStudentBookingsOnDate,
   getSarsAppointmentsOnDate,
+  submitCancellationRequest,
+  checkExistingCancellationRequest,
 } from "../db/queries/studentPortal.js";
 import {
   calcStudentDuration,
   timesOverlap,
+  hoursUntilExam,
   addMinutes,
 } from "../utils/durationCalc.js";
 
@@ -323,6 +327,39 @@ router.delete("/exam-requests/:id", async (req, res, next) => {
         .json({ ok: false, error: "Student profile not found" });
     }
 
+    // Get exam booking request to check exam datetime and status
+    const bookingResult = await tenantQuery(
+      schema,
+      `SELECT id, exam_date, exam_time, status FROM exam_booking_request WHERE id = $1 AND student_profile_id = $2`,
+      [req.params.id, studentProfileId],
+    );
+
+    if (bookingResult.rows.length === 0) {
+      return res.status(404).json({
+        ok: false,
+        error: "Request not found or doesn't belong to you",
+      });
+    }
+
+    const booking = bookingResult.rows[0];
+
+    // Only allow cancellation if status is pending
+    if (booking.status !== 'pending') {
+      return res.status(400).json({
+        ok: false,
+        error: "Only pending requests can be directly cancelled. For approved/confirmed requests, please submit a cancellation request.",
+      });
+    }
+
+    // Check 24-hour restriction
+    const hoursLeft = hoursUntilExam(booking.exam_date, booking.exam_time);
+    if (hoursLeft < 24 && hoursLeft !== Infinity) {
+      return res.status(400).json({
+        ok: false,
+        error: "Cannot cancel within 24 hours of exam start time",
+      });
+    }
+
     const cancelled = await cancelExamBookingRequest(
       schema,
       req.params.id,
@@ -334,11 +371,111 @@ router.delete("/exam-requests/:id", async (req, res, next) => {
         .status(404)
         .json({
           ok: false,
-          error: "Request not found or already confirmed/cancelled",
+          error: "Request not found or already cancelled",
         });
     }
 
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/student/exam-requests/:id/cancellation-request ──────────────────
+router.post("/exam-requests/:id/cancellation-request", async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { studentReason } = req.body;
+
+    if (!studentReason || studentReason.trim() === "") {
+      return res.status(400).json({
+        ok: false,
+        error: "Cancellation reason is required",
+      });
+    }
+
+    const studentProfileId = await getStudentProfileId(schema, req.user.id);
+
+    if (!studentProfileId) {
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
+    }
+
+    // Get exam booking request
+    const bookingResult = await tenantQuery(
+      schema,
+      `SELECT id, exam_date, exam_time, status, course_code, professor_profile_id
+       FROM exam_booking_request WHERE id = $1 AND student_profile_id = $2`,
+      [req.params.id, studentProfileId],
+    );
+
+    if (bookingResult.rows.length === 0) {
+      return res.status(404).json({
+        ok: false,
+        error: "Request not found or doesn't belong to you",
+      });
+    }
+
+    const booking = bookingResult.rows[0];
+
+    // Check if status allows cancellation
+    if (!['pending', 'professor_approved', 'confirmed'].includes(booking.status)) {
+      return res.status(400).json({
+        ok: false,
+        error: "Cannot submit cancellation request for this booking status",
+      });
+    }
+
+    // Check 24-hour restriction
+    const hoursLeft = hoursUntilExam(booking.exam_date, booking.exam_time);
+    if (hoursLeft < 24 && hoursLeft !== Infinity) {
+      return res.status(400).json({
+        ok: false,
+        error: "Cannot cancel within 24 hours of exam start time",
+      });
+    }
+
+    // If pending, direct them to use DELETE endpoint instead
+    if (booking.status === 'pending') {
+      return res.status(400).json({
+        ok: false,
+        error: "Pending requests can be cancelled directly. Please use the cancel button instead.",
+      });
+    }
+
+    // Check for existing pending or approved cancellation request
+    const existingRequest = await checkExistingCancellationRequest(schema, req.params.id);
+    if (existingRequest) {
+      return res.status(400).json({
+        ok: false,
+        error: "A cancellation request is already pending for this exam",
+      });
+    }
+
+    // Create cancellation request
+    const result = await submitCancellationRequest(
+      schema,
+      req.params.id,
+      studentProfileId,
+      studentReason.trim(),
+    );
+
+    if (!result) {
+      return res.status(500).json({
+        ok: false,
+        error: "Failed to submit cancellation request",
+      });
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        id: result.id,
+        status: result.request_status,
+        message: "Cancellation request submitted for admin review",
+      },
+    });
   } catch (err) {
     next(err);
   }

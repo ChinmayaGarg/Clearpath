@@ -1,7 +1,7 @@
 /**
  * Student portal query functions — all tenant-scoped.
  */
-import { tenantQuery } from '../tenantPool.js';
+import { tenantQuery } from "../tenantPool.js";
 
 /**
  * Get the student_profile id for a given user id.
@@ -142,7 +142,7 @@ export async function getStudentAccommodationCodes(schema, studentProfileId) {
  */
 export async function findExamUploadDuration(schema, courseCode, examType) {
   // exam_type_label uses 'endterm' while booking requests use 'final' — normalise
-  const label = examType === 'final' ? 'endterm' : examType;
+  const label = examType === "final" ? "endterm" : examType;
   const result = await tenantQuery(
     schema,
     `SELECT exam_duration_mins
@@ -161,7 +161,11 @@ export async function findExamUploadDuration(schema, courseCode, examType) {
  * Get existing booking requests for a student on a given date that have
  * a time and a computed duration (used for overlap detection).
  */
-export async function getStudentBookingsOnDate(schema, studentProfileId, examDate) {
+export async function getStudentBookingsOnDate(
+  schema,
+  studentProfileId,
+  examDate,
+) {
   const result = await tenantQuery(
     schema,
     `SELECT exam_time, computed_duration_mins, course_code
@@ -179,7 +183,11 @@ export async function getStudentBookingsOnDate(schema, studentProfileId, examDat
 /**
  * Get existing SARS appointments for a student on a given date.
  */
-export async function getSarsAppointmentsOnDate(schema, studentProfileId, examDate) {
+export async function getSarsAppointmentsOnDate(
+  schema,
+  studentProfileId,
+  examDate,
+) {
   const result = await tenantQuery(
     schema,
     `SELECT a.start_time, a.duration_mins, e.course_code
@@ -199,19 +207,22 @@ export async function getSarsAppointmentsOnDate(schema, studentProfileId, examDa
 /**
  * Create a new exam booking request (with precomputed duration fields).
  */
-export async function createExamBookingRequest(schema, {
-  studentProfileId,
-  courseCode,
-  examDate,
-  examTime,
-  examType,
-  specialMaterialsNote,
-  studentDurationMins,
-  baseDurationMins,
-  extraMins,
-  stbMins,
-  computedDurationMins,
-}) {
+export async function createExamBookingRequest(
+  schema,
+  {
+    studentProfileId,
+    courseCode,
+    examDate,
+    examTime,
+    examType,
+    specialMaterialsNote,
+    studentDurationMins,
+    baseDurationMins,
+    extraMins,
+    stbMins,
+    computedDurationMins,
+  },
+) {
   const normalizedCode = courseCode.toUpperCase().trim();
 
   // Look up the professor responsible for this course via course_dossier
@@ -237,14 +248,14 @@ export async function createExamBookingRequest(schema, {
       studentProfileId,
       normalizedCode,
       examDate,
-      examTime             ?? null,
-      examType             ?? 'midterm',
+      examTime ?? null,
+      examType ?? "midterm",
       specialMaterialsNote ?? null,
       professorProfileId,
-      studentDurationMins  ?? null,
-      baseDurationMins     ?? null,
-      extraMins            ?? 0,
-      stbMins              ?? 0,
+      studentDurationMins ?? null,
+      baseDurationMins ?? null,
+      extraMins ?? 0,
+      stbMins ?? 0,
       computedDurationMins ?? null,
     ],
   );
@@ -254,7 +265,11 @@ export async function createExamBookingRequest(schema, {
 /**
  * Cancel an exam booking request (student can only cancel their own).
  */
-export async function cancelExamBookingRequest(schema, requestId, studentProfileId) {
+export async function cancelExamBookingRequest(
+  schema,
+  requestId,
+  studentProfileId,
+) {
   const result = await tenantQuery(
     schema,
     `UPDATE exam_booking_request
@@ -264,6 +279,94 @@ export async function cancelExamBookingRequest(schema, requestId, studentProfile
        AND status = 'pending'
      RETURNING id`,
     [requestId, studentProfileId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Submit a cancellation request for an approved or confirmed booking.
+ * Returns the created cancellation_request record or null if failed.
+ */
+export async function submitCancellationRequest(
+  schema,
+  examRequestId,
+  studentProfileId,
+  studentReason,
+) {
+  const result = await tenantQuery(
+    schema,
+    `INSERT INTO cancellation_request
+       (exam_booking_request_id, student_profile_id, student_reason, request_status)
+     VALUES ($1, $2, $3, 'pending')
+     RETURNING id, exam_booking_request_id, student_profile_id, student_reason, request_status, created_at`,
+    [examRequestId, studentProfileId, studentReason],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Get a specific cancellation request with full details.
+ */
+export async function getCancellationRequest(schema, requestId) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT
+       cr.id, cr.exam_booking_request_id, cr.student_profile_id, cr.student_reason,
+       cr.request_status, cr.admin_profile_id, cr.admin_reason, cr.reviewed_at,
+       cr.created_at, cr.updated_at,
+       ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
+       sp.student_number, u.first_name, u.last_name, u.email,
+       admin_u.first_name AS admin_first_name, admin_u.last_name AS admin_last_name
+     FROM cancellation_request cr
+     JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+     JOIN student_profile sp ON sp.id = cr.student_profile_id
+     JOIN "user" u ON u.id = sp.user_id
+     LEFT JOIN "user" admin_u ON admin_u.id = cr.admin_profile_id
+     WHERE cr.id = $1`,
+    [requestId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Get pending cancellation requests for admin review (with optional status filter).
+ */
+export async function getPendingCancellationRequests(
+  schema,
+  requestStatus = "pending",
+) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT
+       cr.id, cr.exam_booking_request_id, cr.student_profile_id, cr.student_reason,
+       cr.request_status, cr.admin_profile_id, cr.admin_reason, cr.reviewed_at,
+       cr.created_at, cr.updated_at,
+       ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
+       sp.student_number, u.first_name, u.last_name, u.email,
+       admin_u.first_name AS admin_first_name, admin_u.last_name AS admin_last_name
+     FROM cancellation_request cr
+     JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+     JOIN student_profile sp ON sp.id = cr.student_profile_id
+     JOIN "user" u ON u.id = sp.user_id
+     LEFT JOIN "user" admin_u ON admin_u.id = cr.admin_profile_id
+     WHERE cr.request_status = $1
+     ORDER BY cr.created_at DESC`,
+    [requestStatus],
+  );
+  return result.rows;
+}
+
+/**
+ * Check if a cancellation request already exists for an exam (in pending or approved state).
+ */
+export async function checkExistingCancellationRequest(schema, examRequestId) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT id FROM cancellation_request
+     WHERE exam_booking_request_id = $1
+       AND request_status IN ('pending', 'approved')
+     LIMIT 1`,
+    [examRequestId],
   );
   return result.rows[0] ?? null;
 }

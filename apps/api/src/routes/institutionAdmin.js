@@ -786,4 +786,147 @@ async function notifyProfessorUploadNeeded(
   );
 }
 
+// ── GET /api/institution/cancellation-requests ─────────────────────────────────
+router.get("/cancellation-requests", async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { status } = req.query;
+
+    const requestStatus = status || "pending";
+    if (!["pending", "approved", "rejected"].includes(requestStatus)) {
+      return res.status(400).json({ ok: false, error: "Invalid status" });
+    }
+
+    const result = await tenantQuery(
+      schema,
+      `SELECT
+         cr.id, cr.exam_booking_request_id, cr.student_profile_id, cr.student_reason,
+         cr.request_status, cr.admin_profile_id, cr.admin_reason, cr.reviewed_at,
+         cr.created_at, cr.updated_at,
+         ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
+         sp.student_number, u.first_name, u.last_name, u.email,
+         admin_u.first_name AS admin_first_name, admin_u.last_name AS admin_last_name
+       FROM cancellation_request cr
+       JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+       JOIN student_profile sp ON sp.id = cr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       LEFT JOIN "user" admin_u ON admin_u.id = cr.admin_profile_id
+       WHERE cr.request_status = $1
+       ORDER BY cr.created_at DESC`,
+      [requestStatus],
+    );
+
+    res.json({ ok: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/institution/cancellation-requests/:id/approve ────────────────────
+router.patch("/cancellation-requests/:id/approve", async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { id } = req.params;
+    const { adminReason } = req.body;
+
+    if (!adminReason) {
+      return res.status(400).json({ ok: false, error: "Admin reason required" });
+    }
+
+    // Get cancellation request
+    const crResult = await tenantQuery(
+      schema,
+      `SELECT cr.*, ebr.status, ebr.professor_profile_id, sp.user_id, u.email, u.first_name, u.last_name
+       FROM cancellation_request cr
+       JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+       JOIN student_profile sp ON sp.id = cr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       WHERE cr.id = $1 AND cr.request_status = 'pending'`,
+      [id],
+    );
+
+    if (crResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Cancellation request not found or already reviewed" });
+    }
+
+    const cr = crResult.rows[0];
+    const adminProfileId = req.user.id;
+
+    // Update cancellation_request to approved
+    await tenantQuery(
+      schema,
+      `UPDATE cancellation_request
+       SET request_status = 'approved', admin_reason = $1, admin_profile_id = $2, reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $3`,
+      [adminReason, adminProfileId, id],
+    );
+
+    // Update exam_booking_request to cancelled
+    await tenantQuery(
+      schema,
+      `UPDATE exam_booking_request SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+      [cr.exam_booking_request_id],
+    );
+
+    // Notify professor if booking was approved or confirmed
+    if (cr.professor_profile_id && ["professor_approved", "confirmed"].includes(cr.exam_status)) {
+      await tenantQuery(
+        schema,
+        `INSERT INTO upload_notification (professor_profile_id, type, message)
+         VALUES ($1, 'booking_cancelled', $2)`,
+        [cr.professor_profile_id, `${cr.first_name} ${cr.last_name} cancelled their booking for ${cr.course_code} on ${cr.exam_date}.`],
+      );
+    }
+
+    res.json({ ok: true, data: { id } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/institution/cancellation-requests/:id/reject ─────────────────────
+router.patch("/cancellation-requests/:id/reject", async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { id } = req.params;
+    const { adminReason } = req.body;
+
+    if (!adminReason) {
+      return res.status(400).json({ ok: false, error: "Admin reason required" });
+    }
+
+    // Get cancellation request
+    const crResult = await tenantQuery(
+      schema,
+      `SELECT cr.*, ebr.course_code, ebr.exam_date, sp.user_id, u.email, u.first_name, u.last_name
+       FROM cancellation_request cr
+       JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+       JOIN student_profile sp ON sp.id = cr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       WHERE cr.id = $1 AND cr.request_status = 'pending'`,
+      [id],
+    );
+
+    if (crResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Cancellation request not found or already reviewed" });
+    }
+
+    const cr = crResult.rows[0];
+    const adminProfileId = req.user.id;
+
+    // Update cancellation_request to rejected
+    await tenantQuery(
+      schema,
+      `UPDATE cancellation_request
+       SET request_status = 'rejected', admin_reason = $1, admin_profile_id = $2, reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $3`,
+      [adminReason, adminProfileId, id],
+    );
+
+    res.json({ ok: true, data: { id } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
