@@ -98,9 +98,9 @@ export default function App() {
         <Route path="/settings" element={
           <ProtectedRoute><Settings /></ProtectedRoute>
         } />
-        {/* <Route path="/analytics" element={
+        <Route path="/analytics" element={
           <ProtectedRoute requiredRole="institution_admin"><Analytics /></ProtectedRoute>
-        } /> */}
+        } />
         <Route path="/prep" element={
           <ProtectedRoute requiredRoles={['lead', 'institution_admin']}><Prep /></ProtectedRoute>
         } />
