@@ -20,19 +20,19 @@
  * PATCH  /api/institution/exam-schedules/:id  — update scheduled exam
  * DELETE /api/institution/exam-schedules/:id  — delete scheduled exam
  */
-import { Router } from 'express';
-import { z }      from 'zod';
-import { requireAuth } from '../middleware/auth.js';
-import { requireRole } from '../middleware/role.js';
-import { tenantQuery } from '../db/tenantPool.js';
-import { assignStudentsToRooms } from '../utils/scheduleAlgorithm.js';
+import { Router } from "express";
+import { z } from "zod";
+import { requireAuth } from "../middleware/auth.js";
+import { requireRole } from "../middleware/role.js";
+import { tenantQuery } from "../db/tenantPool.js";
+import { assignStudentsToRooms } from "../utils/scheduleAlgorithm.js";
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole('institution_admin'));
+router.use(requireRole("institution_admin"));
 
 // ── GET /api/institution/bookings ─────────────────────────────────────────────
-router.get('/bookings', async (req, res, next) => {
+router.get("/bookings", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
     const { date } = req.query;
@@ -62,11 +62,13 @@ router.get('/bookings', async (req, res, next) => {
     );
 
     res.json({ ok: true, data: result.rows });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── PATCH /api/institution/bookings/:id/confirm ───────────────────────────────
-router.patch('/bookings/:id/confirm', async (req, res, next) => {
+router.patch("/bookings/:id/confirm", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
     const result = await tenantQuery(
@@ -78,19 +80,28 @@ router.patch('/bookings/:id/confirm', async (req, res, next) => {
       [req.params.id, req.user.id],
     );
     if (!result.rows.length) {
-      return res.status(404).json({ ok: false, error: 'Request not found or already actioned' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Request not found or already actioned" });
     }
 
     // Notify professor to upload exam file (fire-and-forget — don't block response)
     const { course_code, exam_date, exam_time } = result.rows[0];
-    notifyProfessorUploadNeeded(schema, course_code, exam_date, exam_time).catch(() => {});
+    notifyProfessorUploadNeeded(
+      schema,
+      course_code,
+      exam_date,
+      exam_time,
+    ).catch(() => {});
 
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── PATCH /api/institution/bookings/:id/cancel ────────────────────────────────
-router.patch('/bookings/:id/cancel', async (req, res, next) => {
+router.patch("/bookings/:id/cancel", async (req, res, next) => {
   try {
     const result = await tenantQuery(
       req.tenantSchema,
@@ -104,29 +115,45 @@ router.patch('/bookings/:id/cancel', async (req, res, next) => {
       [req.params.id],
     );
     if (!result.rows.length) {
-      return res.status(404).json({ ok: false, error: 'Request not found or already actioned' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Request not found or already actioned" });
     }
 
     // Notify professor (fire-and-forget)
-    const { professor_profile_id, student_name, course_code, exam_date, exam_time } = result.rows[0];
+    const {
+      professor_profile_id,
+      student_name,
+      course_code,
+      exam_date,
+      exam_time,
+    } = result.rows[0];
     if (professor_profile_id) {
-      const dateStr = new Date(exam_date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' });
-      const timeStr = exam_time ? ` at ${exam_time.slice(0, 5)}` : '';
+      const dateStr = new Date(exam_date).toLocaleDateString("en-CA", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+      const timeStr = exam_time ? ` at ${exam_time.slice(0, 5)}` : "";
       tenantQuery(
         req.tenantSchema,
         `INSERT INTO upload_notification (professor_profile_id, type, message)
          VALUES ($1, 'booking_cancelled', $2)`,
-        [professor_profile_id,
-          `${student_name ?? 'A student'}'s booking for ${course_code} on ${dateStr}${timeStr} has been cancelled.`],
+        [
+          professor_profile_id,
+          `${student_name ?? "A student"}'s booking for ${course_code} on ${dateStr}${timeStr} has been cancelled.`,
+        ],
       ).catch(() => {});
     }
 
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/institution/rooms ────────────────────────────────────────────────
-router.get('/rooms', async (req, res, next) => {
+router.get("/rooms", async (req, res, next) => {
   try {
     const result = await tenantQuery(
       req.tenantSchema,
@@ -136,17 +163,19 @@ router.get('/rooms', async (req, res, next) => {
        ORDER BY capacity ASC, name ASC`,
     );
     res.json({ ok: true, data: result.rows });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 const RoomSchema = z.object({
-  name:     z.string().min(1).max(100),
+  name: z.string().min(1).max(100),
   capacity: z.number().int().min(1).max(200),
-  notes:    z.string().max(500).optional(),
+  notes: z.string().max(500).optional(),
 });
 
 // ── POST /api/institution/rooms ───────────────────────────────────────────────
-router.post('/rooms', async (req, res, next) => {
+router.post("/rooms", async (req, res, next) => {
   try {
     const body = RoomSchema.parse(req.body);
     const result = await tenantQuery(
@@ -157,38 +186,51 @@ router.post('/rooms', async (req, res, next) => {
       [body.name, body.capacity, body.notes ?? null],
     );
     res.status(201).json({ ok: true, data: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── PATCH /api/institution/rooms/:id ─────────────────────────────────────────
-router.patch('/rooms/:id', async (req, res, next) => {
+router.patch("/rooms/:id", async (req, res, next) => {
   try {
     const body = RoomSchema.partial().parse(req.body);
     const sets = [];
     const vals = [];
-    if (body.name     !== undefined) { vals.push(body.name);     sets.push(`name = $${vals.length}`); }
-    if (body.capacity !== undefined) { vals.push(body.capacity); sets.push(`capacity = $${vals.length}`); }
-    if (body.notes    !== undefined) { vals.push(body.notes);    sets.push(`notes = $${vals.length}`); }
+    if (body.name !== undefined) {
+      vals.push(body.name);
+      sets.push(`name = $${vals.length}`);
+    }
+    if (body.capacity !== undefined) {
+      vals.push(body.capacity);
+      sets.push(`capacity = $${vals.length}`);
+    }
+    if (body.notes !== undefined) {
+      vals.push(body.notes);
+      sets.push(`notes = $${vals.length}`);
+    }
 
     if (!sets.length) return res.json({ ok: true });
 
     vals.push(req.params.id);
     const result = await tenantQuery(
       req.tenantSchema,
-      `UPDATE booking_room SET ${sets.join(', ')}
+      `UPDATE booking_room SET ${sets.join(", ")}
        WHERE id = $${vals.length} AND is_active = TRUE
        RETURNING id, name, capacity, notes`,
       vals,
     );
     if (!result.rows.length) {
-      return res.status(404).json({ ok: false, error: 'Room not found' });
+      return res.status(404).json({ ok: false, error: "Room not found" });
     }
     res.json({ ok: true, data: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── DELETE /api/institution/rooms/:id ─────────────────────────────────────────
-router.delete('/rooms/:id', async (req, res, next) => {
+router.delete("/rooms/:id", async (req, res, next) => {
   try {
     const result = await tenantQuery(
       req.tenantSchema,
@@ -198,22 +240,24 @@ router.delete('/rooms/:id', async (req, res, next) => {
       [req.params.id],
     );
     if (!result.rows.length) {
-      return res.status(404).json({ ok: false, error: 'Room not found' });
+      return res.status(404).json({ ok: false, error: "Room not found" });
     }
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/institution/schedule ────────────────────────────────────────────
 const ScheduleSchema = z.object({
-  date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   roomIds: z.array(z.string().uuid()).min(1),
 });
 
-router.post('/schedule', async (req, res, next) => {
+router.post("/schedule", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
-    const body   = ScheduleSchema.parse(req.body);
+    const body = ScheduleSchema.parse(req.body);
 
     // 1. Fetch all confirmed bookings for the date
     const bookingsResult = await tenantQuery(
@@ -230,11 +274,15 @@ router.post('/schedule', async (req, res, next) => {
     );
 
     if (!bookingsResult.rows.length) {
-      return res.status(400).json({ ok: false, error: 'No confirmed bookings for this date' });
+      return res
+        .status(400)
+        .json({ ok: false, error: "No confirmed bookings for this date" });
     }
 
     // 2. Fetch accommodation flags for each student
-    const studentIds = [...new Set(bookingsResult.rows.map(r => r.student_profile_id))];
+    const studentIds = [
+      ...new Set(bookingsResult.rows.map((r) => r.student_profile_id)),
+    ];
     const accomResult = await tenantQuery(
       schema,
       `SELECT sa.student_profile_id,
@@ -252,29 +300,32 @@ router.post('/schedule', async (req, res, next) => {
     for (const row of accomResult.rows) {
       accomMap[row.student_profile_id] = {
         strictlySolo: row.strictly_solo,
-        prefersSolo:  row.prefers_solo,
+        prefersSolo: row.prefers_solo,
       };
     }
 
     // Build student objects for the algorithm
-    const students = bookingsResult.rows.map(r => {
+    const students = bookingsResult.rows.map((r) => {
       let startTimeMins = null;
       if (r.exam_time) {
-        const [h, m] = r.exam_time.slice(0, 5).split(':').map(Number);
+        const [h, m] = r.exam_time.slice(0, 5).split(":").map(Number);
         startTimeMins = h * 60 + m;
       }
-      const flags = accomMap[r.student_profile_id] ?? { strictlySolo: false, prefersSolo: false };
+      const flags = accomMap[r.student_profile_id] ?? {
+        strictlySolo: false,
+        prefersSolo: false,
+      };
       return {
-        id:                   r.id,
-        courseCode:            r.course_code,
+        id: r.id,
+        courseCode: r.course_code,
         startTimeMins,
-        computedDurationMins:  r.computed_duration_mins,
-        strictlySolo:          flags.strictlySolo ?? false,
-        prefersSolo:           flags.prefersSolo  ?? false,
-        firstName:             r.first_name,
-        lastName:              r.last_name,
-        studentNumber:         r.student_number,
-        examTime:              r.exam_time ? r.exam_time.slice(0, 5) : null,
+        computedDurationMins: r.computed_duration_mins,
+        strictlySolo: flags.strictlySolo ?? false,
+        prefersSolo: flags.prefersSolo ?? false,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        studentNumber: r.student_number,
+        examTime: r.exam_time ? r.exam_time.slice(0, 5) : null,
       };
     });
 
@@ -289,18 +340,16 @@ router.post('/schedule', async (req, res, next) => {
     );
 
     if (!roomsResult.rows.length) {
-      return res.status(400).json({ ok: false, error: 'No valid rooms found' });
+      return res.status(400).json({ ok: false, error: "No valid rooms found" });
     }
 
     // 4. Run the scheduling algorithm
     const assignments = assignStudentsToRooms(students, roomsResult.rows);
 
     // 5. Delete existing schedule for this date (idempotent re-run)
-    await tenantQuery(
-      schema,
-      `DELETE FROM booking_schedule WHERE date = $1`,
-      [body.date],
-    );
+    await tenantQuery(schema, `DELETE FROM booking_schedule WHERE date = $1`, [
+      body.date,
+    ]);
 
     // 6. Insert new schedule
     const schedResult = await tenantQuery(
@@ -343,27 +392,30 @@ router.post('/schedule', async (req, res, next) => {
         );
       }
 
-      const assignedStudents = assignedIds.map(sid => {
+      const assignedStudents = assignedIds.map((sid) => {
         const s = studentMap[sid];
-        const endTime = (s.examTime && s.computedDurationMins)
-          ? (() => {
-              const totalMins = s.startTimeMins + s.computedDurationMins;
-              const h = Math.floor(totalMins / 60).toString().padStart(2, '0');
-              const m = (totalMins % 60).toString().padStart(2, '0');
-              return `${h}:${m}`;
-            })()
-          : null;
+        const endTime =
+          s.examTime && s.computedDurationMins
+            ? (() => {
+                const totalMins = s.startTimeMins + s.computedDurationMins;
+                const h = Math.floor(totalMins / 60)
+                  .toString()
+                  .padStart(2, "0");
+                const m = (totalMins % 60).toString().padStart(2, "0");
+                return `${h}:${m}`;
+              })()
+            : null;
         return {
-          id:           s.id,
-          firstName:    s.firstName,
-          lastName:     s.lastName,
+          id: s.id,
+          firstName: s.firstName,
+          lastName: s.lastName,
           studentNumber: s.studentNumber,
-          courseCode:    s.courseCode,
-          examTime:      s.examTime,
+          courseCode: s.courseCode,
+          examTime: s.examTime,
           endTime,
           computedDurationMins: s.computedDurationMins,
-          strictlySolo:  s.strictlySolo,
-          prefersSolo:   s.prefersSolo,
+          strictlySolo: s.strictlySolo,
+          prefersSolo: s.prefersSolo,
         };
       });
 
@@ -375,17 +427,27 @@ router.post('/schedule', async (req, res, next) => {
       });
     }
 
-    res.status(201).json({ ok: true, data: { scheduleId, date: body.date, rooms: responseRooms } });
-  } catch (err) { next(err); }
+    res
+      .status(201)
+      .json({
+        ok: true,
+        data: { scheduleId, date: body.date, rooms: responseRooms },
+      });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/institution/schedule ─────────────────────────────────────────────
-router.get('/schedule', async (req, res, next) => {
+router.get("/schedule", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
     const { date } = req.query;
 
-    if (!date) return res.status(400).json({ ok: false, error: 'date query param required' });
+    if (!date)
+      return res
+        .status(400)
+        .json({ ok: false, error: "date query param required" });
 
     // Get most recent schedule for this date
     const schedResult = await tenantQuery(
@@ -434,43 +496,54 @@ router.get('/schedule', async (req, res, next) => {
     for (const row of result.rows) {
       if (!roomMap[row.room_id]) {
         roomMap[row.room_id] = {
-          roomId:   row.room_id,
+          roomId: row.room_id,
           roomName: row.room_name,
           capacity: row.capacity,
           students: [],
         };
       }
       const startMins = row.exam_time
-        ? (() => { const [h, m] = row.exam_time.slice(0, 5).split(':').map(Number); return h * 60 + m; })()
-        : null;
-      const endTime = (startMins != null && row.computed_duration_mins)
         ? (() => {
-            const t = startMins + row.computed_duration_mins;
-            return `${Math.floor(t / 60).toString().padStart(2, '0')}:${(t % 60).toString().padStart(2, '0')}`;
+            const [h, m] = row.exam_time.slice(0, 5).split(":").map(Number);
+            return h * 60 + m;
           })()
         : null;
+      const endTime =
+        startMins != null && row.computed_duration_mins
+          ? (() => {
+              const t = startMins + row.computed_duration_mins;
+              return `${Math.floor(t / 60)
+                .toString()
+                .padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`;
+            })()
+          : null;
 
       roomMap[row.room_id].students.push({
-        id:           row.booking_id,
-        firstName:    row.first_name,
-        lastName:     row.last_name,
+        id: row.booking_id,
+        firstName: row.first_name,
+        lastName: row.last_name,
         studentNumber: row.student_number,
-        courseCode:    row.course_code,
-        examTime:      row.exam_time ? row.exam_time.slice(0, 5) : null,
+        courseCode: row.course_code,
+        examTime: row.exam_time ? row.exam_time.slice(0, 5) : null,
         endTime,
         computedDurationMins: row.computed_duration_mins,
-        strictlySolo:  row.strictly_solo,
-        prefersSolo:   row.prefers_solo,
+        strictlySolo: row.strictly_solo,
+        prefersSolo: row.prefers_solo,
       });
     }
 
-    res.json({ ok: true, data: { scheduleId, date, rooms: Object.values(roomMap) } });
-  } catch (err) { next(err); }
+    res.json({
+      ok: true,
+      data: { scheduleId, date, rooms: Object.values(roomMap) },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/institution/courses ────────────────────────────────────────────
 // Get all courses linked to professors for scheduling dropdown
-router.get('/courses', async (req, res, next) => {
+router.get("/courses", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
 
@@ -488,20 +561,22 @@ router.get('/courses', async (req, res, next) => {
     );
 
     res.json({ ok: true, data: result.rows });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/institution/exam-schedules ──────────────────────────────────────
-router.get('/exam-schedules', async (req, res, next) => {
+router.get("/exam-schedules", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
     const { courseCode } = req.query;
 
-    let whereClause = '';
+    let whereClause = "";
     let params = [];
 
     if (courseCode) {
-      whereClause = ' WHERE UPPER(course_code) = UPPER($1)';
+      whereClause = " WHERE UPPER(course_code) = UPPER($1)";
       params = [courseCode];
     }
 
@@ -519,18 +594,23 @@ router.get('/exam-schedules', async (req, res, next) => {
     );
 
     res.json({ ok: true, data: result.rows });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/institution/exam-schedules ─────────────────────────────────────
-router.post('/exam-schedules', async (req, res, next) => {
+router.post("/exam-schedules", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
-    const { courseCode, examDate, examTime, examType, baseDurationMins } = req.body;
+    const { courseCode, examDate, examTime, examType, baseDurationMins } =
+      req.body;
 
     // Validate
     if (!courseCode || !examDate) {
-      return res.status(400).json({ ok: false, error: 'courseCode and examDate required' });
+      return res
+        .status(400)
+        .json({ ok: false, error: "courseCode and examDate required" });
     }
 
     // Create exam schedule
@@ -542,7 +622,14 @@ router.post('/exam-schedules', async (req, res, next) => {
        ON CONFLICT (course_code, exam_date, exam_time) DO UPDATE
        SET base_duration_mins = $5, updated_at = NOW()
        RETURNING id, course_code, exam_date, exam_time, exam_type, base_duration_mins`,
-      [courseCode, examDate, examTime || null, examType || 'midterm', baseDurationMins || null, req.user.id],
+      [
+        courseCode,
+        examDate,
+        examTime || null,
+        examType || "midterm",
+        baseDurationMins || null,
+        req.user.id,
+      ],
     );
 
     const sched = schedResult.rows[0];
@@ -581,11 +668,13 @@ router.post('/exam-schedules', async (req, res, next) => {
         confirmedCount: confirmedResult.rows.length,
       },
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── PATCH /api/institution/exam-schedules/:id ───────────────────────────────
-router.patch('/exam-schedules/:id', async (req, res, next) => {
+router.patch("/exam-schedules/:id", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
     const { baseDurationMins, autoApproveEnabled } = req.body;
@@ -604,30 +693,34 @@ router.patch('/exam-schedules/:id', async (req, res, next) => {
     }
 
     if (!updates.length) {
-      return res.status(400).json({ ok: false, error: 'No fields to update' });
+      return res.status(400).json({ ok: false, error: "No fields to update" });
     }
 
-    updates.push('updated_at = NOW()');
+    updates.push("updated_at = NOW()");
 
     const result = await tenantQuery(
       schema,
       `UPDATE exam_schedule
-       SET ${updates.join(', ')}
+       SET ${updates.join(", ")}
        WHERE id = $1
        RETURNING id, course_code, exam_date, exam_time, base_duration_mins, auto_approve_enabled`,
       params,
     );
 
     if (!result.rows.length) {
-      return res.status(404).json({ ok: false, error: 'Exam schedule not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Exam schedule not found" });
     }
 
     res.json({ ok: true, data: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── DELETE /api/institution/exam-schedules/:id ───────────────────────────────
-router.delete('/exam-schedules/:id', async (req, res, next) => {
+router.delete("/exam-schedules/:id", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
 
@@ -638,15 +731,24 @@ router.delete('/exam-schedules/:id', async (req, res, next) => {
     );
 
     if (!result.rows.length) {
-      return res.status(404).json({ ok: false, error: 'Exam schedule not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Exam schedule not found" });
     }
 
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── Professor notification helper ─────────────────────────────────────────────
-async function notifyProfessorUploadNeeded(schema, courseCode, examDate, examTime) {
+async function notifyProfessorUploadNeeded(
+  schema,
+  courseCode,
+  examDate,
+  examTime,
+) {
   // Look up professor for this course
   const profResult = await tenantQuery(
     schema,
@@ -666,13 +768,15 @@ async function notifyProfessorUploadNeeded(schema, courseCode, examDate, examTim
      WHERE UPPER(course_code) = UPPER($1) AND exam_date = $2 AND status = 'confirmed'`,
     [courseCode, examDate],
   );
-  const studentCount = parseInt(countResult.rows[0]?.n ?? '0', 10);
+  const studentCount = parseInt(countResult.rows[0]?.n ?? "0", 10);
 
-  const timeStr = examTime ? examTime.slice(0, 5) : '';
-  const dateStr = new Date(examDate).toLocaleDateString('en-CA', {
-    year: 'numeric', month: 'short', day: 'numeric',
+  const timeStr = examTime ? examTime.slice(0, 5) : "";
+  const dateStr = new Date(examDate).toLocaleDateString("en-CA", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   });
-  const message = `${studentCount} student${studentCount !== 1 ? 's' : ''} confirmed for ${courseCode} on ${dateStr}${timeStr ? ` at ${timeStr}` : ''}. Please upload your exam file and Word document (required for RWG students) via the Professor Portal.`;
+  const message = `${studentCount} student${studentCount !== 1 ? "s" : ""} confirmed for ${courseCode} on ${dateStr}${timeStr ? ` at ${timeStr}` : ""}. Please upload your exam file and Word document (required for RWG students) via the Professor Portal.`;
 
   await tenantQuery(
     schema,

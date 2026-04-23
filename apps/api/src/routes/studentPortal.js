@@ -7,11 +7,11 @@
  * POST   /api/student/exam-requests
  * DELETE /api/student/exam-requests/:id
  */
-import { Router } from 'express';
-import { z }      from 'zod';
-import { requireAuth }  from '../middleware/auth.js';
-import { requireRole }  from '../middleware/role.js';
-import { tenantQuery }  from '../db/tenantPool.js';
+import { Router } from "express";
+import { z } from "zod";
+import { requireAuth } from "../middleware/auth.js";
+import { requireRole } from "../middleware/role.js";
+import { tenantQuery } from "../db/tenantPool.js";
 import {
   getStudentProfileId,
   getStudentPortalMe,
@@ -24,36 +24,46 @@ import {
   findExamUploadDuration,
   getStudentBookingsOnDate,
   getSarsAppointmentsOnDate,
-} from '../db/queries/studentPortal.js';
-import { calcStudentDuration, timesOverlap, addMinutes } from '../utils/durationCalc.js';
+} from "../db/queries/studentPortal.js";
+import {
+  calcStudentDuration,
+  timesOverlap,
+  addMinutes,
+} from "../utils/durationCalc.js";
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole('student'));
+router.use(requireRole("student"));
 
 // ── GET /api/student/me ───────────────────────────────────────────────────────
-router.get('/me', async (req, res, next) => {
+router.get("/me", async (req, res, next) => {
   try {
-    const schema           = req.tenantSchema;
+    const schema = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
-      return res.status(404).json({ ok: false, error: 'Student profile not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
     }
 
     const me = await getStudentPortalMe(schema, studentProfileId);
     res.json({ ok: true, data: me });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/student/courses ──────────────────────────────────────────────────
-router.get('/courses', async (req, res, next) => {
+router.get("/courses", async (req, res, next) => {
   try {
-    const schema           = req.tenantSchema;
+    const schema = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
-      return res.status(404).json({ ok: false, error: 'Student profile not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
     }
 
     const result = await tenantQuery(
@@ -76,72 +86,104 @@ router.get('/courses', async (req, res, next) => {
       [studentProfileId],
     );
 
-    res.json({ ok: true, data: result.rows.map(r => r.course_code) });
-  } catch (err) { next(err); }
+    res.json({ ok: true, data: result.rows.map((r) => r.course_code) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/student/accommodations ──────────────────────────────────────────
-router.get('/accommodations', async (req, res, next) => {
+router.get("/accommodations", async (req, res, next) => {
   try {
-    const schema           = req.tenantSchema;
+    const schema = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
-      return res.status(404).json({ ok: false, error: 'Student profile not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
     }
 
     const terms = await getStudentAccommodations(schema, studentProfileId);
     res.json({ ok: true, data: terms });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/student/accommodation-codes ─────────────────────────────────────
 // Returns just the code strings from student_accommodation (counsellor-managed).
 // Used by the booking form to compute estimated duration client-side.
-router.get('/accommodation-codes', async (req, res, next) => {
+router.get("/accommodation-codes", async (req, res, next) => {
   try {
-    const schema           = req.tenantSchema;
+    const schema = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
     if (!studentProfileId) {
-      return res.status(404).json({ ok: false, error: 'Student profile not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
     }
     const codes = await getStudentAccommodationCodes(schema, studentProfileId);
     res.json({ ok: true, data: codes });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/student/exam-requests ────────────────────────────────────────────
-router.get('/exam-requests', async (req, res, next) => {
+router.get("/exam-requests", async (req, res, next) => {
   try {
-    const schema           = req.tenantSchema;
+    const schema = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
-      return res.status(404).json({ ok: false, error: 'Student profile not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
     }
 
     const bookings = await getStudentExamBookings(schema, studentProfileId);
     res.json({ ok: true, data: bookings });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── POST /api/student/exam-requests ──────────────────────────────────────────
 const BookingSchema = z.object({
-  courseCode:           z.string().min(1).max(20),
-  examDate:             z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  examTime:             z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  examType:             z.enum(['midterm', 'final', 'quiz_1', 'quiz_2', 'quiz_3', 'quiz_4', 'test_1', 'test_2', 'test_3', 'assignment']).default('midterm'),
-  examDurationMins:     z.number().int().min(1).max(600),
+  courseCode: z.string().min(1).max(20),
+  examDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  examTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .optional(),
+  examType: z
+    .enum([
+      "midterm",
+      "final",
+      "quiz_1",
+      "quiz_2",
+      "quiz_3",
+      "quiz_4",
+      "test_1",
+      "test_2",
+      "test_3",
+      "assignment",
+    ])
+    .default("midterm"),
+  examDurationMins: z.number().int().min(1).max(600),
   specialMaterialsNote: z.string().max(1000).optional(),
 });
 
-router.post('/exam-requests', async (req, res, next) => {
+router.post("/exam-requests", async (req, res, next) => {
   try {
-    const schema           = req.tenantSchema;
+    const schema = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
-      return res.status(404).json({ ok: false, error: 'Student profile not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
     }
 
     const body = BookingSchema.parse(req.body);
@@ -151,7 +193,12 @@ router.post('/exam-requests', async (req, res, next) => {
     earliest.setDate(earliest.getDate() + 9);
     earliest.setHours(0, 0, 0, 0);
     if (new Date(body.examDate) < earliest) {
-      return res.status(400).json({ ok: false, error: 'Exam must be scheduled at least 9 days in advance' });
+      return res
+        .status(400)
+        .json({
+          ok: false,
+          error: "Exam must be scheduled at least 9 days in advance",
+        });
     }
 
     // ── Compute duration from accommodations + exam upload (fallback to student input) ─
@@ -161,11 +208,14 @@ router.post('/exam-requests', async (req, res, next) => {
     ]);
     // Use professor's upload duration if available; otherwise use what the student entered
     const baseMins = uploadBaseMins ?? body.examDurationMins;
-    const { extraMins, stbMins, totalMins } = calcStudentDuration(baseMins, codes);
+    const { extraMins, stbMins, totalMins } = calcStudentDuration(
+      baseMins,
+      codes,
+    );
 
     // ── 10 PM end-time check ─────────────────────────────────────────────────
     if (body.examTime && totalMins) {
-      const [h, m] = body.examTime.split(':').map(Number);
+      const [h, m] = body.examTime.split(":").map(Number);
       const endMins = h * 60 + m + totalMins;
       if (endMins > 22 * 60) {
         const endTime = addMinutes(body.examTime, totalMins);
@@ -186,12 +236,12 @@ router.post('/exam-requests', async (req, res, next) => {
       const allSlots = [
         ...sarsAppts.map((a) => ({
           start: a.start_time.slice(0, 5),
-          dur:   a.duration_mins,
+          dur: a.duration_mins,
           label: a.course_code,
         })),
         ...existingRequests.map((r) => ({
           start: r.exam_time.slice(0, 5),
-          dur:   r.computed_duration_mins,
+          dur: r.computed_duration_mins,
           label: r.course_code,
         })),
       ];
@@ -209,16 +259,16 @@ router.post('/exam-requests', async (req, res, next) => {
 
     const id = await createExamBookingRequest(schema, {
       studentProfileId,
-      courseCode:            body.courseCode,
-      examDate:              body.examDate,
-      examTime:              body.examTime,
-      examType:              body.examType,
-      specialMaterialsNote:  body.specialMaterialsNote,
-      studentDurationMins:   body.examDurationMins,
-      baseDurationMins:      baseMins,
+      courseCode: body.courseCode,
+      examDate: body.examDate,
+      examTime: body.examTime,
+      examType: body.examType,
+      specialMaterialsNote: body.specialMaterialsNote,
+      studentDurationMins: body.examDurationMins,
+      baseDurationMins: baseMins,
       extraMins,
       stbMins,
-      computedDurationMins:  totalMins,
+      computedDurationMins: totalMins,
     });
 
     // ── Check if exam is scheduled for auto-approval ──────────────────────────
@@ -256,27 +306,42 @@ router.post('/exam-requests', async (req, res, next) => {
     }
 
     res.status(201).json({ ok: true, data: { id, autoApproved } });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── DELETE /api/student/exam-requests/:id ─────────────────────────────────────
-router.delete('/exam-requests/:id', async (req, res, next) => {
+router.delete("/exam-requests/:id", async (req, res, next) => {
   try {
-    const schema           = req.tenantSchema;
+    const schema = req.tenantSchema;
     const studentProfileId = await getStudentProfileId(schema, req.user.id);
 
     if (!studentProfileId) {
-      return res.status(404).json({ ok: false, error: 'Student profile not found' });
+      return res
+        .status(404)
+        .json({ ok: false, error: "Student profile not found" });
     }
 
-    const cancelled = await cancelExamBookingRequest(schema, req.params.id, studentProfileId);
+    const cancelled = await cancelExamBookingRequest(
+      schema,
+      req.params.id,
+      studentProfileId,
+    );
 
     if (!cancelled) {
-      return res.status(404).json({ ok: false, error: 'Request not found or already confirmed/cancelled' });
+      return res
+        .status(404)
+        .json({
+          ok: false,
+          error: "Request not found or already confirmed/cancelled",
+        });
     }
 
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

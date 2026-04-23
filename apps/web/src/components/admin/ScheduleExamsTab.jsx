@@ -1,19 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
-import { api } from '../../lib/api.js';
-import { toast } from '../ui/Toast.jsx';
-import Spinner from '../ui/Spinner.jsx';
+import { useState, useEffect, useRef } from "react";
+import { api } from "../../lib/api.js";
+import { toast } from "../ui/Toast.jsx";
+import Spinner from "../ui/Spinner.jsx";
 
 const EXAM_TYPES = [
-  { value: 'final', label: 'Final' },
-  { value: 'midterm', label: 'Midterm' },
-  { value: 'quiz_1', label: 'Quiz 1' },
-  { value: 'quiz_2', label: 'Quiz 2' },
-  { value: 'quiz_3', label: 'Quiz 3' },
-  { value: 'quiz_4', label: 'Quiz 4' },
-  { value: 'test_1', label: 'Test 1' },
-  { value: 'test_2', label: 'Test 2' },
-  { value: 'test_3', label: 'Test 3' },
-  { value: 'assignment', label: 'Assignment' },
+  { value: "final", label: "Final" },
+  { value: "midterm", label: "Midterm" },
+  { value: "quiz_1", label: "Quiz 1" },
+  { value: "quiz_2", label: "Quiz 2" },
+  { value: "quiz_3", label: "Quiz 3" },
+  { value: "quiz_4", label: "Quiz 4" },
+  { value: "test_1", label: "Test 1" },
+  { value: "test_2", label: "Test 2" },
+  { value: "test_3", label: "Test 3" },
+  { value: "assignment", label: "Assignment" },
 ];
 
 export default function ScheduleExamsTab() {
@@ -25,18 +25,18 @@ export default function ScheduleExamsTab() {
   // Courses dropdown state
   const [courses, setCourses] = useState([]);
   const [coursesLoading, setCoursesLoading] = useState(false);
-  const [courseSearch, setCourseSearch] = useState('');
+  const [courseSearch, setCourseSearch] = useState("");
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
   const courseDropdownRef = useRef(null);
 
   // Form state
   const [formData, setFormData] = useState({
-    courseCode: '',
-    courseProfessor: '',
-    examDate: '',
-    examTime: '',
-    examType: 'final',
-    baseDurationMins: '',
+    courseCode: "",
+    courseProfessor: "",
+    examDate: "",
+    examTime: "",
+    examType: "final",
+    baseDurationMins: "",
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -48,55 +48,65 @@ export default function ScheduleExamsTab() {
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
-      if (courseDropdownRef.current && !courseDropdownRef.current.contains(e.target)) {
+      if (
+        courseDropdownRef.current &&
+        !courseDropdownRef.current.contains(e.target)
+      ) {
         setShowCourseDropdown(false);
       }
     }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   function fetchSchedules() {
     setLoading(true);
-    api.get('/institution/exam-schedules')
-      .then(res => setSchedules(res.data ?? []))
-      .catch(err => toast(err.message, 'error'))
+    api
+      .get("/institution/exam-schedules")
+      .then((res) => setSchedules(res.data ?? []))
+      .catch((err) => toast(err.message, "error"))
       .finally(() => setLoading(false));
   }
 
   function fetchCourses() {
     setCoursesLoading(true);
-    api.get('/institution/courses')
-      .then(res => setCourses(res.data ?? []))
-      .catch(err => toast(err.message, 'error'))
+    api
+      .get("/institution/courses")
+      .then((res) => setCourses(res.data ?? []))
+      .catch((err) => toast(err.message, "error"))
       .finally(() => setCoursesLoading(false));
   }
 
   // Filter courses based on search
-  const filteredCourses = courses.filter(c =>
-    c.course_code.toLowerCase().includes(courseSearch.toLowerCase())
+  const filteredCourses = courses.filter((c) =>
+    c.course_code.toLowerCase().includes(courseSearch.toLowerCase()),
   );
 
   function handleSelectCourse(course) {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       courseCode: course.course_code,
       courseProfessor: `${course.first_name} ${course.last_name}`,
     }));
-    setCourseSearch('');
+    setCourseSearch("");
     setShowCourseDropdown(false);
   }
 
   function handleFormChange(e) {
     const { name, value } = e.target;
-    if (name === 'courseSearch') {
+    if (name === "courseSearch") {
       setCourseSearch(value);
       setShowCourseDropdown(true);
       return;
     }
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: name === 'baseDurationMins' ? (value ? parseInt(value, 10) : '') : value,
+      [name]:
+        name === "baseDurationMins"
+          ? value
+            ? parseInt(value, 10)
+            : ""
+          : value,
     }));
   }
 
@@ -104,7 +114,7 @@ export default function ScheduleExamsTab() {
     e.preventDefault();
 
     if (!formData.courseCode || !formData.examDate) {
-      toast('Course and exam date are required', 'error');
+      toast("Course and exam date are required", "error");
       return;
     }
 
@@ -118,56 +128,64 @@ export default function ScheduleExamsTab() {
         baseDurationMins: formData.baseDurationMins || null,
       };
 
-      const res = await api.post('/institution/exam-schedules', payload);
+      const res = await api.post("/institution/exam-schedules", payload);
       const { autoApprovedCount, confirmedCount } = res.data;
 
       toast(
         `Exam scheduled! Auto-approved ${autoApprovedCount} request(s), confirmed ${confirmedCount}.`,
-        'success',
+        "success",
       );
 
       setFormData({
-        courseCode: '',
-        courseProfessor: '',
-        examDate: '',
-        examTime: '',
-        examType: 'final',
-        baseDurationMins: '',
+        courseCode: "",
+        courseProfessor: "",
+        examDate: "",
+        examTime: "",
+        examType: "final",
+        baseDurationMins: "",
       });
-      setCourseSearch('');
+      setCourseSearch("");
       setShowForm(false);
       fetchSchedules();
     } catch (err) {
-      toast(err.message, 'error');
+      toast(err.message, "error");
     } finally {
       setSubmitting(false);
     }
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this exam schedule?')) return;
+    if (!confirm("Delete this exam schedule?")) return;
 
     setDeleting(id);
     try {
       await api.delete(`/institution/exam-schedules/${id}`);
-      toast('Exam schedule deleted');
+      toast("Exam schedule deleted");
       fetchSchedules();
     } catch (err) {
-      toast(err.message, 'error');
+      toast(err.message, "error");
     } finally {
       setDeleting(null);
     }
   }
 
-  if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
+  if (loading)
+    return (
+      <div className="flex justify-center py-10">
+        <Spinner />
+      </div>
+    );
 
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-gray-900">Schedule Exams</h2>
+          <h2 className="text-base font-semibold text-gray-900">
+            Schedule Exams
+          </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Admin-scheduled exams auto-approve matching student requests (no prof/accommodation review needed)
+            Admin-scheduled exams auto-approve matching student requests (no
+            prof/accommodation review needed)
           </p>
         </div>
         <button
@@ -175,7 +193,7 @@ export default function ScheduleExamsTab() {
           className="px-3 py-2 text-sm font-medium text-white bg-brand-600
                      hover:bg-brand-700 rounded-lg transition-colors"
         >
-          {showForm ? 'Cancel' : '+ Schedule exam'}
+          {showForm ? "Cancel" : "+ Schedule exam"}
         </button>
       </div>
 
@@ -201,14 +219,20 @@ export default function ScheduleExamsTab() {
                                focus:outline-none focus:ring-2 focus:ring-brand-400"
                   />
                   {showCourseDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300
-                                    rounded-lg shadow-lg z-10 max-h-64 overflow-y-auto">
+                    <div
+                      className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300
+                                    rounded-lg shadow-lg z-10 max-h-64 overflow-y-auto"
+                    >
                       {coursesLoading ? (
-                        <div className="p-3 text-xs text-gray-500">Loading courses...</div>
+                        <div className="p-3 text-xs text-gray-500">
+                          Loading courses...
+                        </div>
                       ) : filteredCourses.length === 0 ? (
-                        <div className="p-3 text-xs text-gray-500">No courses found</div>
+                        <div className="p-3 text-xs text-gray-500">
+                          No courses found
+                        </div>
                       ) : (
-                        filteredCourses.map(course => (
+                        filteredCourses.map((course) => (
                           <button
                             key={course.course_code}
                             type="button"
@@ -216,7 +240,9 @@ export default function ScheduleExamsTab() {
                             className="w-full text-left px-3 py-2 hover:bg-gray-100 text-xs
                                        border-b border-gray-100 last:border-b-0 transition-colors"
                           >
-                            <div className="font-medium text-gray-900">{course.course_code}</div>
+                            <div className="font-medium text-gray-900">
+                              {course.course_code}
+                            </div>
                             <div className="text-gray-500 text-[11px]">
                               {course.first_name} {course.last_name}
                             </div>
@@ -275,7 +301,7 @@ export default function ScheduleExamsTab() {
                   className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2
                              focus:outline-none focus:ring-2 focus:ring-brand-400"
                 >
-                  {EXAM_TYPES.map(t => (
+                  {EXAM_TYPES.map((t) => (
                     <option key={t.value} value={t.value}>
                       {t.label}
                     </option>
@@ -317,7 +343,7 @@ export default function ScheduleExamsTab() {
                 className="px-4 py-2 text-sm font-medium text-white bg-brand-600
                            hover:bg-brand-700 rounded-lg disabled:opacity-50 transition-colors"
               >
-                {submitting ? 'Scheduling...' : 'Schedule exam'}
+                {submitting ? "Scheduling..." : "Schedule exam"}
               </button>
             </div>
           </form>
@@ -327,15 +353,20 @@ export default function ScheduleExamsTab() {
       {/* List */}
       {schedules.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-          <p className="text-sm font-medium text-gray-700">No exams scheduled yet</p>
+          <p className="text-sm font-medium text-gray-700">
+            No exams scheduled yet
+          </p>
           <p className="text-xs text-gray-400 mt-1">
             Create a schedule to auto-approve matching student requests.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {schedules.map(sched => (
-            <div key={sched.id} className="bg-white rounded-lg border border-gray-200 p-4">
+          {schedules.map((sched) => (
+            <div
+              key={sched.id}
+              className="bg-white rounded-lg border border-gray-200 p-4"
+            >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
@@ -351,36 +382,40 @@ export default function ScheduleExamsTab() {
                     <div>
                       <p className="text-gray-400 mb-0.5">Date</p>
                       <p className="font-medium">
-                        {new Date(sched.exam_date).toLocaleDateString('en-CA')}
+                        {new Date(sched.exam_date).toLocaleDateString("en-CA")}
                       </p>
                     </div>
 
                     {sched.exam_time && (
                       <div>
                         <p className="text-gray-400 mb-0.5">Time</p>
-                        <p className="font-medium">{sched.exam_time.slice(0, 5)}</p>
+                        <p className="font-medium">
+                          {sched.exam_time.slice(0, 5)}
+                        </p>
                       </div>
                     )}
 
                     <div>
                       <p className="text-gray-400 mb-0.5">Type</p>
                       <p className="font-medium">
-                        {EXAM_TYPES.find(t => t.value === sched.exam_type)?.label || sched.exam_type}
+                        {EXAM_TYPES.find((t) => t.value === sched.exam_type)
+                          ?.label || sched.exam_type}
                       </p>
                     </div>
 
                     {sched.base_duration_mins && (
                       <div>
                         <p className="text-gray-400 mb-0.5">Base Duration</p>
-                        <p className="font-medium">{sched.base_duration_mins} min</p>
+                        <p className="font-medium">
+                          {sched.base_duration_mins} min
+                        </p>
                       </div>
                     )}
                   </div>
 
                   <p className="text-[11px] text-gray-400 mt-2">
-                    Created by {sched.first_name} {sched.last_name}
-                    {' '}
-                    {new Date(sched.created_at).toLocaleDateString('en-CA')}
+                    Created by {sched.first_name} {sched.last_name}{" "}
+                    {new Date(sched.created_at).toLocaleDateString("en-CA")}
                   </p>
                 </div>
 
@@ -390,7 +425,7 @@ export default function ScheduleExamsTab() {
                   className="ml-4 px-2 py-1.5 text-xs font-medium text-red-600
                              hover:bg-red-50 rounded transition-colors disabled:opacity-50"
                 >
-                  {deleting === sched.id ? 'Deleting…' : 'Delete'}
+                  {deleting === sched.id ? "Deleting…" : "Delete"}
                 </button>
               </div>
             </div>

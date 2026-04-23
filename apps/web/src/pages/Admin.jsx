@@ -9,12 +9,12 @@ import RoomsTab from "../components/admin/RoomsTab.jsx";
 import ScheduleTab from "../components/admin/ScheduleTab.jsx";
 import ScheduleExamsTab from "../components/admin/ScheduleExamsTab.jsx";
 
-const ADMIN_TABS = ['Users', 'Bookings', 'Rooms', 'Schedule', 'Schedule Exams'];
+const ADMIN_TABS = ["Users", "Bookings", "Rooms", "Schedule", "Schedule Exams"];
 
 export default function Admin() {
-  const [tab,         setTab]        = useState('Users');
-  const [showInvite,  setShowInvite] = useState(false);
-  const [refreshKey,  setRefreshKey] = useState(0);
+  const [tab, setTab] = useState("Users");
+  const [showInvite, setShowInvite] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   function handleInviteSuccess() {
     setRefreshKey((k) => k + 1);
@@ -27,14 +27,16 @@ export default function Admin() {
       {/* Tab bar */}
       <div className="border-b border-gray-200 bg-white">
         <div className="max-w-5xl mx-auto px-4 flex gap-1">
-          {ADMIN_TABS.map(t => (
+          {ADMIN_TABS.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
-                ${tab === t
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                ${
+                  tab === t
+                    ? "border-brand-600 text-brand-700"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
             >
               {t}
             </button>
@@ -43,12 +45,15 @@ export default function Admin() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-8">
-
-        {tab === 'Users' && (
+        {tab === "Users" && (
           <>
             <div className="mb-8">
-              <h1 className="text-xl font-semibold text-gray-900">Administration</h1>
-              <p className="text-sm text-gray-500 mt-1">Manage users and roles for your institution</p>
+              <h1 className="text-xl font-semibold text-gray-900">
+                Administration
+              </h1>
+              <p className="text-sm text-gray-500 mt-1">
+                Manage users and roles for your institution
+              </p>
             </div>
 
             <div className="mb-8">
@@ -70,11 +75,10 @@ export default function Admin() {
           </>
         )}
 
-        {tab === 'Bookings' && <BookingsTab />}
-        {tab === 'Rooms'    && <RoomsTab />}
-        {tab === 'Schedule' && <ScheduleTab />}
-        {tab === 'Schedule Exams' && <ScheduleExamsTab />}
-
+        {tab === "Bookings" && <BookingsTab />}
+        {tab === "Rooms" && <RoomsTab />}
+        {tab === "Schedule" && <ScheduleTab />}
+        {tab === "Schedule Exams" && <ScheduleExamsTab />}
       </div>
     </div>
   );
