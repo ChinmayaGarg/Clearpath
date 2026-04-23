@@ -7,8 +7,9 @@ import CourseProfessorLinkForm from "../components/admin/CourseProfessorLinkForm
 import BookingsTab from "../components/admin/BookingsTab.jsx";
 import RoomsTab from "../components/admin/RoomsTab.jsx";
 import ScheduleTab from "../components/admin/ScheduleTab.jsx";
+import ScheduleExamsTab from "../components/admin/ScheduleExamsTab.jsx";
 
-const ADMIN_TABS = ['Users', 'Bookings', 'Rooms', 'Schedule'];
+const ADMIN_TABS = ['Users', 'Bookings', 'Rooms', 'Schedule', 'Schedule Exams'];
 
 export default function Admin() {
   const [tab,         setTab]        = useState('Users');
@@ -72,6 +73,7 @@ export default function Admin() {
         {tab === 'Bookings' && <BookingsTab />}
         {tab === 'Rooms'    && <RoomsTab />}
         {tab === 'Schedule' && <ScheduleTab />}
+        {tab === 'Schedule Exams' && <ScheduleExamsTab />}
 
       </div>
     </div>

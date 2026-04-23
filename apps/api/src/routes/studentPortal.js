@@ -130,7 +130,7 @@ const BookingSchema = z.object({
   courseCode:           z.string().min(1).max(20),
   examDate:             z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   examTime:             z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  examType:             z.enum(['midterm', 'final', 'quiz', 'assignment', 'other']).default('midterm'),
+  examType:             z.enum(['midterm', 'final', 'quiz_1', 'quiz_2', 'quiz_3', 'quiz_4', 'test_1', 'test_2', 'test_3', 'assignment']).default('midterm'),
   examDurationMins:     z.number().int().min(1).max(600),
   specialMaterialsNote: z.string().max(1000).optional(),
 });
@@ -221,7 +221,41 @@ router.post('/exam-requests', async (req, res, next) => {
       computedDurationMins:  totalMins,
     });
 
-    res.status(201).json({ ok: true, data: { id } });
+    // ── Check if exam is scheduled for auto-approval ──────────────────────────
+    const schedResult = await tenantQuery(
+      schema,
+      `SELECT id, auto_approve_enabled FROM exam_schedule
+       WHERE UPPER(course_code) = UPPER($1)
+         AND exam_date = $2
+         AND (exam_time = $3 OR $3 IS NULL)
+         AND auto_approve_enabled = true
+       LIMIT 1`,
+      [body.courseCode, body.examDate, body.examTime || null],
+    );
+
+    let autoApproved = false;
+    if (schedResult.rows.length > 0) {
+      // Auto-approve: set to professor_approved then confirmed
+      await tenantQuery(
+        schema,
+        `UPDATE exam_booking_request
+         SET status = 'professor_approved', updated_at = NOW()
+         WHERE id = $1`,
+        [id],
+      );
+
+      await tenantQuery(
+        schema,
+        `UPDATE exam_booking_request
+         SET status = 'confirmed', confirmed_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [id],
+      );
+
+      autoApproved = true;
+    }
+
+    res.status(201).json({ ok: true, data: { id, autoApproved } });
   } catch (err) { next(err); }
 });
 

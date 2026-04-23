@@ -1,6 +1,8 @@
 /**
  * Institution admin portal routes — requires auth + institution_admin role.
  *
+ * GET    /api/institution/courses                — list all courses linked to professors
+ *
  * GET    /api/institution/bookings           — all professor-approved booking requests
  * PATCH  /api/institution/bookings/:id/confirm
  * PATCH  /api/institution/bookings/:id/cancel
@@ -12,6 +14,11 @@
  *
  * POST   /api/institution/schedule
  * GET    /api/institution/schedule
+ *
+ * GET    /api/institution/exam-schedules      — list scheduled exams
+ * POST   /api/institution/exam-schedules      — create scheduled exam with auto-approval
+ * PATCH  /api/institution/exam-schedules/:id  — update scheduled exam
+ * DELETE /api/institution/exam-schedules/:id  — delete scheduled exam
  */
 import { Router } from 'express';
 import { z }      from 'zod';
@@ -458,6 +465,183 @@ router.get('/schedule', async (req, res, next) => {
     }
 
     res.json({ ok: true, data: { scheduleId, date, rooms: Object.values(roomMap) } });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/institution/courses ────────────────────────────────────────────
+// Get all courses linked to professors for scheduling dropdown
+router.get('/courses', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+
+    const result = await tenantQuery(
+      schema,
+      `SELECT DISTINCT
+         cd.course_code,
+         pp.id AS professor_id,
+         u.first_name, u.last_name
+       FROM course_dossier cd
+       JOIN professor_profile pp ON pp.id = cd.professor_id
+       JOIN "user" u ON u.id = pp.user_id
+       ORDER BY cd.course_code ASC`,
+      [],
+    );
+
+    res.json({ ok: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/institution/exam-schedules ──────────────────────────────────────
+router.get('/exam-schedules', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { courseCode } = req.query;
+
+    let whereClause = '';
+    let params = [];
+
+    if (courseCode) {
+      whereClause = ' WHERE UPPER(course_code) = UPPER($1)';
+      params = [courseCode];
+    }
+
+    const result = await tenantQuery(
+      schema,
+      `SELECT
+         es.id, es.course_code, es.exam_date, es.exam_time, es.exam_type,
+         es.base_duration_mins, es.auto_approve_enabled, es.created_by, es.created_at, es.updated_at,
+         u.first_name, u.last_name
+       FROM exam_schedule es
+       LEFT JOIN "user" u ON u.id = es.created_by
+       ${whereClause}
+       ORDER BY es.exam_date DESC, es.exam_time ASC NULLS LAST`,
+      params,
+    );
+
+    res.json({ ok: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/institution/exam-schedules ─────────────────────────────────────
+router.post('/exam-schedules', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { courseCode, examDate, examTime, examType, baseDurationMins } = req.body;
+
+    // Validate
+    if (!courseCode || !examDate) {
+      return res.status(400).json({ ok: false, error: 'courseCode and examDate required' });
+    }
+
+    // Create exam schedule
+    const schedResult = await tenantQuery(
+      schema,
+      `INSERT INTO exam_schedule
+       (course_code, exam_date, exam_time, exam_type, base_duration_mins, auto_approve_enabled, created_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, true, $6, NOW())
+       ON CONFLICT (course_code, exam_date, exam_time) DO UPDATE
+       SET base_duration_mins = $5, updated_at = NOW()
+       RETURNING id, course_code, exam_date, exam_time, exam_type, base_duration_mins`,
+      [courseCode, examDate, examTime || null, examType || 'midterm', baseDurationMins || null, req.user.id],
+    );
+
+    const sched = schedResult.rows[0];
+
+    // Auto-approve existing pending requests for this course+date+time
+    const updateResult = await tenantQuery(
+      schema,
+      `UPDATE exam_booking_request
+       SET status = 'professor_approved', updated_at = NOW()
+       WHERE UPPER(course_code) = UPPER($1)
+         AND exam_date = $2
+         AND (exam_time = $3 OR $3 IS NULL)
+         AND status = 'pending'
+       RETURNING id`,
+      [courseCode, examDate, examTime || null],
+    );
+
+    // Then confirm them all
+    const confirmedResult = await tenantQuery(
+      schema,
+      `UPDATE exam_booking_request
+       SET status = 'confirmed', confirmed_by = $1, confirmed_at = NOW(), updated_at = NOW()
+       WHERE UPPER(course_code) = UPPER($2)
+         AND exam_date = $3
+         AND (exam_time = $4 OR $4 IS NULL)
+         AND status = 'professor_approved'
+       RETURNING id`,
+      [req.user.id, courseCode, examDate, examTime || null],
+    );
+
+    res.status(201).json({
+      ok: true,
+      data: {
+        schedule: sched,
+        autoApprovedCount: updateResult.rows.length,
+        confirmedCount: confirmedResult.rows.length,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/institution/exam-schedules/:id ───────────────────────────────
+router.patch('/exam-schedules/:id', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { baseDurationMins, autoApproveEnabled } = req.body;
+
+    const updates = [];
+    const params = [req.params.id];
+
+    if (baseDurationMins !== undefined) {
+      updates.push(`base_duration_mins = $${params.length + 1}`);
+      params.push(baseDurationMins);
+    }
+
+    if (autoApproveEnabled !== undefined) {
+      updates.push(`auto_approve_enabled = $${params.length + 1}`);
+      params.push(autoApproveEnabled);
+    }
+
+    if (!updates.length) {
+      return res.status(400).json({ ok: false, error: 'No fields to update' });
+    }
+
+    updates.push('updated_at = NOW()');
+
+    const result = await tenantQuery(
+      schema,
+      `UPDATE exam_schedule
+       SET ${updates.join(', ')}
+       WHERE id = $1
+       RETURNING id, course_code, exam_date, exam_time, base_duration_mins, auto_approve_enabled`,
+      params,
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ ok: false, error: 'Exam schedule not found' });
+    }
+
+    res.json({ ok: true, data: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// ── DELETE /api/institution/exam-schedules/:id ───────────────────────────────
+router.delete('/exam-schedules/:id', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+
+    const result = await tenantQuery(
+      schema,
+      `DELETE FROM exam_schedule WHERE id = $1 RETURNING id`,
+      [req.params.id],
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ ok: false, error: 'Exam schedule not found' });
+    }
+
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 

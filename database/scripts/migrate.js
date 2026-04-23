@@ -49,6 +49,7 @@ const migrationMap = {
   25: "025_exam_upload_dropoff_confirm.sql",
   26: "026_exam_upload_word_doc.sql",
   27: "027_scantron_text.sql",
+  28: "028_exam_schedule.sql",
 };
 
 const filename = migrationMap[targetVersion];
