@@ -76,7 +76,57 @@ function AccomBadges({ accommodations }) {
   );
 }
 
-function StudentRow({ s }) {
+function AttendanceBadge({ status, bookingId, acting, onAttendance }) {
+  const isActing = acting === bookingId;
+  if (status === 'show') {
+    return (
+      <div className="flex items-center gap-1 mt-1">
+        <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Show</span>
+        <button
+          disabled={isActing}
+          onClick={() => onAttendance(bookingId, null)}
+          className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40"
+          title="Clear attendance"
+        >×</button>
+      </div>
+    );
+  }
+  if (status === 'no_show') {
+    return (
+      <div className="flex items-center gap-1 mt-1">
+        <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">No Show</span>
+        <button
+          disabled={isActing}
+          onClick={() => onAttendance(bookingId, null)}
+          className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40"
+          title="Clear attendance"
+        >×</button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1 mt-1">
+      <button
+        disabled={isActing}
+        onClick={() => onAttendance(bookingId, 'show')}
+        className="text-xs px-2 py-0.5 rounded-full border border-green-300 text-green-700
+                   hover:bg-green-50 disabled:opacity-40 transition-colors"
+      >
+        {isActing ? '…' : 'Show'}
+      </button>
+      <button
+        disabled={isActing}
+        onClick={() => onAttendance(bookingId, 'no_show')}
+        className="text-xs px-2 py-0.5 rounded-full border border-red-300 text-red-700
+                   hover:bg-red-50 disabled:opacity-40 transition-colors"
+      >
+        {isActing ? '…' : 'No Show'}
+      </button>
+    </div>
+  );
+}
+
+function StudentRow({ s, acting, onAttendance }) {
   const writingMins = s.totalWritingMins;
   const endTime     = addMinutes(s.examTime, writingMins);
   return (
@@ -94,6 +144,12 @@ function StudentRow({ s }) {
         {s.specialMaterialsNote && (
           <p className="text-xs text-gray-500 mt-0.5 italic">{s.specialMaterialsNote}</p>
         )}
+        <AttendanceBadge
+          status={s.attendanceStatus}
+          bookingId={s.bookingId}
+          acting={acting}
+          onAttendance={onAttendance}
+        />
       </div>
       <div className="text-right text-xs text-gray-500 shrink-0 ml-4">
         {s.examTime && <div className="tabular-nums">{s.examTime}{endTime ? ` – ${endTime}` : ''}</div>}
@@ -104,7 +160,7 @@ function StudentRow({ s }) {
   );
 }
 
-function RoomCard({ roomName, students }) {
+function RoomCard({ roomName, students, acting, onAttendance }) {
   const isUnassigned = roomName === '__unassigned__';
   const byCourse = {};
   for (const s of students) {
@@ -128,7 +184,9 @@ function RoomCard({ roomName, students }) {
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
               {group.courseCode} · {group.examType?.replace('_', ' ')}
             </p>
-            {group.students.map(s => <StudentRow key={s.bookingId} s={s} />)}
+            {group.students.map(s => (
+              <StudentRow key={s.bookingId} s={s} acting={acting} onAttendance={onAttendance} />
+            ))}
           </div>
         ))}
       </div>
@@ -548,6 +606,7 @@ function ExamDayTab() {
   const [labelsDate, setLabelsDate] = useState('');
   const [students,   setStudents]   = useState([]);
   const [loading,    setLoading]    = useState(false);
+  const [acting,     setActing]     = useState(null);
 
   useEffect(() => {
     if (!date) return;
@@ -557,6 +616,20 @@ function ExamDayTab() {
       .catch(err => { toast(err.message, 'error'); setStudents([]); })
       .finally(() => setLoading(false));
   }, [date]);
+
+  async function handleAttendance(bookingId, newStatus) {
+    setActing(bookingId);
+    try {
+      await api.patch(`/prep/bookings/${bookingId}/attendance`, { status: newStatus });
+      setStudents(prev => prev.map(s =>
+        s.bookingId === bookingId ? { ...s, attendanceStatus: newStatus } : s,
+      ));
+    } catch (err) {
+      toast(err.message ?? 'Failed to update attendance', 'error');
+    } finally {
+      setActing(null);
+    }
+  }
 
   const rooms = groupByRoom(students);
   const roomCount = rooms.filter(([k]) => k !== '__unassigned__').length;
@@ -625,6 +698,10 @@ function ExamDayTab() {
           <span><strong className="text-gray-900">{students.length}</strong> student{students.length !== 1 ? 's' : ''}</span>
           <span><strong className="text-gray-900">{roomCount}</strong> room{roomCount !== 1 ? 's' : ''}</span>
           <span><strong className="text-gray-900">{courseCount}</strong> course{courseCount !== 1 ? 's' : ''}</span>
+          <span>
+            <strong className="text-green-700">{students.filter(s => s.attendanceStatus === 'show').length}</strong>
+            {' / '}{students.length} attended
+          </span>
         </div>
       )}
 
@@ -662,7 +739,8 @@ function ExamDayTab() {
       ) : (
         <div className="space-y-4">
           {rooms.map(([roomName, roomStudents]) => (
-            <RoomCard key={roomName} roomName={roomName} students={roomStudents} />
+            <RoomCard key={roomName} roomName={roomName} students={roomStudents}
+              acting={acting} onAttendance={handleAttendance} />
           ))}
         </div>
       )}

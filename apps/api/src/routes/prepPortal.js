@@ -26,6 +26,7 @@ async function fetchPrepData(schema, date) {
        ebr.special_materials_note,
        ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins, ebr.computed_duration_mins,
        ebr.student_duration_mins,
+       ebr.attendance_status, ebr.attendance_recorded_at,
        sp.id AS student_profile_id, sp.student_number,
        u.first_name, u.last_name,
        br.name AS room_name,
@@ -158,6 +159,7 @@ async function fetchPrepData(schema, date) {
       examPassword:         r.exam_password,
       examUploaded:         !!r.upload_found,
       accommodations:       accoms,
+      attendanceStatus:     r.attendance_status ?? null,
     };
   });
 }
@@ -454,6 +456,32 @@ router.post('/dropoffs/:uploadId/confirm', async (req, res, next) => {
     );
     if (!result.rows.length) {
       return res.status(404).json({ error: 'Drop-off not found or already confirmed' });
+    }
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/prep/bookings/:id/attendance ───────────────────────────────────
+// Leads and admins mark a confirmed student as show, no_show, or clear (null).
+router.patch('/bookings/:id/attendance', async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    if (status !== null && status !== 'show' && status !== 'no_show') {
+      return res.status(400).json({ ok: false, error: 'status must be "show", "no_show", or null' });
+    }
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE exam_booking_request
+       SET attendance_status      = $2,
+           attendance_recorded_by = CASE WHEN $2 IS NULL THEN NULL ELSE $3::uuid END,
+           attendance_recorded_at = CASE WHEN $2 IS NULL THEN NULL ELSE NOW() END,
+           updated_at             = NOW()
+       WHERE id = $1 AND status = 'confirmed'
+       RETURNING id`,
+      [req.params.id, status, req.user.id],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ ok: false, error: 'Booking not found or not confirmed' });
     }
     res.json({ ok: true });
   } catch (err) { next(err); }

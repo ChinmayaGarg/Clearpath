@@ -9,8 +9,9 @@ import RoomsTab from "../components/admin/RoomsTab.jsx";
 import ScheduleTab from "../components/admin/ScheduleTab.jsx";
 import ScheduleExamsTab from "../components/admin/ScheduleExamsTab.jsx";
 import CancellationRequestsTab from "../components/admin/CancellationRequestsTab.jsx";
+import AttendanceTab from "../components/admin/AttendanceTab.jsx";
 
-const ADMIN_TABS = ["Users", "Bookings", "Rooms", "Schedule", "Schedule Exams", "Cancellation Requests"];
+const ADMIN_TABS = ["Users", "Bookings", "Rooms", "Schedule", "Schedule Exams", "Cancellation Requests", "Attendance"];
 
 export default function Admin() {
   const [tab, setTab] = useState("Users");
@@ -81,6 +82,7 @@ export default function Admin() {
         {tab === "Schedule" && <ScheduleTab />}
         {tab === "Schedule Exams" && <ScheduleExamsTab />}
         {tab === "Cancellation Requests" && <CancellationRequestsTab />}
+        {tab === "Attendance" && <AttendanceTab />}
       </div>
     </div>
   );
