@@ -86,6 +86,8 @@ export async function listUploadsForProfessor(schema, professorProfileId) {
        eu.created_at, eu.updated_at,
        eu.file_path, eu.file_original_name, eu.file_uploaded_at,
        eu.estimated_copies,
+       eu.is_word_doc,
+       eu.dropoff_confirmed_at,
        COALESCE(
          json_agg(
            json_build_object(
@@ -189,6 +191,7 @@ export async function createUpload(
     calculatorType,
     studentInstructions,
     examCollectionMethod,
+    isWordDoc,
   },
 ) {
   const result = await tenantQuery(
@@ -197,8 +200,9 @@ export async function createUpload(
        (professor_profile_id, course_code, exam_type_label, version_label,
         delivery, materials, password, rwg_flag, is_makeup, makeup_notes,
         estimated_copies, exam_duration_mins, exam_format, booklet_type,
-        scantron_needed, calculator_type, student_instructions, exam_collection_method, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'draft')
+        scantron_needed, calculator_type, student_instructions, exam_collection_method,
+        is_word_doc, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'draft')
      RETURNING id`,
     [
       professorProfileId,
@@ -219,6 +223,7 @@ export async function createUpload(
       calculatorType        ?? null,
       studentInstructions   ?? null,
       examCollectionMethod  ?? null,
+      isWordDoc             ?? false,
     ],
   );
   return result.rows[0].id;
@@ -251,6 +256,8 @@ export async function updateUpload(
     "calculator_type",
     "student_instructions",
     "exam_collection_method",
+    "dropoff_confirmed_at",
+    "dropoff_confirmed_by",
   ];
   const setClauses = [];
   const values = [];

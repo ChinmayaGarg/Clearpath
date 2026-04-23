@@ -3,4 +3,5 @@ export {
   professorExamEmail,
   passwordResetEmail,
   inviteEmail,
+  uploadReminderEmail,
 }                              from './templates.js';

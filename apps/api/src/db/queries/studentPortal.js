@@ -47,7 +47,8 @@ export async function getStudentPortalMe(schema, studentProfileId) {
 }
 
 /**
- * Get all active accommodation grants for a student.
+ * Get all active accommodation grants for a student (from registration approval).
+ * Kept for backward-compatibility; not used by the student portal accommodations tab.
  */
 export async function getStudentPortalGrants(schema, studentProfileId) {
   const result = await tenantQuery(
@@ -68,6 +69,35 @@ export async function getStudentPortalGrants(schema, studentProfileId) {
     [studentProfileId],
   );
   return result.rows;
+}
+
+/**
+ * Get all counsellor-managed accommodations for a student, grouped by term.
+ * Returns [{ term, items: [{ id, code, label, triggers_rwg_flag, notes, created_at }] }]
+ * sorted most-recent term first.
+ */
+export async function getStudentAccommodations(schema, studentProfileId) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT
+       sa.id, sa.term, sa.notes, sa.created_at,
+       ac.code, ac.label, ac.triggers_rwg_flag
+     FROM student_accommodation sa
+     JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+     WHERE sa.student_profile_id = $1
+       AND ac.is_active = TRUE
+     ORDER BY sa.term DESC, ac.code`,
+    [studentProfileId],
+  );
+
+  const byTerm = {};
+  for (const row of result.rows) {
+    (byTerm[row.term] ??= []).push(row);
+  }
+
+  return Object.entries(byTerm)
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([term, items]) => ({ term, items }));
 }
 
 /**

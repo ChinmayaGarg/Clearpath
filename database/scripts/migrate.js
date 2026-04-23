@@ -46,6 +46,9 @@ const migrationMap = {
   22: "022_prep_notification_type.sql",
   23: "023_exam_upload_extras.sql",
   24: "024_notification_types.sql",
+  25: "025_exam_upload_dropoff_confirm.sql",
+  26: "026_exam_upload_word_doc.sql",
+  27: "027_scantron_text.sql",
 };
 
 const filename = migrationMap[targetVersion];

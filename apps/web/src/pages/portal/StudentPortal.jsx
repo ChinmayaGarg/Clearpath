@@ -59,22 +59,46 @@ function formatTime(timeStr) {
   return d.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' });
 }
 
+// ── Accommodation card list ────────────────────────────────────────────────────
+function AccomList({ items }) {
+  return (
+    <div className="space-y-2">
+      {items.map(g => (
+        <div key={g.id}
+             className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-gray-800">{g.label}</span>
+              <span className="text-xs text-gray-400 font-mono">{g.code}</span>
+              {g.triggers_rwg_flag && (
+                <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">RWG</span>
+              )}
+            </div>
+            {g.notes && <p className="text-xs text-gray-500 mt-0.5">{g.notes}</p>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Accommodations tab ─────────────────────────────────────────────────────────
 function AccommodationsTab({ me }) {
-  const [grants,  setGrants]  = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [terms,    setTerms]   = useState([]);   // [{ term, items[] }]
+  const [loading,  setLoading] = useState(true);
+  const [subTab,   setSubTab]  = useState('Active');
 
   useEffect(() => {
     api.get('/student/accommodations')
-      .then(d => setGrants(d.data ?? []))
+      .then(d => setTerms(d.data ?? []))
       .catch(() => toast('Failed to load accommodations', 'error'))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="py-12 flex justify-center"><Spinner /></div>;
 
-  const regStatus    = me?.registration_status;
-  const requested    = me?.requested_accommodations ?? [];
+  const regStatus = me?.registration_status;
+  const requested = me?.requested_accommodations ?? [];
 
   // Not registered at all
   if (!regStatus) {
@@ -91,25 +115,24 @@ function AccommodationsTab({ me }) {
     );
   }
 
+  const activeTerm  = terms[0] ?? null;       // most recent term
+  const pastTerms   = terms.slice(1);          // all older terms
+
   return (
     <div className="space-y-6">
 
       {/* Requested accommodations — always shown once registered */}
       {requested.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Requested
-          </h2>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Requested</h2>
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
             {requested.map((acc, i) => (
               <div key={i} className="px-4 py-2.5 flex items-center justify-between gap-4">
                 <span className="text-sm text-gray-700">{acc}</span>
-                {regStatus === 'approved' && grants.some(g => g.label === acc || g.code === acc) ? (
-                  <span className="text-xs text-green-600 font-medium">Approved</span>
-                ) : regStatus === 'approved' ? (
-                  <span className="text-xs text-gray-400">Not granted</span>
-                ) : regStatus === 'rejected' ? (
+                {regStatus === 'rejected' ? (
                   <span className="text-xs text-red-500">Not approved</span>
+                ) : regStatus === 'approved' ? (
+                  <span className="text-xs text-green-600 font-medium">Approved</span>
                 ) : (
                   <span className="text-xs text-yellow-600">Pending review</span>
                 )}
@@ -119,62 +142,72 @@ function AccommodationsTab({ me }) {
         </div>
       )}
 
-      {/* Approved grants */}
-      {grants.length > 0 ? (
-        <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Active accommodations
-          </h2>
-          <div className="space-y-2">
-            {grants.map(g => (
-              <div key={g.id}
-                   className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-800">{g.label}</span>
-                    <span className="text-xs text-gray-400 font-mono">{g.code}</span>
-                    {g.triggers_rwg_flag && (
-                      <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">RWG</span>
-                    )}
+      {/* Sub-tabs: Active / History */}
+      <div>
+        <div className="flex gap-1 mb-4 border-b border-gray-200">
+          {['Active', 'History'].map(t => (
+            <button
+              key={t}
+              onClick={() => setSubTab(t)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors
+                ${subTab === t
+                  ? 'text-brand-700 border-b-2 border-brand-600 -mb-px bg-white'
+                  : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {subTab === 'Active' && (
+          activeTerm ? (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                {activeTerm.term}
+              </p>
+              <AccomList items={activeTerm.items} />
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+              <p className="text-sm font-medium text-gray-700">No active accommodations</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {regStatus === 'approved'
+                  ? 'Your registration was approved but no codes have been assigned yet. Contact your accessibility counsellor.'
+                  : regStatus === 'rejected'
+                  ? 'Your registration was not approved. Contact the accessibility centre for more information.'
+                  : 'Accommodations will appear here once a counsellor reviews your registration.'}
+              </p>
+            </div>
+          )
+        )}
+
+        {subTab === 'History' && (
+          pastTerms.length ? (
+            <div className="space-y-5">
+              {pastTerms.map(({ term, items }) => (
+                <div key={term}>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{term}</p>
+                  <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+                    {items.map(g => (
+                      <div key={g.id} className="px-4 py-2.5 flex items-center gap-3">
+                        <span className="text-sm text-gray-700">{g.label}</span>
+                        <span className="text-xs text-gray-400 font-mono">{g.code}</span>
+                        {g.triggers_rwg_flag && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">RWG</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  {g.notes && (
-                    <p className="text-xs text-gray-500 mt-0.5">{g.notes}</p>
-                  )}
                 </div>
-                <div className="text-right flex-shrink-0">
-                  {g.expires_at ? (
-                    <p className="text-xs text-gray-400">Expires {formatDate(g.expires_at)}</p>
-                  ) : (
-                    <p className="text-xs text-gray-300">No expiry</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : regStatus === 'approved' ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
-          <p className="text-sm font-medium text-gray-700">No active accommodations</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Your registration was approved but no codes have been assigned yet.
-            Contact your accessibility counsellor.
-          </p>
-        </div>
-      ) : regStatus === 'rejected' ? (
-        <div className="bg-white rounded-xl border border-red-100 p-6 text-center">
-          <p className="text-sm font-medium text-red-600">Registration not approved</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Contact your accessibility centre for more information.
-          </p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
-          <p className="text-sm font-medium text-gray-700">Registration under review</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Accommodations will appear here once a counsellor approves your registration.
-          </p>
-        </div>
-      )}
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+              <p className="text-sm text-gray-400">No past accommodation history</p>
+            </div>
+          )
+        )}
+      </div>
 
     </div>
   );
@@ -213,14 +246,59 @@ function ExamRequestsTab() {
     }
   }
 
+  const [subTab, setSubTab] = useState('Upcoming');
+
   if (loading) return <div className="py-12 flex justify-center"><Spinner /></div>;
+
+  const today    = new Date().toISOString().slice(0, 10);
+  const upcoming = bookings.filter(b => b.exam_date >= today && b.status !== 'cancelled');
+  const history  = bookings.filter(b => b.exam_date < today  || b.status === 'cancelled');
+
+  function BookingCard({ b }) {
+    return (
+      <div className={`bg-white rounded-xl border border-gray-200 px-4 py-3 ${b.status === 'cancelled' ? 'opacity-50' : ''}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-semibold text-gray-800">{b.course_code}</span>
+              <span className="text-xs text-gray-500 capitalize">{b.exam_type.replace('_', ' ')}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_BADGE[b.status] ?? ''}`}>
+                {STATUS_LABEL[b.status] ?? b.status}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {formatDate(b.exam_date)}{b.exam_time ? ` at ${formatTime(b.exam_time)}` : ''}
+            </p>
+            {b.computed_duration_mins ? (
+              <p className="text-xs text-indigo-600 mt-0.5">
+                Est. {b.computed_duration_mins} min
+                {b.base_duration_mins && b.computed_duration_mins !== b.base_duration_mins
+                  ? ` (${b.base_duration_mins} base${b.extra_mins > 0 ? ` + ${b.extra_mins} extra` : ''}${b.stb_mins > 0 ? ` + ${b.stb_mins} STB` : ''})`
+                  : ''}
+              </p>
+            ) : null}
+            {b.special_materials_note && (
+              <p className="text-xs text-gray-400 mt-1">{b.special_materials_note}</p>
+            )}
+          </div>
+          {b.status === 'pending' && (
+            <button
+              onClick={() => handleCancel(b.id)}
+              disabled={cancelling === b.id}
+              className="text-xs text-red-400 hover:text-red-600 flex-shrink-0 disabled:opacity-50"
+            >
+              {cancelling === b.id ? 'Cancelling…' : 'Cancel'}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">
-          {bookings.length === 0 ? 'No exam requests yet.' : `${bookings.length} request${bookings.length !== 1 ? 's' : ''}`}
-        </p>
+      {/* Schedule button */}
+      <div className="flex justify-end">
         <button
           onClick={() => setShowForm(true)}
           className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white text-xs
@@ -237,49 +315,48 @@ function ExamRequestsTab() {
         />
       )}
 
-      {bookings.map(b => (
-        <div
-          key={b.id}
-          className={`bg-white rounded-xl border border-gray-200 px-4 py-3
-            ${b.status === 'cancelled' ? 'opacity-50' : ''}`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-gray-800">{b.course_code}</span>
-                <span className="text-xs text-gray-500 capitalize">{b.exam_type.replace('_', ' ')}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_BADGE[b.status] ?? ''}`}>
-                  {STATUS_LABEL[b.status] ?? b.status}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {formatDate(b.exam_date)}
-                {b.exam_time ? ` at ${formatTime(b.exam_time)}` : ''}
-              </p>
-              {b.computed_duration_mins ? (
-                <p className="text-xs text-indigo-600 mt-0.5">
-                  Est. {b.computed_duration_mins} min
-                  {b.base_duration_mins && b.computed_duration_mins !== b.base_duration_mins
-                    ? ` (${b.base_duration_mins} base + ${b.extra_mins > 0 ? `${b.extra_mins} extra time` : ''}${b.extra_mins > 0 && b.stb_mins > 0 ? ' + ' : ''}${b.stb_mins > 0 ? `${b.stb_mins} STB` : ''})`
-                    : ''}
-                </p>
-              ) : null}
-              {b.special_materials_note && (
-                <p className="text-xs text-gray-400 mt-1">{b.special_materials_note}</p>
-              )}
-            </div>
-            {b.status === 'pending' && (
-              <button
-                onClick={() => handleCancel(b.id)}
-                disabled={cancelling === b.id}
-                className="text-xs text-red-400 hover:text-red-600 flex-shrink-0 disabled:opacity-50"
-              >
-                {cancelling === b.id ? 'Cancelling…' : 'Cancel'}
-              </button>
-            )}
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {['Upcoming', 'History'].map(t => (
+          <button
+            key={t}
+            onClick={() => setSubTab(t)}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors
+              ${subTab === t
+                ? 'text-brand-700 border-b-2 border-brand-600 -mb-px bg-white'
+                : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            {t}
+            <span className="ml-1.5 text-xs text-gray-400">
+              {t === 'Upcoming' ? upcoming.length : history.length}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'Upcoming' && (
+        upcoming.length ? (
+          <div className="space-y-3">
+            {upcoming.map(b => <BookingCard key={b.id} b={b} />)}
           </div>
-        </div>
-      ))}
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            <p className="text-sm text-gray-500">No upcoming exams scheduled</p>
+          </div>
+        )
+      )}
+
+      {subTab === 'History' && (
+        history.length ? (
+          <div className="space-y-3">
+            {history.map(b => <BookingCard key={b.id} b={b} />)}
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            <p className="text-sm text-gray-500">No past exam requests</p>
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -553,12 +630,28 @@ export default function StudentPortal() {
 
       {/* Nav */}
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-30">
-        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold text-brand-800">Clearpath</span>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
-              Student portal
-            </span>
+        <div className="max-w-3xl mx-auto px-4 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3 h-14">
+              <span className="font-semibold text-brand-800">Clearpath</span>
+              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
+                Student portal
+              </span>
+            </div>
+            <div className="flex h-14">
+              {TABS.map(t => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`px-4 text-sm font-medium border-b-2 transition-colors h-full
+                    ${tab === t
+                      ? 'border-brand-600 text-brand-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-400">{user?.email}</span>
@@ -590,22 +683,6 @@ export default function StudentPortal() {
               </span>
             )}
           </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-gray-200 mb-6">
-          {TABS.map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors
-                ${tab === t
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-            >
-              {t}
-            </button>
-          ))}
         </div>
 
         {tab === 'Accommodations' && <AccommodationsTab me={me} />}

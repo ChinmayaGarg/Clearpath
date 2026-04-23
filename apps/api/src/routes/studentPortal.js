@@ -16,6 +16,7 @@ import {
   getStudentProfileId,
   getStudentPortalMe,
   getStudentPortalGrants,
+  getStudentAccommodations,
   getStudentExamBookings,
   createExamBookingRequest,
   cancelExamBookingRequest,
@@ -89,8 +90,8 @@ router.get('/accommodations', async (req, res, next) => {
       return res.status(404).json({ ok: false, error: 'Student profile not found' });
     }
 
-    const grants = await getStudentPortalGrants(schema, studentProfileId);
-    res.json({ ok: true, data: grants });
+    const terms = await getStudentAccommodations(schema, studentProfileId);
+    res.json({ ok: true, data: terms });
   } catch (err) { next(err); }
 });
 

@@ -3,21 +3,41 @@ import Modal from "../ui/Modal.jsx";
 import { api } from "../../lib/api.js";
 import { toast } from "../ui/Toast.jsx";
 
+// Time slots: 7:45 AM – 8:00 PM in 5-minute intervals
+const TIME_SLOTS = (() => {
+  const slots = [];
+  for (let mins = 7 * 60 + 45; mins <= 20 * 60; mins += 5) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const period = h < 12 ? 'AM' : 'PM';
+    const displayH = h > 12 ? h - 12 : h;
+    slots.push({ value, label: `${displayH}:${String(m).padStart(2, '0')} ${period}` });
+  }
+  return slots;
+})();
+
 const EXAM_TYPES = [
-  { value: "midterm", label: "Midterm" },
-  { value: "endterm", label: "End term" },
-  { value: "tutorial", label: "Tutorial" },
-  { value: "lab", label: "Lab" },
-  { value: "quiz", label: "Quiz" },
+  { value: "final",      label: "Final"      },
+  { value: "midterm",    label: "Midterm"    },
+  { value: "quiz_1",     label: "Quiz 1"     },
+  { value: "quiz_2",     label: "Quiz 2"     },
+  { value: "quiz_3",     label: "Quiz 3"     },
+  { value: "quiz_4",     label: "Quiz 4"     },
+  { value: "test_1",     label: "Test 1"     },
+  { value: "test_2",     label: "Test 2"     },
+  { value: "test_3",     label: "Test 3"     },
   { value: "assignment", label: "Assignment" },
-  { value: "other", label: "Other" },
 ];
 
-const DELIVERIES = [
-  { value: "pending", label: "Not sure yet" },
-  { value: "dropped", label: "I will drop it off" },
-  { value: "delivery", label: "Delivered to room" },
-  { value: "file_upload", label: "I will upload the file" },
+const DELIVERIES_PROF = [
+  { value: "dropped",     label: "I will drop it off" },
+  { value: "file_upload", label: "I will upload"       },
+];
+
+const DELIVERIES_ADMIN = [
+  { value: "dropped",     label: "Dropped off" },
+  { value: "file_upload", label: "Emailed"     },
 ];
 
 const EXAM_FORMATS = [
@@ -29,11 +49,11 @@ const EXAM_FORMATS = [
 
 const CALCULATOR_TYPES = [
   { value: "", label: "Select…" },
+  { value: "none", label: "No Calculator Allowed" },
+  { value: "basic", label: "Basic calculator" },
   { value: "scientific", label: "Scientific calculator" },
   { value: "non_programmable", label: "Non-programmable & non-communicable calculator" },
   { value: "financial", label: "Financial calculator" },
-  { value: "basic", label: "Basic calculator" },
-  { value: "none", label: "No calculator" },
 ];
 
 const COLLECTION_METHODS = [
@@ -50,13 +70,18 @@ const BOOKLET_TYPES = [
   { value: "essay_booklet", label: "Essay booklet" },
 ];
 
-export default function UploadForm({ uploadId, onClose, onSaved }) {
+export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false, profId = null, onClose, onSaved }) {
   const isEdit = !!uploadId;
+  // When editing an existing upload, `isWordDoc` comes from the server; when creating, from the prop
+  const [isWordDoc, setIsWordDoc] = useState(isWordDocProp);
+
+  // If profId is set we are in lead/admin context — use /professor/:profId/... routes
+  const uploadsBase = profId ? `/portal/professor/${profId}/uploads` : `/portal/uploads`;
 
   const [form, setForm] = useState({
     courseCode:        "",
     examTypeLabel:     "midterm",
-    delivery:          "pending",
+    delivery:          profId ? "dropped" : "file_upload",
     materials:         "",
     password:          "",
     isMakeup:          false,
@@ -91,9 +116,10 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
   useEffect(() => {
     if (!uploadId) return;
     api
-      .get(`/portal/uploads/${uploadId}`)
+      .get(`${uploadsBase}/${uploadId}`)
       .then((d) => {
         const u = d.upload;
+        setIsWordDoc(!!u.is_word_doc);
         setForm({
           courseCode:        u.course_code,
           examTypeLabel:     u.exam_type_label,
@@ -106,7 +132,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
           examDurationMins:     u.exam_duration_mins      ?? "",
           examFormat:           u.exam_format             ?? "",
           bookletType:          u.booklet_type            ?? "",
-          scantronNeeded:       u.scantron_needed === true ? "yes" : u.scantron_needed === false ? "no" : "",
+          scantronNeeded:       u.scantron_needed ?? "",
           calculatorType:       u.calculator_type         ?? "",
           studentInstructions:  u.student_instructions    ?? "",
           examCollectionMethod: u.exam_collection_method  ?? "",
@@ -120,8 +146,9 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
   useEffect(() => {
     let mounted = true;
+    const endpoint = profId ? `/portal/professor/${profId}/courses` : `/portal/courses`;
     api
-      .get("/portal/courses")
+      .get(endpoint)
       .then((data) => {
         if (!mounted) return;
         setCourses(data.courses ?? []);
@@ -137,16 +164,18 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, []); // eslint-disable-line
 
   function buildPayload() {
     return {
       ...form,
+      isWordDoc,
+      delivery: isWordDoc ? "file_upload" : form.delivery,
       estimatedCopies:   form.estimatedCopies   !== "" ? Number(form.estimatedCopies)   : null,
       examDurationMins:  form.examDurationMins  !== "" ? Number(form.examDurationMins)  : null,
       examFormat:           form.examFormat           || null,
       bookletType:          form.bookletType          || null,
-      scantronNeeded:       form.scantronNeeded === "" ? null : form.scantronNeeded === "yes",
+      scantronNeeded:       form.scantronNeeded || null,
       calculatorType:       form.calculatorType       || null,
       studentInstructions:  form.studentInstructions  || null,
       examCollectionMethod: form.examCollectionMethod || null,
@@ -159,15 +188,17 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     // If no upload exists yet, create the draft first
     let currentUploadId = uploadId_;
     if (!currentUploadId) {
-      if (!form.courseCode)             { toast("Please select a course before uploading", "error"); return; }
-      if (!form.examDurationMins)       { toast("Exam duration is required", "error"); return; }
-      if (!form.examFormat)             { toast("Exam type is required", "error"); return; }
-      if (!form.bookletType)            { toast("Booklet selection is required", "error"); return; }
-      if (form.scantronNeeded === "")   { toast("Scantron selection is required", "error"); return; }
-      if (!form.calculatorType)         { toast("Calculator selection is required", "error"); return; }
-      if (!form.examCollectionMethod)   { toast("Exam collection method is required", "error"); return; }
+      if (!form.courseCode) { toast("Please select a course before uploading", "error"); return; }
+      if (!isWordDoc) {
+        if (!form.examDurationMins)       { toast("Exam duration is required", "error"); return; }
+        if (!form.examFormat)             { toast("Exam format is required", "error"); return; }
+        if (!form.bookletType)            { toast("Booklet selection is required", "error"); return; }
+        if (form.scantronNeeded === "")   { toast("Scantron selection is required", "error"); return; }
+        if (!form.calculatorType)         { toast("Calculator selection is required", "error"); return; }
+        if (!form.examCollectionMethod)   { toast("Exam collection method is required", "error"); return; }
+      }
       try {
-        const data = await api.post("/portal/uploads", buildPayload());
+        const data = await api.post(uploadsBase, buildPayload());
         currentUploadId = data.uploadId;
         setUploadId_(currentUploadId);
       } catch (err) {
@@ -180,7 +211,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     try {
       const formData = new FormData();
       formData.append("file", pendingFile);
-      const result = await api.upload(`/portal/uploads/${currentUploadId}/files`, formData);
+      const result = await api.upload(`${uploadsBase}/${currentUploadId}/files`, formData);
       setUploadedFiles((prev) => [...prev, result.file]);
       setPendingFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -194,7 +225,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
   async function handleRemoveFile(fileId) {
     try {
-      await api.delete(`/portal/uploads/${uploadId_}/files/${fileId}`);
+      await api.delete(`${uploadsBase}/${uploadId_}/files/${fileId}`);
       setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
     } catch (err) {
       toast(err.message, "error");
@@ -202,14 +233,16 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
   }
 
   async function handleSaveDetails() {
-    if (!form.examDurationMins)     { toast("Exam duration is required", "error"); return; }
-    if (!form.examFormat)           { toast("Exam type is required", "error"); return; }
-    if (!form.bookletType)          { toast("Booklet selection is required", "error"); return; }
-    if (form.scantronNeeded === "") { toast("Scantron selection is required", "error"); return; }
-    if (!form.calculatorType)       { toast("Calculator selection is required", "error"); return; }
-    if (!form.examCollectionMethod) { toast("Exam collection method is required", "error"); return; }
-    if (form.delivery === "file_upload" && uploadedFiles.length === 0) {
-      toast("Please upload at least one exam file before continuing", "error");
+    if (!isWordDoc) {
+      if (!form.examDurationMins)     { toast("Exam duration is required", "error"); return; }
+      if (!form.examFormat)           { toast("Exam type is required", "error"); return; }
+      if (!form.bookletType)          { toast("Booklet selection is required", "error"); return; }
+      if (form.scantronNeeded === "") { toast("Scantron selection is required", "error"); return; }
+      if (!form.calculatorType)       { toast("Calculator selection is required", "error"); return; }
+      if (!form.examCollectionMethod) { toast("Exam collection method is required", "error"); return; }
+    }
+    if ((isWordDoc || form.delivery === "file_upload") && uploadedFiles.length === 0) {
+      toast("Please upload at least one file before continuing", "error");
       return;
     }
 
@@ -218,9 +251,9 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
       const payload = buildPayload();
       let currentUploadId = uploadId_;
       if (currentUploadId) {
-        await api.put(`/portal/uploads/${currentUploadId}`, payload);
+        await api.put(`${uploadsBase}/${currentUploadId}`, payload);
       } else {
-        const data = await api.post("/portal/uploads", payload);
+        const data = await api.post(uploadsBase, payload);
         currentUploadId = data.uploadId;
         setUploadId_(currentUploadId);
       }
@@ -246,7 +279,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     }
 
     try {
-      const data = await api.post(`/portal/uploads/${uploadId_}/dates`, {
+      const data = await api.post(`${uploadsBase}/${uploadId_}/dates`, {
         examDate: newDate,
         timeSlot: newTime || null,
       });
@@ -268,7 +301,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
   async function handleRemoveDate(dateId) {
     try {
-      await api.delete(`/portal/uploads/${uploadId_}/dates/${dateId}`);
+      await api.delete(`${uploadsBase}/${uploadId_}/dates/${dateId}`);
       setDates((d) => d.filter((x) => x.id !== dateId));
     } catch (err) {
       toast(err.message, "error");
@@ -287,7 +320,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
     }
     setSubmitting(true);
     try {
-      await api.post(`/portal/uploads/${uploadId_}/submit`, {});
+      await api.post(`${uploadsBase}/${uploadId_}/submit`, {});
       toast("Exam saved successfully", "success");
       onSaved?.();
     } catch (err) {
@@ -301,10 +334,21 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
   return (
     <Modal
-      title={isEdit ? "Edit exam upload" : "New exam upload"}
+      title={isWordDoc
+        ? (isEdit ? "Edit Word document (RWG)" : "Upload Word document (RWG students)")
+        : (isEdit ? "Edit exam upload" : "New exam upload")}
       onClose={onClose}
       width="max-w-lg"
     >
+      {isWordDoc && (
+        <div className="mb-4 flex items-start gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+          <span className="text-purple-500 shrink-0 text-sm">⚠</span>
+          <p className="text-xs text-purple-700 font-medium">
+            Word document upload for students with RWG accommodation. Only .docx / .doc files are accepted.
+          </p>
+        </div>
+      )}
+
       {/* Step indicator */}
       <div className="flex gap-2 mb-5">
         {["details", "dates"].map((s, i) => (
@@ -350,7 +394,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                 <option value="" disabled>
                   {coursesLoading
                     ? "Loading courses…"
-                    : "Select your assigned course"}
+                    : "Select course"}
                 </option>
                 {courseOptions.map((course) => (
                   <option key={course} value={course}>
@@ -360,14 +404,15 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               </select>
               {!coursesLoading && courses.length === 0 && (
                 <p className="text-xs text-red-600 mt-2">
-                  No assigned courses found. Contact your lead to assign your
-                  courses.
+                  {profId
+                    ? "No courses assigned to this professor yet."
+                    : "No assigned courses found. Contact your lead to assign your courses."}
                 </p>
               )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Exam type
+                Exam Category
               </label>
               <select
                 value={form.examTypeLabel}
@@ -388,7 +433,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
-              How will the exam be delivered?
+              {profId ? "How are the exams delivered?" : "How will the exam be delivered?"}
             </label>
             <select
               value={form.delivery}
@@ -402,7 +447,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                          focus:outline-none focus:ring-2 focus:ring-brand-600"
             >
-              {DELIVERIES.map((d) => (
+              {(profId ? DELIVERIES_ADMIN : DELIVERIES_PROF).map((d) => (
                 <option key={d.value} value={d.value}>
                   {d.label}
                 </option>
@@ -434,11 +479,11 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
             </div>
           )}
 
-          {/* File upload section - shown when delivery is file_upload */}
-          {form.delivery === "file_upload" && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+          {/* File upload section — shown for file_upload delivery or Word doc uploads */}
+          {(isWordDoc || form.delivery === "file_upload") && (
+            <div className={`p-4 rounded-lg space-y-3 border ${isWordDoc ? 'bg-purple-50 border-purple-200' : 'bg-blue-50 border-blue-200'}`}>
               <label className="block text-xs font-medium text-gray-700">
-                Exam files <span className="text-red-500">*</span>
+                {isWordDoc ? "Word document" : "Exam files"} <span className="text-red-500">*</span>
               </label>
 
               {/* List of uploaded files */}
@@ -447,7 +492,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                   {uploadedFiles.map((f) => (
                     <div
                       key={f.id}
-                      className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-blue-100"
+                      className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-gray-100"
                     >
                       <div>
                         <p className="text-sm font-medium text-gray-900">
@@ -485,7 +530,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="application/pdf"
+                  accept={isWordDoc ? ".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword" : "application/pdf"}
                   onChange={(e) => setPendingFile(e.target.files?.[0] || null)}
                   className="hidden"
                 />
@@ -493,10 +538,9 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm
-                               font-medium rounded-lg transition-colors"
+                    className={`px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors ${isWordDoc ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                   >
-                    {pendingFile ? "Change file" : "Add PDF file"}
+                    {pendingFile ? "Change file" : isWordDoc ? "Add Word file" : "Add PDF file"}
                   </button>
                   {pendingFile && (
                     <button
@@ -515,200 +559,205 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                     Selected: {pendingFile.name} ({(pendingFile.size / 1024).toFixed(1)} KB)
                   </p>
                 )}
-                <p className="text-xs text-blue-600 mt-1">
-                  PDF files up to 10 MB each.
+                <p className={`text-xs mt-1 ${isWordDoc ? 'text-purple-600' : 'text-blue-600'}`}>
+                  {isWordDoc ? ".docx or .doc files up to 10 MB." : "PDF files up to 10 MB each."}
                 </p>
               </div>
             </div>
           )}
 
-          {/* Exam duration + format */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Exam duration <span className="text-red-500">*</span>{" "}
-                <span className="text-gray-400 font-normal">(minutes)</span>
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="600"
-                value={form.examDurationMins}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, examDurationMins: e.target.value }))
-                }
-                placeholder="e.g. 120"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-600"
-              />
+          {/* Exam-specific fields — hidden for Word doc uploads */}
+          {!isWordDoc && (<>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Exam duration <span className="text-red-500">*</span>{" "}
+                  <span className="text-gray-400 font-normal">(minutes)</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="600"
+                  value={form.examDurationMins}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, examDurationMins: e.target.value }))
+                  }
+                  placeholder="e.g. 120"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Exam Format <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.examFormat}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, examFormat: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600"
+                >
+                  {EXAM_FORMATS.map((f) => (
+                    <option key={f.value} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
+
+            {/* Booklet + scantron side by side */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Booklet required? <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.bookletType}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, bookletType: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600"
+                >
+                  {BOOKLET_TYPES.map((b) => (
+                    <option key={b.value} value={b.value}>{b.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Scantron needed? <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.scantronNeeded}
+                  onChange={(e) => setForm((f) => ({ ...f, scantronNeeded: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600"
+                >
+                  <option value="">Select…</option>
+                  <option value="not_needed">Not needed</option>
+                  <option value="purple">Purple</option>
+                  <option value="green">Green</option>
+                </select>
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Exam type <span className="text-red-500">*</span>
+                Calculator Needed? <span className="text-red-500">*</span>
               </label>
               <select
-                value={form.examFormat}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, examFormat: e.target.value }))
-                }
+                value={form.calculatorType}
+                onChange={(e) => setForm((f) => ({ ...f, calculatorType: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                            focus:outline-none focus:ring-2 focus:ring-brand-600"
               >
-                {EXAM_FORMATS.map((f) => (
-                  <option key={f.value} value={f.value}>{f.label}</option>
+                {CALCULATOR_TYPES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
               </select>
             </div>
-          </div>
 
-          {/* Booklet + scantron + calculator */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Booklet required? <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={form.bookletType}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, bookletType: e.target.value }))
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            >
-              {BOOKLET_TYPES.map((b) => (
-                <option key={b.value} value={b.value}>{b.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Scantron needed? <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={form.scantronNeeded}
-              onChange={(e) => setForm((f) => ({ ...f, scantronNeeded: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            >
-              <option value="">Select…</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Calculator? <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={form.calculatorType}
-              onChange={(e) => setForm((f) => ({ ...f, calculatorType: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            >
-              {CALCULATOR_TYPES.map((c) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              How would you like to collect completed exams? <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={form.examCollectionMethod}
-              onChange={(e) => setForm((f) => ({ ...f, examCollectionMethod: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            >
-              {COLLECTION_METHODS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Instructions for students{" "}
-              <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <textarea
-              value={form.studentInstructions}
-              onChange={(e) => setForm((f) => ({ ...f, studentInstructions: e.target.value }))}
-              rows={3}
-              placeholder="e.g. Allowed to use phone/laptop to submit PDF during the last 10 minutes"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         resize-none focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Materials permitted
-            </label>
-            <textarea
-              value={form.materials}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, materials: e.target.value }))
-              }
-              rows={2}
-              placeholder="e.g. one double-sided cue sheet"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         resize-none focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Password{" "}
-              <span className="text-gray-400 font-normal">
-                (if Brightspace or online exam)
-              </span>
-            </label>
-            <input
-              type="text"
-              value={form.password}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, password: e.target.value }))
-              }
-              placeholder="Leave blank if paper exam"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
-          </div>
-
-          <div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.isMakeup}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, isMakeup: e.target.checked }))
-                }
-                className="accent-purple-600"
-              />
-              <span className="text-sm text-gray-700">This is a makeup exam</span>
-            </label>
-          </div>
-
-          {form.isMakeup && (
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Makeup notes{" "}
+                How would you like to collect completed exams? <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={form.examCollectionMethod}
+                onChange={(e) => setForm((f) => ({ ...f, examCollectionMethod: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+              >
+                {COLLECTION_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Instructions for students{" "}
                 <span className="text-gray-400 font-normal">(optional)</span>
               </label>
-              <input
-                value={form.makeupNotes}
+              <textarea
+                value={form.studentInstructions}
+                onChange={(e) => setForm((f) => ({ ...f, studentInstructions: e.target.value }))}
+                rows={3}
+                placeholder="e.g. Allowed to use phone/laptop to submit PDF during the last 10 minutes"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           resize-none focus:outline-none focus:ring-2 focus:ring-brand-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Materials permitted
+              </label>
+              <textarea
+                value={form.materials}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, makeupNotes: e.target.value }))
+                  setForm((f) => ({ ...f, materials: e.target.value }))
                 }
-                placeholder="e.g. For student who missed the April 14th sitting"
+                rows={2}
+                placeholder="e.g. one double-sided cue sheet"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           resize-none focus:outline-none focus:ring-2 focus:ring-brand-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Password{" "}
+                <span className="text-gray-400 font-normal">
+                  (if Brightspace or online exam)
+                </span>
+              </label>
+              <input
+                type="text"
+                value={form.password}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, password: e.target.value }))
+                }
+                placeholder="Leave blank if paper exam"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                            focus:outline-none focus:ring-2 focus:ring-brand-600"
               />
             </div>
-          )}
+
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.isMakeup}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, isMakeup: e.target.checked }))
+                  }
+                  className="accent-purple-600"
+                />
+                <span className="text-sm text-gray-700">This is a makeup exam</span>
+              </label>
+            </div>
+
+            {form.isMakeup && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Makeup notes{" "}
+                  <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  value={form.makeupNotes}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, makeupNotes: e.target.value }))
+                  }
+                  placeholder="e.g. For student who missed the April 14th sitting"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-600"
+                />
+              </div>
+            )}
+          </>)}
 
           <button
             onClick={handleSaveDetails}
@@ -716,13 +765,15 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               saving ||
               fileUploading ||
               !form.courseCode ||
-              !form.examDurationMins ||
-              !form.examFormat ||
-              !form.bookletType ||
-              form.scantronNeeded === "" ||
-              !form.calculatorType ||
-              !form.examCollectionMethod ||
-              (form.delivery === "file_upload" && uploadedFiles.length === 0)
+              (!isWordDoc && (
+                !form.examDurationMins ||
+                !form.examFormat ||
+                !form.bookletType ||
+                form.scantronNeeded === "" ||
+                !form.calculatorType ||
+                !form.examCollectionMethod
+              )) ||
+              ((isWordDoc || form.delivery === "file_upload") && uploadedFiles.length === 0)
             }
             className="w-full py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
                        font-medium rounded-lg transition-colors disabled:opacity-50"
@@ -747,14 +798,17 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm
                            focus:outline-none focus:ring-2 focus:ring-brand-600"
               />
-              <input
-                type="time"
+              <select
                 value={newTime}
                 onChange={(e) => setNewTime(e.target.value)}
-                placeholder="Time (optional)"
-                className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-600"
-              />
+                className="w-36 px-3 py-2 border border-gray-300 rounded-lg text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
+              >
+                <option value="">All day</option>
+                {TIME_SLOTS.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
               <button
                 onClick={handleAddDate}
                 disabled={!newDate}
@@ -765,7 +819,7 @@ export default function UploadForm({ uploadId, onClose, onSaved }) {
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Leave time blank if this exam applies to all time slots on that
+              Select "All day" if this exam applies to all time slots on that
               date. If a time is set, it must be at least 1 hour from now.
             </p>
           </div>

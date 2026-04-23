@@ -293,3 +293,53 @@ function formatTime(t) {
   const hour  = h % 12 || 12;
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
 }
+
+/**
+ * Upload reminder email — sent when a professor hasn't uploaded/dropped off
+ * an exam for confirmed students.
+ *
+ * @param {{ firstName, lastName }} prof
+ * @param {{ courseCode, dateStr, timeStr, days, studentCount, isDropoff }} data
+ * @param {{ senderName, replyTo, institutionName }} context
+ */
+export function uploadReminderEmail(prof, data, context) {
+  const { courseCode, dateStr, timeStr, days, studentCount, isDropoff } = data;
+  const {
+    senderName      = 'Accessibility Centre',
+    institutionName = 'the institution',
+  } = context;
+
+  const urgency = days === 1 ? 'tomorrow' : `in ${days} days`;
+  const action  = isDropoff
+    ? `please drop off the exam at the ${senderName} if you haven't already`
+    : `please log in to the professor portal and upload the exam file`;
+  const received = isDropoff ? 'received the physical exam copy' : 'received the exam file';
+  const done     = isDropoff ? 'dropped it off' : 'submitted the file';
+
+  const subject = `Exam reminder — ${courseCode} — ${dateStr} (${days} day${days !== 1 ? 's' : ''} away)`;
+
+  const text = `Dear ${prof.firstName ?? 'Professor'},
+
+${studentCount} student${studentCount !== 1 ? 's' : ''} with accommodations ${studentCount !== 1 ? 'are' : 'is'} confirmed to write your ${courseCode} exam on ${dateStr}${timeStr} — that's ${urgency}.
+
+We have not yet ${received} — ${action}.
+
+If you have already ${done}, you can ignore this message.
+
+— ${senderName}`.trim();
+
+  const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#111">
+  <p>Dear ${prof.firstName ?? 'Professor'},</p>
+  <div style="background:#fff7ed;border-left:4px solid #f97316;padding:14px 18px;margin:20px 0;border-radius:4px">
+    <p style="margin:0;font-size:16px;font-weight:bold">${studentCount} student${studentCount !== 1 ? 's' : ''} confirmed &mdash; ${courseCode}</p>
+    <p style="margin:6px 0 0;color:#555">${dateStr}${timeStr} &mdash; exam is <strong>${urgency}</strong></p>
+  </div>
+  <p>We have not yet ${received} &mdash; ${action}.</p>
+  <p style="color:#888;font-size:13px">If you have already ${done}, you can ignore this message.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#888;font-size:12px">&mdash; ${senderName}</p>
+</div>`.trim();
+
+  return { subject, html, text };
+}
