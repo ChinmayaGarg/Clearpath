@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api }     from '../lib/api.js';
 import { toast }   from '../components/ui/Toast.jsx';
 import Spinner     from '../components/ui/Spinner.jsx';
@@ -1371,12 +1371,19 @@ function ExamReturnCard({ exam, acting, expandedReturn, setExpandedReturn, onAdv
   );
 }
 
+const RETURN_STAGE_FILTERS = ['All', 'Scheduled', 'Prepped', 'Ongoing', 'Finished', 'Returned'];
+
 function ReturnsTab() {
   const [exams,          setExams]          = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [showAll,        setShowAll]        = useState(false);
   const [acting,         setActing]         = useState(null);
   const [expandedReturn, setExpandedReturn] = useState(null);
+
+  // Filters
+  const [dateFilter,   setDateFilter]   = useState('');
+  const [query,        setQuery]        = useState('');
+  const [stageFilter,  setStageFilter]  = useState('All');
 
   const load = useCallback((all) => {
     setLoading(true);
@@ -1414,22 +1421,72 @@ function ReturnsTab() {
     }
   }
 
-  // Group by exam date
-  const byDate = {};
-  for (const e of exams) {
-    const key = String(e.examDate).slice(0, 10);
-    (byDate[key] ??= []).push(e);
-  }
+  // Apply filters
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return exams.filter(e => {
+      // Date filter
+      if (dateFilter && String(e.examDate).slice(0, 10) !== dateFilter) return false;
+
+      // Stage filter
+      if (stageFilter !== 'All') {
+        const effectiveStage = e.sessionStage ?? 'scheduled';
+        if (effectiveStage.toLowerCase() !== stageFilter.toLowerCase()) return false;
+      }
+
+      // Search: course code or prof name/email
+      if (q) {
+        const course = (e.courseCode ?? '').toLowerCase();
+        const prof   = `${e.profFirst ?? ''} ${e.profLast ?? ''}`.toLowerCase().trim();
+        const email  = (e.profEmail ?? '').toLowerCase();
+        if (!course.includes(q) && !prof.includes(q) && !email.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [exams, dateFilter, query, stageFilter]);
+
+  // Stage counts — scoped to date + search filters only (not stage filter itself)
+  const stageCounts = useMemo(() => {
+    const counts = { Scheduled: 0, Prepped: 0, Ongoing: 0, Finished: 0, Returned: 0 };
+    const q = query.trim().toLowerCase();
+    for (const e of exams) {
+      if (dateFilter && String(e.examDate).slice(0, 10) !== dateFilter) continue;
+      if (q) {
+        const course = (e.courseCode ?? '').toLowerCase();
+        const prof   = `${e.profFirst ?? ''} ${e.profLast ?? ''}`.toLowerCase().trim();
+        const email  = (e.profEmail ?? '').toLowerCase();
+        if (!course.includes(q) && !prof.includes(q) && !email.includes(q)) continue;
+      }
+      const s = e.sessionStage ?? 'scheduled';
+      const key = s.charAt(0).toUpperCase() + s.slice(1);
+      if (key in counts) counts[key]++;
+    }
+    return counts;
+  }, [exams, dateFilter, query]);
+
+  // Group filtered exams by date
+  const byDate = useMemo(() => {
+    const map = {};
+    for (const e of filtered) {
+      const key = String(e.examDate).slice(0, 10);
+      (map[key] ??= []).push(e);
+    }
+    return Object.entries(map); // already ordered DESC from API
+  }, [filtered]);
+
+  const hasActiveFilters = dateFilter || query.trim() || stageFilter !== 'All';
 
   return (
     <div>
+      {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-base font-semibold text-gray-900">Exam Returns</h2>
           <p className="text-xs text-gray-500 mt-0.5">Track exam materials back to professors</p>
         </div>
         <button
-          onClick={() => setShowAll(a => !a)}
+          onClick={() => { setShowAll(a => !a); setDateFilter(''); setQuery(''); setStageFilter('All'); }}
           className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors
             ${showAll
               ? 'bg-brand-600 text-white border-brand-600'
@@ -1438,6 +1495,79 @@ function ReturnsTab() {
           {showAll ? 'Showing all' : 'Show all'}
         </button>
       </div>
+
+      {!loading && exams.length > 0 && (
+        <>
+          {/* Search + date filter row */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {/* Search */}
+            <div className="relative flex-1 min-w-[200px]">
+              <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 text-sm pointer-events-none">⌕</span>
+              <input
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search course code or professor…"
+                className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery('')}
+                  className="absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-gray-600 text-base"
+                >×</button>
+              )}
+            </div>
+
+            {/* Date filter */}
+            <div className="flex items-center gap-1">
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
+              />
+              {dateFilter && (
+                <button
+                  onClick={() => setDateFilter('')}
+                  title="Clear date"
+                  className="p-1 text-gray-400 hover:text-gray-600 text-base leading-none"
+                >×</button>
+              )}
+            </div>
+
+            {/* Clear all */}
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setDateFilter(''); setQuery(''); setStageFilter('All'); }}
+                className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {/* Stage filter tabs */}
+          <div className="flex flex-wrap gap-1 mb-4">
+            {RETURN_STAGE_FILTERS.map(f => (
+              <button
+                key={f}
+                onClick={() => setStageFilter(f)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors
+                  ${stageFilter === f
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+              >
+                {f}
+                {f !== 'All' && stageCounts[f] > 0 && (
+                  <span className="ml-1 opacity-70">{stageCounts[f]}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16"><Spinner /></div>
@@ -1452,9 +1582,17 @@ function ReturnsTab() {
             </button>
           )}
         </div>
+      ) : byDate.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+          <p className="text-sm text-gray-500">No exams match the current filters</p>
+          <button
+            onClick={() => { setDateFilter(''); setQuery(''); setStageFilter('All'); }}
+            className="text-xs text-brand-600 mt-1 hover:underline"
+          >Clear filters</button>
+        </div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(byDate).map(([dateKey, dateExams]) => (
+          {byDate.map(([dateKey, dateExams]) => (
             <div key={dateKey}>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                 {fmtDate(dateKey)}
