@@ -473,12 +473,12 @@ router.patch('/bookings/:id/attendance', async (req, res, next) => {
       req.tenantSchema,
       `UPDATE exam_booking_request
        SET attendance_status      = $2,
-           attendance_recorded_by = CASE WHEN $2 IS NULL THEN NULL ELSE $3::uuid END,
-           attendance_recorded_at = CASE WHEN $2 IS NULL THEN NULL ELSE NOW() END,
+           attendance_recorded_by = $3,
+           attendance_recorded_at = $4,
            updated_at             = NOW()
        WHERE id = $1 AND status = 'confirmed'
        RETURNING id`,
-      [req.params.id, status, req.user.id],
+      [req.params.id, status, status ? req.user.id : null, status ? new Date() : null],
     );
     if (!result.rows.length) {
       return res.status(404).json({ ok: false, error: 'Booking not found or not confirmed' });
