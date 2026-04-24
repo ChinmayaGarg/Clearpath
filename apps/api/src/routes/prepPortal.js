@@ -461,6 +461,226 @@ router.post('/dropoffs/:uploadId/confirm', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/prep/exam-returns ────────────────────────────────────────────────
+// Returns submitted exams with stage info + audit trail.
+// Default: last 30 days, not yet returned. ?all=true removes filter.
+router.get('/exam-returns', async (req, res, next) => {
+  try {
+    const showAll = req.query.all === 'true';
+
+    const whereClause = showAll
+      ? `WHERE eu.status = 'submitted'`
+      : `WHERE eu.status = 'submitted'
+           AND eud.exam_date >= CURRENT_DATE - interval '30 days'
+           AND (eud.session_stage IS NULL OR eud.session_stage != 'returned')`;
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         eu.id              AS upload_id,
+         eud.id             AS upload_date_id,
+         eu.course_code,
+         eu.exam_type_label,
+         eu.version_label,
+         eu.exam_collection_method,
+         eu.exam_duration_mins,
+         eu.estimated_copies,
+         eu.rwg_flag,
+         eu.is_makeup,
+         eud.exam_date,
+         eud.time_slot::text,
+         eud.session_stage,
+         eud.missed_prep,
+         eud.stage_updated_at,
+         eud.completed_copies_returned,
+         eud.extra_copies_returned,
+         u.first_name  AS prof_first,
+         u.last_name   AS prof_last,
+         u.email       AS prof_email,
+         COUNT(ebr.id) FILTER (WHERE ebr.status = 'confirmed')          AS confirmed_count,
+         COUNT(ebr.id) FILTER (WHERE ebr.attendance_status = 'no_show') AS no_show_count
+       FROM exam_upload eu
+       JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+       JOIN professor_profile pp ON pp.id = eu.professor_profile_id
+       JOIN "user" u ON u.id = pp.user_id
+       LEFT JOIN exam_booking_request ebr
+              ON UPPER(ebr.course_code) = UPPER(eu.course_code)
+             AND ebr.exam_date = eud.exam_date
+             AND (eud.time_slot IS NULL OR ebr.exam_time = eud.time_slot)
+       ${whereClause}
+       GROUP BY eu.id, eud.id, u.first_name, u.last_name, u.email
+       ORDER BY eud.exam_date DESC, UPPER(eu.course_code)`,
+    );
+
+    const rows = result.rows;
+    if (!rows.length) return res.json({ ok: true, exams: [] });
+
+    // Fetch last 5 audit entries for each upload_date_id
+    const uploadDateIds = rows.map(r => r.upload_date_id);
+    const auditResult = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         esa.upload_date_id,
+         esa.from_stage,
+         esa.to_stage,
+         esa.changed_at,
+         esa.note,
+         u.first_name AS changer_first,
+         u.last_name  AS changer_last
+       FROM exam_stage_audit esa
+       LEFT JOIN "user" u ON u.id = esa.changed_by
+       WHERE esa.upload_date_id = ANY($1)
+       ORDER BY esa.upload_date_id, esa.changed_at DESC`,
+      [uploadDateIds],
+    );
+
+    // Group audit entries by upload_date_id (keep last 5)
+    const auditMap = {};
+    for (const a of auditResult.rows) {
+      const list = (auditMap[a.upload_date_id] ??= []);
+      if (list.length < 5) list.push(a);
+    }
+
+    // Fetch writers for ongoing sessions
+    const ongoingIds = rows
+      .filter(r => r.session_stage === 'ongoing')
+      .map(r => ({ uploadDateId: r.upload_date_id, courseCode: r.course_code, examDate: r.exam_date, timeSlot: r.time_slot }));
+
+    const writersMap = {};
+    for (const session of ongoingIds) {
+      const wResult = await tenantQuery(
+        req.tenantSchema,
+        `SELECT
+           u.first_name, u.last_name, sp.student_number,
+           br.name AS room_name,
+           ebr.exam_time::text,
+           ebr.student_duration_mins,
+           (ebr.exam_time + (ebr.student_duration_mins || ' minutes')::interval)::time AS estimated_finish
+         FROM exam_booking_request ebr
+         JOIN student_profile sp ON sp.id = ebr.student_profile_id
+         JOIN "user" u ON u.id = sp.user_id
+         LEFT JOIN booking_assignment ba ON ba.exam_booking_request_id = ebr.id
+         LEFT JOIN booking_schedule_room bsr ON bsr.id = ba.schedule_room_id
+         LEFT JOIN booking_room br ON br.id = bsr.booking_room_id
+         WHERE UPPER(ebr.course_code) = UPPER($1)
+           AND ebr.exam_date = $2
+           AND ($3::time IS NULL OR ebr.exam_time = $3::time)
+           AND ebr.status = 'confirmed'
+           AND ebr.attendance_status IS DISTINCT FROM 'no_show'
+         ORDER BY estimated_finish DESC NULLS LAST`,
+        [session.courseCode, session.examDate, session.timeSlot],
+      );
+      writersMap[session.uploadDateId] = wResult.rows.map(w => ({
+        firstName:       w.first_name,
+        lastName:        w.last_name,
+        studentNumber:   w.student_number,
+        roomName:        w.room_name,
+        examTime:        w.exam_time ? w.exam_time.slice(0, 5) : null,
+        durationMins:    w.student_duration_mins,
+        estimatedFinish: w.estimated_finish ? String(w.estimated_finish).slice(0, 5) : null,
+      }));
+    }
+
+    const exams = rows.map(r => ({
+      uploadId:               r.upload_id,
+      uploadDateId:           r.upload_date_id,
+      courseCode:             r.course_code,
+      examTypeLabel:          r.exam_type_label,
+      versionLabel:           r.version_label,
+      examCollectionMethod:   r.exam_collection_method,
+      examDurationMins:       r.exam_duration_mins,
+      estimatedCopies:        r.estimated_copies,
+      rwgFlag:                r.rwg_flag,
+      isMakeup:               r.is_makeup,
+      examDate:               r.exam_date,
+      timeSlot:               r.time_slot,
+      sessionStage:           r.session_stage ?? null,
+      missedPrep:             r.missed_prep,
+      stageUpdatedAt:         r.stage_updated_at,
+      completedCopiesReturned: r.completed_copies_returned,
+      extraCopiesReturned:    r.extra_copies_returned,
+      profFirst:              r.prof_first,
+      profLast:               r.prof_last,
+      profEmail:              r.prof_email,
+      confirmedCount:         parseInt(r.confirmed_count ?? 0),
+      noShowCount:            parseInt(r.no_show_count ?? 0),
+      audit:                  auditMap[r.upload_date_id] ?? [],
+      writers:                writersMap[r.upload_date_id] ?? null,
+    }));
+
+    res.json({ ok: true, exams });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/prep/exam-returns/:uploadDateId/stage ──────────────────────────
+const STAGE_ORDER = ['prepped', 'ongoing', 'finished', 'returned'];
+
+router.patch('/exam-returns/:uploadDateId/stage', async (req, res, next) => {
+  try {
+    const { stage, completedCopies, extraCopies, note } = req.body;
+
+    if (!STAGE_ORDER.includes(stage)) {
+      return res.status(400).json({ ok: false, error: 'Invalid stage' });
+    }
+    if (stage === 'returned') {
+      if (completedCopies == null || extraCopies == null ||
+          !Number.isInteger(completedCopies) || !Number.isInteger(extraCopies) ||
+          completedCopies < 0 || extraCopies < 0) {
+        return res.status(400).json({ ok: false, error: 'completedCopies and extraCopies are required integers ≥ 0' });
+      }
+    }
+
+    // Fetch current stage
+    const current = await tenantQuery(
+      req.tenantSchema,
+      `SELECT session_stage FROM exam_upload_date WHERE id = $1`,
+      [req.params.uploadDateId],
+    );
+    if (!current.rows.length) {
+      return res.status(404).json({ ok: false, error: 'Upload date not found' });
+    }
+
+    const currentStage = current.rows[0].session_stage;
+    const currentIdx   = currentStage ? STAGE_ORDER.indexOf(currentStage) : -1;
+    const newIdx       = STAGE_ORDER.indexOf(stage);
+
+    if (newIdx <= currentIdx) {
+      return res.status(400).json({ ok: false, error: 'Can only advance to a later stage' });
+    }
+
+    // Build UPDATE
+    const setClauses = [
+      `session_stage = $2`,
+      `stage_updated_at = NOW()`,
+      `stage_updated_by = $3`,
+    ];
+    const values = [req.params.uploadDateId, stage, req.user.id];
+
+    if (stage === 'returned') {
+      setClauses.push(`completed_copies_returned = $${values.length + 1}`);
+      values.push(completedCopies);
+      setClauses.push(`extra_copies_returned = $${values.length + 1}`);
+      values.push(extraCopies);
+    }
+
+    await tenantQuery(
+      req.tenantSchema,
+      `UPDATE exam_upload_date SET ${setClauses.join(', ')} WHERE id = $1`,
+      values,
+    );
+
+    // Append audit record
+    await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO exam_stage_audit (upload_date_id, from_stage, to_stage, changed_by, note)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [req.params.uploadDateId, currentStage ?? null, stage, req.user.id, note ?? null],
+    );
+
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 // ── PATCH /api/prep/bookings/:id/attendance ───────────────────────────────────
 // Leads and admins mark a confirmed student as show, no_show, or clear (null).
 router.patch('/bookings/:id/attendance', async (req, res, next) => {

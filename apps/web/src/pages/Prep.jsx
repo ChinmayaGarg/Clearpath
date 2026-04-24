@@ -1087,9 +1087,404 @@ function ExamBookTab() {
   );
 }
 
+// ── Returns Tab ───────────────────────────────────────────────────────────────
+
+const STAGE_ORDER  = ['prepped', 'ongoing', 'finished', 'returned'];
+const STAGE_LABELS = { prepped: 'Prepped', ongoing: 'Ongoing', finished: 'Finished' };
+
+function stageLabel(stage, collectionMethod) {
+  if (stage === 'returned') {
+    return collectionMethod === 'delivery' ? 'Delivered' : 'Prof Picked Up';
+  }
+  return STAGE_LABELS[stage] ?? 'Scheduled';
+}
+
+function returnedLabel(collectionMethod) {
+  return collectionMethod === 'delivery' ? 'Delivered' : 'Prof Picked Up';
+}
+
+function fmtDateTime(ts) {
+  if (!ts) return null;
+  return new Date(ts).toLocaleString('en-CA', {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function StageStepper({ sessionStage, collectionMethod }) {
+  const allStages = ['scheduled', ...STAGE_ORDER];
+  const currentIdx = sessionStage ? STAGE_ORDER.indexOf(sessionStage) + 1 : 0;
+
+  const labels = [
+    'Scheduled',
+    'Prepped',
+    'Ongoing',
+    'Finished',
+    returnedLabel(collectionMethod),
+  ];
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {allStages.map((s, i) => {
+        const done    = i < currentIdx;
+        const current = i === currentIdx;
+        return (
+          <div key={s} className="flex items-center gap-1">
+            {i > 0 && <span className="text-gray-300 text-xs">—</span>}
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full
+              ${done    ? 'bg-green-100 text-green-700' : ''}
+              ${current ? 'bg-brand-100 text-brand-700 ring-1 ring-brand-400' : ''}
+              ${!done && !current ? 'text-gray-400' : ''}`}>
+              {done ? '✓ ' : ''}{labels[i]}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReturnForm({ exam, acting, onAdvance }) {
+  const expected = (exam.confirmedCount ?? 0) - (exam.noShowCount ?? 0);
+  const expectedExtra = (exam.estimatedCopies ?? 0) - expected;
+  const [completed, setCompleted] = useState('');
+  const [extra,     setExtra]     = useState('');
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const c = parseInt(completed);
+    const x = parseInt(extra);
+    if (isNaN(c) || c < 0 || isNaN(x) || x < 0) {
+      toast('Enter valid copy counts (≥ 0)', 'error');
+      return;
+    }
+    onAdvance(exam.uploadDateId, 'returned', { completedCopies: c, extraCopies: x });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Record returned copies</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Completed copies returned</label>
+          <input
+            type="number" min="0" value={completed}
+            onChange={e => setCompleted(e.target.value)}
+            placeholder={`Expected: ${expected > 0 ? expected : '—'} (${exam.confirmedCount ?? 0} confirmed − ${exam.noShowCount ?? 0} no-show)`}
+            className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
+                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Extra/blank copies returned</label>
+          <input
+            type="number" min="0" value={extra}
+            onChange={e => setExtra(e.target.value)}
+            placeholder={`Expected: ${expectedExtra > 0 ? expectedExtra : '—'}`}
+            className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
+                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={acting === exam.uploadDateId}
+          className="px-4 py-1.5 text-xs font-medium text-white bg-green-600
+                     hover:bg-green-700 disabled:opacity-50 rounded-lg transition-colors"
+        >
+          {acting === exam.uploadDateId ? 'Saving…' : 'Confirm return'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function AuditTrail({ audit }) {
+  const [open, setOpen] = useState(false);
+  if (!audit?.length) return null;
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+      >
+        <span>{open ? '▾' : '▸'}</span> History ({audit.length})
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {audit.map((a, i) => (
+            <div key={i} className="text-xs text-gray-500 flex items-center gap-2">
+              <span className="text-gray-300">{fmtDateTime(a.changed_at)}</span>
+              <span className="font-medium text-gray-600">
+                {a.changer_first ? `${a.changer_first} ${a.changer_last}` : 'System'}
+              </span>
+              <span>→ {stageLabel(a.to_stage, null)}</span>
+              {a.note && <span className="text-gray-400 italic">{a.note}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExamReturnCard({ exam, acting, expandedReturn, setExpandedReturn, onAdvance }) {
+  const stage    = exam.sessionStage;
+  const stageIdx = stage ? STAGE_ORDER.indexOf(stage) : -1;
+  const nextStage = stageIdx < STAGE_ORDER.length - 1 ? STAGE_ORDER[stageIdx + 1] : null;
+  const isReturned = stage === 'returned';
+  const isExpandedReturn = expandedReturn === exam.uploadDateId;
+
+  const nextLabel = nextStage === 'returned'
+    ? returnedLabel(exam.examCollectionMethod)
+    : nextStage ? STAGE_LABELS[nextStage] : null;
+
+  function handleAdvance() {
+    if (nextStage === 'returned') {
+      setExpandedReturn(isExpandedReturn ? null : exam.uploadDateId);
+    } else if (nextStage) {
+      onAdvance(exam.uploadDateId, nextStage);
+    }
+  }
+
+  const timeSlotShort = exam.timeSlot ? exam.timeSlot.slice(0, 5) : null;
+
+  return (
+    <div className={`bg-white rounded-xl border overflow-hidden
+      ${exam.missedPrep && !isReturned ? 'border-amber-300' : 'border-gray-200'}`}>
+
+      {/* Header */}
+      <div className={`px-4 py-3 border-b
+        ${exam.missedPrep && !isReturned ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-gray-900">{exam.courseCode}</span>
+              {exam.examTypeLabel && (
+                <span className="text-xs text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded capitalize">
+                  {exam.examTypeLabel.replace(/_/g, ' ')}
+                </span>
+              )}
+              {exam.versionLabel && <span className="text-xs text-gray-400 italic">{exam.versionLabel}</span>}
+              {exam.rwgFlag  && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-medium">RWG</span>}
+              {exam.isMakeup && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">Makeup</span>}
+            </div>
+            <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 flex-wrap">
+              <span>{fmtDate(exam.examDate)}{timeSlotShort ? ` · ${timeSlotShort}` : ''}</span>
+              {exam.profFirst && <span>{exam.profFirst} {exam.profLast}</span>}
+              {exam.profEmail && <span className="text-gray-400">{exam.profEmail}</span>}
+              {exam.examCollectionMethod && (
+                <span className={`font-medium ${exam.examCollectionMethod === 'delivery' ? 'text-blue-600' : 'text-indigo-600'}`}>
+                  {exam.examCollectionMethod === 'delivery' ? 'Delivery' : 'Prof Pickup'}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Missed prep warning */}
+        {exam.missedPrep && !isReturned && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 font-medium">
+            <span>⚠</span>
+            <span>Exam went live without being marked Prepped</span>
+          </div>
+        )}
+      </div>
+
+      {/* Stepper + action */}
+      <div className="px-4 py-3">
+        <StageStepper sessionStage={stage} collectionMethod={exam.examCollectionMethod} />
+
+        {/* Returned summary */}
+        {isReturned && (
+          <div className="mt-2 flex gap-4 text-xs text-gray-600">
+            <span><strong className="text-gray-900">{exam.completedCopiesReturned ?? '—'}</strong> completed copies</span>
+            <span><strong className="text-gray-900">{exam.extraCopiesReturned ?? '—'}</strong> extra/blank copies</span>
+            {exam.stageUpdatedAt && <span className="text-gray-400">· {fmtDateTime(exam.stageUpdatedAt)}</span>}
+          </div>
+        )}
+
+        {/* Ongoing: last student info */}
+        {stage === 'ongoing' && exam.writers?.length > 0 && (
+          <div className="mt-3 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2.5">
+            <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">
+              Last student finishing
+            </p>
+            {(() => {
+              const last = exam.writers[0];
+              return (
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-sm font-medium text-gray-900">
+                      {last.firstName} {last.lastName}
+                    </span>
+                    {last.studentNumber && (
+                      <span className="text-xs text-gray-400 ml-1.5">#{last.studentNumber}</span>
+                    )}
+                    {last.roomName && (
+                      <span className="text-xs text-gray-500 ml-2">· {last.roomName}</span>
+                    )}
+                  </div>
+                  {last.estimatedFinish && (
+                    <span className="text-xs font-semibold text-indigo-700 shrink-0">
+                      Est. finish {last.estimatedFinish}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+            {exam.writers.length > 1 && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                + {exam.writers.length - 1} other student{exam.writers.length - 1 !== 1 ? 's' : ''} writing
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Advance button */}
+        {!isReturned && nextStage && (
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={handleAdvance}
+              disabled={acting === exam.uploadDateId}
+              className="px-4 py-1.5 text-xs font-medium text-white bg-brand-600
+                         hover:bg-brand-700 disabled:opacity-50 rounded-lg transition-colors"
+            >
+              {acting === exam.uploadDateId ? 'Saving…' : `Mark ${nextLabel} →`}
+            </button>
+          </div>
+        )}
+
+        {/* Copy count form (for returned stage) */}
+        {isExpandedReturn && (
+          <ReturnForm
+            exam={exam}
+            acting={acting}
+            onAdvance={(...args) => { setExpandedReturn(null); onAdvance(...args); }}
+          />
+        )}
+
+        <AuditTrail audit={exam.audit} />
+      </div>
+    </div>
+  );
+}
+
+function ReturnsTab() {
+  const [exams,          setExams]          = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [showAll,        setShowAll]        = useState(false);
+  const [acting,         setActing]         = useState(null);
+  const [expandedReturn, setExpandedReturn] = useState(null);
+
+  const load = useCallback((all) => {
+    setLoading(true);
+    const qs = all ? '?all=true' : '';
+    api.get(`/prep/exam-returns${qs}`)
+      .then(res => setExams(res.exams ?? []))
+      .catch(err => toast(err.message, 'error'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(showAll); }, [load, showAll]);
+
+  async function handleAdvance(uploadDateId, stage, extra = {}) {
+    setActing(uploadDateId);
+    try {
+      await api.patch(`/prep/exam-returns/${uploadDateId}/stage`, { stage, ...extra });
+      setExams(prev => prev.map(e => {
+        if (e.uploadDateId !== uploadDateId) return e;
+        return {
+          ...e,
+          sessionStage: stage,
+          completedCopiesReturned: extra.completedCopies ?? e.completedCopiesReturned,
+          extraCopiesReturned:     extra.extraCopies     ?? e.extraCopiesReturned,
+          audit: [
+            { to_stage: stage, changer_first: null, changer_last: null, changed_at: new Date().toISOString() },
+            ...(e.audit ?? []),
+          ].slice(0, 5),
+        };
+      }));
+      toast(`Marked as ${stage}`, 'success');
+    } catch (err) {
+      toast(err.message ?? 'Failed to update stage', 'error');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  // Group by exam date
+  const byDate = {};
+  for (const e of exams) {
+    const key = String(e.examDate).slice(0, 10);
+    (byDate[key] ??= []).push(e);
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">Exam Returns</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Track exam materials back to professors</p>
+        </div>
+        <button
+          onClick={() => setShowAll(a => !a)}
+          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors
+            ${showAll
+              ? 'bg-brand-600 text-white border-brand-600'
+              : 'text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+        >
+          {showAll ? 'Showing all' : 'Show all'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Spinner /></div>
+      ) : !exams.length ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <p className="text-sm font-medium text-gray-700">
+            {showAll ? 'No submitted exams found' : 'No active exam sessions in the last 30 days'}
+          </p>
+          {!showAll && (
+            <button onClick={() => setShowAll(true)} className="text-xs text-brand-600 mt-1 hover:underline">
+              Show all history
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(byDate).map(([dateKey, dateExams]) => (
+            <div key={dateKey}>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                {fmtDate(dateKey)}
+                <span className="ml-2 font-normal normal-case text-gray-300">
+                  {dateExams.length} exam{dateExams.length !== 1 ? 's' : ''}
+                </span>
+              </p>
+              <div className="space-y-3">
+                {dateExams.map(e => (
+                  <ExamReturnCard
+                    key={e.uploadDateId}
+                    exam={e}
+                    acting={acting}
+                    expandedReturn={expandedReturn}
+                    setExpandedReturn={setExpandedReturn}
+                    onAdvance={handleAdvance}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const TABS = ['Exam Day', 'Exam Details', 'Exam Book', 'Dropoffs'];
+const TABS = ['Exam Day', 'Exam Details', 'Exam Book', 'Dropoffs', 'Returns'];
 
 export default function Prep() {
   const [tab, setTab] = useState('Exam Day');
@@ -1126,6 +1521,7 @@ export default function Prep() {
         {tab === 'Exam Details' && <ExamDetailsTab />}
         {tab === 'Exam Book'    && <ExamBookTab />}
         {tab === 'Dropoffs'     && <DropoffsTab />}
+        {tab === 'Returns'      && <ReturnsTab />}
       </div>
     </div>
   );

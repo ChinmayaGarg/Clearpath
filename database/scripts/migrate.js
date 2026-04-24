@@ -54,6 +54,7 @@ const migrationMap = {
   30: "030_cancellation_requests.sql",
   31: "031_cancellation_notification_types.sql",
   32: "032_attendance_tracking.sql",
+  33: "033_exam_return_stages.sql",
 };
 
 const filename = migrationMap[targetVersion];
