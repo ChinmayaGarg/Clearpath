@@ -6,8 +6,6 @@ export default function TopNav() {
   const { user, isAdmin, isLead, logout } = useAuth();
 
   const navLinks = [
-    { to: "/", label: "Book", end: true },
-    { to: "/calendar", label: "Calendar" },
     { to: "/professors", label: "Professors" },
     { to: "/students", label: "Students" },
   ];
