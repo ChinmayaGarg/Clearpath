@@ -117,7 +117,7 @@ export default function Analytics() {
   const [overview, setOverview] = useState(null);
   const [daily, setDaily] = useState([]);
   const [leads, setLeads] = useState([]);
-  const [email, setEmail] = useState(null);
+  const [types, setTypes] = useState([]);
   const [accommodations, setAccommodations] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -125,17 +125,17 @@ export default function Analytics() {
     setLoading(true);
     const q = `from=${range.from}&to=${range.to}`;
     try {
-      const [ov, d, l, em, ac] = await Promise.all([
+      const [ov, d, l, ty, ac] = await Promise.all([
         api.get(`/analytics/overview?${q}`),
         api.get(`/analytics/daily?${q}`),
         api.get(`/analytics/leads?${q}`),
-        api.get(`/analytics/email?${q}`),
+        api.get(`/analytics/types?${q}`),
         api.get(`/analytics/accommodations?${q}`),
       ]);
       setOverview(ov.overview);
       setDaily(d.days);
       setLeads(l.leads);
-      setEmail(em);
+      setTypes(ty.types);
       setAccommodations(ac.accommodations);
     } catch (err) {
       toast(err.message, "error");
@@ -182,46 +182,46 @@ export default function Analytics() {
               <StatCard
                 label="Exams"
                 value={overview.total_exams}
-                sub={`${overview.rwg_exams} RWG`}
+                sub={`${overview.rwg_exams ?? 0} RWG`}
                 colour="brand"
               />
               <StatCard
                 label="Students served"
                 value={overview.unique_students}
-                sub={`${overview.total_students} seats total`}
+                sub="unique students"
                 colour="green"
               />
               <StatCard
-                label="Completed"
-                value={`${pct(overview.completed_exams, overview.total_exams)}%`}
-                sub={`${overview.completed_exams} of ${overview.total_exams} exams`}
+                label="Confirmed"
+                value={`${pct(overview.confirmed_exams, overview.total_exams)}%`}
+                sub={`${overview.confirmed_exams} of ${overview.total_exams} exams`}
                 colour={
-                  pct(overview.completed_exams, overview.total_exams) > 80
+                  pct(overview.confirmed_exams, overview.total_exams) > 80
                     ? "green"
                     : "amber"
                 }
               />
               <StatCard
-                label="Emails sent"
-                value={overview.emails_sent}
-                sub={`${overview.emails_delivered} delivered`}
-                colour="gray"
-              />
-              <StatCard
-                label="Pending exams"
+                label="Pending (student)"
                 value={overview.pending_exams}
-                sub="Not yet emailed"
+                sub="awaiting professor approval"
                 colour={overview.pending_exams > 0 ? "amber" : "green"}
               />
               <StatCard
-                label="Bounced emails"
-                value={overview.emails_bounced}
-                colour={overview.emails_bounced > 0 ? "red" : "green"}
+                label="Prof. Approved"
+                value={overview.professor_approved_exams}
+                sub="awaiting admin confirmation"
+                colour={overview.professor_approved_exams > 0 ? "amber" : "green"}
+              />
+              <StatCard
+                label="Cancellations"
+                value={overview.cancelled_exams}
+                colour={overview.cancelled_exams > 0 ? "red" : "green"}
               />
               <StatCard
                 label="Active leads"
-                value={overview.active_senders}
-                sub="Sent at least one email"
+                value={overview.active_leads}
+                sub="confirmed at least one booking"
                 colour="gray"
               />
             </div>
@@ -267,15 +267,15 @@ export default function Analytics() {
                     <div className="flex gap-3 text-right">
                       <div>
                         <div className="text-sm font-semibold text-gray-900">
-                          {l.emails_sent}
+                          {l.bookings_confirmed}
                         </div>
-                        <div className="text-xs text-gray-400">emails</div>
+                        <div className="text-xs text-gray-400">confirmed</div>
                       </div>
                       <div>
                         <div className="text-sm font-semibold text-gray-900">
-                          {l.status_changes}
+                          {l.cancellations_reviewed}
                         </div>
-                        <div className="text-xs text-gray-400">updates</div>
+                        <div className="text-xs text-gray-400">cancellations</div>
                       </div>
                     </div>
                   </div>
@@ -327,64 +327,63 @@ export default function Analytics() {
           </Section>
         </div>
 
-        {/* Email response time */}
-        {email?.responseTime && (
-          <Section title="Email response times" loading={loading}>
-            <div className="flex gap-6">
-              <div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {email.responseTime.avg_response_hours ?? "—"}h
-                </div>
-                <div className="text-sm text-gray-500">
-                  Average professor response time
-                </div>
-                <div className="text-xs text-gray-400 mt-0.5">
-                  Based on {email.responseTime.exams_with_response} exams
-                </div>
-              </div>
-              <div>
-                <BarChart
-                  data={email.daily}
-                  valueKey="sent"
-                  labelKey="date"
-                  colour="#534AB7"
-                />
-                <div className="text-xs text-gray-400 text-center mt-1">
-                  Emails sent per day
-                </div>
-              </div>
+        {/* Exam types */}
+        <Section title="Exam types" loading={loading}>
+          {!types?.length ? (
+            <p className="text-sm text-gray-400 text-center py-6">
+              No data for this period
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {types.map((t, i) => {
+                const maxCount = types[0].count;
+                const pctWidth = Math.round((t.count / maxCount) * 100);
+                return (
+                  <div key={i}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-medium text-gray-700 capitalize">
+                        {t.exam_type}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {t.count} · {t.student_count} students
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-brand-400"
+                        style={{ width: `${pctWidth}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </Section>
-        )}
+          )}
+        </Section>
 
         {/* Status breakdown */}
         {overview?.status_breakdown && (
           <Section title="Exam status breakdown" loading={loading}>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
               {[
                 {
                   key: "pending",
                   label: "Pending",
-                  colour: "bg-gray-100 text-gray-600",
+                  colour: "bg-amber-100 text-amber-700",
                 },
                 {
-                  key: "emailed",
-                  label: "Emailed",
+                  key: "professor_approved",
+                  label: "Prof. Approved",
                   colour: "bg-blue-100 text-blue-700",
                 },
                 {
-                  key: "received",
-                  label: "Received",
-                  colour: "bg-yellow-100 text-yellow-700",
+                  key: "professor_rejected",
+                  label: "Prof. Rejected",
+                  colour: "bg-red-100 text-red-600",
                 },
                 {
-                  key: "written",
-                  label: "Written",
-                  colour: "bg-orange-100 text-orange-700",
-                },
-                {
-                  key: "picked_up",
-                  label: "Picked up",
+                  key: "confirmed",
+                  label: "Confirmed",
                   colour: "bg-green-100 text-green-700",
                 },
                 {
@@ -404,6 +403,18 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
+            {(overview.shows > 0 || overview.no_shows > 0) && (
+              <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-3">
+                <div className="rounded-xl px-3 py-2 text-center bg-green-100 text-green-700">
+                  <div className="text-xl font-bold">{overview.shows ?? 0}</div>
+                  <div className="text-xs font-medium">Shows</div>
+                </div>
+                <div className="rounded-xl px-3 py-2 text-center bg-red-100 text-red-600">
+                  <div className="text-xl font-bold">{overview.no_shows ?? 0}</div>
+                  <div className="text-xs font-medium">No Shows</div>
+                </div>
+              </div>
+            )}
           </Section>
         )}
       </div>

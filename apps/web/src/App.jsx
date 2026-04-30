@@ -97,7 +97,7 @@ export default function App() {
           <ProtectedRoute><Settings /></ProtectedRoute>
         } />
         <Route path="/analytics" element={
-          <ProtectedRoute requiredRole="institution_admin"><Analytics /></ProtectedRoute>
+          <ProtectedRoute requiredRoles={['institution_admin', 'lead']}><Analytics /></ProtectedRoute>
         } />
         <Route path="/prep" element={
           <ProtectedRoute requiredRoles={['lead', 'institution_admin']}><Prep /></ProtectedRoute>

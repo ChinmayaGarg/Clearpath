@@ -10,8 +10,11 @@ export default function TopNav() {
     { to: "/students", label: "Students" },
   ];
 
-  if (isAdmin) {
+  if (isAdmin || isLead) {
     navLinks.unshift({ to: "/analytics", label: "Analytics" });
+  }
+
+  if (isAdmin) {
     navLinks.push({ to: "/counsellor", label: "Counsellor" });
     navLinks.push({ to: "/admin", label: "Admin" });
   }

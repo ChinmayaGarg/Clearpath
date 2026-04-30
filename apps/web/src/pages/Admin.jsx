@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import TopNav from "../components/ui/TopNav.jsx";
 import UserTable from "../components/admin/UserTable.jsx";
 import InviteModal from "../components/admin/InviteModal.jsx";
