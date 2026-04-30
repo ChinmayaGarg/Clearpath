@@ -11,9 +11,9 @@ export default function TopNav() {
   ];
 
   if (isAdmin) {
+    navLinks.unshift({ to: "/analytics", label: "Analytics" });
     navLinks.push({ to: "/counsellor", label: "Counsellor" });
     navLinks.push({ to: "/admin", label: "Admin" });
-    navLinks.push({ to: "/analytics", label: "Analytics" });
   }
 
   if (isAdmin || isLead) {

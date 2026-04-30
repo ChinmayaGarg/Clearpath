@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore }           from './store/authStore.js';
 import { ToastContainer }         from './components/ui/Toast.jsx';
 import Login                      from './pages/Login.jsx';
-import Book                       from './pages/Book.jsx';
 import Calendar                   from './pages/Calendar.jsx';
 import Admin                      from './pages/Admin.jsx';
 import Settings                   from './pages/Settings.jsx';
@@ -48,13 +47,12 @@ function ProtectedRoute({ children, requiredRole, requiredRoles }) {
  */
 function RoleHome() {
   const roles = useAuthStore(s => s.roles);
-  const canAccessBook = roles.includes('institution_admin') || roles.includes('lead');
-  if (!canAccessBook) {
-    if (roles.includes('counsellor')) return <Navigate to="/counsellor" replace />;
-    if (roles.includes('professor'))  return <Navigate to="/portal"     replace />;
-    if (roles.includes('student'))    return <Navigate to="/student"    replace />;
-  }
-  return <Book />;
+  if (roles.includes('institution_admin')) return <Navigate to="/analytics"  replace />;
+  if (roles.includes('lead'))              return <Navigate to="/prep"        replace />;
+  if (roles.includes('counsellor'))        return <Navigate to="/counsellor" replace />;
+  if (roles.includes('professor'))         return <Navigate to="/portal"      replace />;
+  if (roles.includes('student'))           return <Navigate to="/student"     replace />;
+  return <Navigate to="/login" replace />;
 }
 
 export default function App() {
