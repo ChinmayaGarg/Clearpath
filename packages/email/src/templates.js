@@ -266,6 +266,62 @@ ${senderName}
   return { subject, html, text };
 }
 
+/**
+ * Student exam reminder email — sent at 7d, 3d, 1d before a confirmed exam.
+ *
+ * @param {{ firstName, lastName }} student
+ * @param {{ courseCode, dateStr, timeStr, days, durationMins, examType }} data
+ * @param {{ senderName, replyTo, institutionName }} context
+ */
+export function studentExamReminderEmail(student, data, context) {
+  const { courseCode, dateStr, timeStr, days, durationMins, examType } = data;
+  const {
+    senderName      = 'Accessibility Centre',
+    institutionName = 'the institution',
+  } = context;
+
+  const urgency   = days === 1 ? 'tomorrow' : `in ${days} days`;
+  const typeLabel = examType
+    ? examType.charAt(0).toUpperCase() + examType.slice(1)
+    : 'Exam';
+  const durLabel  = durationMins ? `${durationMins} minutes` : 'To be confirmed';
+  const subject   = `Exam Reminder — ${courseCode} — ${dateStr} (${days} day${days !== 1 ? 's' : ''} away)`;
+
+  const text = `Dear ${student.firstName},
+
+This is a reminder that you are scheduled to write your ${courseCode} ${typeLabel.toLowerCase()} on ${dateStr}${timeStr} — that's ${urgency}.
+
+Exam details:
+  Course:    ${courseCode}
+  Date:      ${dateStr}${timeStr}
+  Duration:  ${durLabel}
+  Type:      ${typeLabel}
+
+Please arrive on time and bring any permitted materials. If you have questions or need to make changes, please contact the ${senderName}.
+
+— ${senderName}`.trim();
+
+  const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#111">
+  <p>Dear ${student.firstName},</p>
+  <div style="background:#eff6ff;border-left:4px solid #534AB7;padding:14px 18px;margin:20px 0;border-radius:4px">
+    <p style="margin:0;font-size:16px;font-weight:bold">${courseCode} ${typeLabel}</p>
+    <p style="margin:6px 0 0;color:#555">${dateStr}${timeStr} &mdash; <strong>${urgency}</strong></p>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0">
+    <tr><td style="padding:6px 0;color:#666;width:100px">Course</td><td style="padding:6px 0">${courseCode}</td></tr>
+    <tr><td style="padding:6px 0;color:#666">Date</td><td style="padding:6px 0">${dateStr}${timeStr}</td></tr>
+    <tr><td style="padding:6px 0;color:#666">Duration</td><td style="padding:6px 0">${durLabel}</td></tr>
+    <tr><td style="padding:6px 0;color:#666">Type</td><td style="padding:6px 0">${typeLabel}</td></tr>
+  </table>
+  <p style="font-size:13px">Please arrive on time and bring any permitted materials. If you have questions or need to make changes, please contact the ${senderName}.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#888;font-size:12px">&mdash; ${senderName}</p>
+</div>`.trim();
+
+  return { subject, html, text };
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function detailRow(label, value) {
