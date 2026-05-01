@@ -15,7 +15,9 @@ import AttendanceTab from "../components/admin/AttendanceTab.jsx";
 const ADMIN_TABS = ["Users", "Bookings", "Rooms", "Schedule", "Schedule Exams", "Cancellation Requests", "Attendance"];
 
 export default function Admin() {
-  const [tab, setTab] = useState("Users");
+  const [searchParams] = useSearchParams();
+  const initialTab = ADMIN_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'Users';
+  const [tab, setTab] = useState(initialTab);
   const [showInvite, setShowInvite] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
