@@ -141,18 +141,16 @@ export async function getStudentAccommodationCodes(schema, studentProfileId) {
  * Returns null if no upload is found.
  */
 export async function findExamUploadDuration(schema, courseCode, examType) {
-  // exam_type_label uses 'endterm' while booking requests use 'final' — normalise
-  const label = examType === "final" ? "endterm" : examType;
   const result = await tenantQuery(
     schema,
     `SELECT exam_duration_mins
      FROM exam_upload
      WHERE UPPER(course_code) = UPPER($1)
-       AND exam_type_label    = $2
-       AND status             = 'submitted'
+       AND exam_type_label::text = $2
+       AND status                = 'submitted'
      ORDER BY submitted_at DESC
      LIMIT 1`,
-    [courseCode, label],
+    [courseCode, examType],
   );
   return result.rows[0]?.exam_duration_mins ?? null;
 }

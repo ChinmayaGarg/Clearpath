@@ -88,12 +88,15 @@ const uploadCombined = multer({
 
 const EXAM_TYPES = [
   "midterm",
-  "endterm",
-  "tutorial",
-  "lab",
-  "quiz",
+  "final",
+  "quiz_1",
+  "quiz_2",
+  "quiz_3",
+  "quiz_4",
+  "test_1",
+  "test_2",
+  "test_3",
   "assignment",
-  "other",
 ];
 const DELIVERIES = ["pickup", "dropped", "delivery", "pending", "file_upload"];
 
@@ -267,7 +270,7 @@ router.get("/me", async (req, res, next) => {
            WHERE eu.status = 'submitted'
              AND UPPER(eu.course_code) = bookings.course_code
              AND eud.exam_date::text = bookings.exam_date
-             AND eu.exam_type_label   = bookings.exam_type
+             AND eu.exam_type_label::text = bookings.exam_type
              AND (
                eu.professor_profile_id = $1
                OR EXISTS (
@@ -370,7 +373,7 @@ router.get("/me", async (req, res, next) => {
              WHERE eu2.status = 'submitted'
                AND UPPER(eu2.course_code) = UPPER(ebr.course_code)
                AND eud2.exam_date::text  = ebr.exam_date::text
-               AND eu2.exam_type_label   = ebr.exam_type
+               AND eu2.exam_type_label::text = ebr.exam_type
                AND (
                  eu2.professor_profile_id = $1
                  OR EXISTS (

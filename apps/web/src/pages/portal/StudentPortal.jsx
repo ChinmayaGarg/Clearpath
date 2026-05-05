@@ -5,7 +5,18 @@ import { api } from "../../lib/api.js";
 import { toast } from "../../components/ui/Toast.jsx";
 import Spinner from "../../components/ui/Spinner.jsx";
 
-const EXAM_TYPES = ["midterm", "final", "quiz", "assignment", "other"];
+const EXAM_TYPES = [
+  { value: "midterm",    label: "Midterm" },
+  { value: "final",      label: "Final" },
+  { value: "quiz_1",     label: "Quiz 1" },
+  { value: "quiz_2",     label: "Quiz 2" },
+  { value: "quiz_3",     label: "Quiz 3" },
+  { value: "quiz_4",     label: "Quiz 4" },
+  { value: "test_1",     label: "Test 1" },
+  { value: "test_2",     label: "Test 2" },
+  { value: "test_3",     label: "Test 3" },
+  { value: "assignment", label: "Assignment" },
+];
 
 // Time slots: 7:45 AM – 8:00 PM in 5-minute intervals
 const TIME_SLOTS = (() => {
@@ -794,8 +805,8 @@ function BookingForm({ onSuccess, onCancel }) {
                          focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
             >
               {EXAM_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                <option key={t.value} value={t.value}>
+                  {t.label}
                 </option>
               ))}
             </select>
