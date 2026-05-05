@@ -14,8 +14,8 @@
  *  7. Minimise total number of rooms used
  *
  * @param {Array} students  — each: { id, courseCode, startTimeMins, computedDurationMins,
- *                                    strictlySolo, prefersSolo }
- * @param {Array} rooms     — each: { id, capacity }, sorted by capacity ASC
+ *                                    strictlySolo, prefersSolo, requiredFeatures: string[] }
+ * @param {Array} rooms     — each: { id, capacity, features: string[] }, sorted by capacity ASC
  * @returns {Array}         — [{ roomId, studentIds: string[] }]
  */
 export function assignStudentsToRooms(students, rooms) {
@@ -23,6 +23,7 @@ export function assignStudentsToRooms(students, rooms) {
   const roomSlots = rooms.map(r => ({
     id:       r.id,
     capacity: r.capacity,
+    features: r.features ?? [],
     assigned: [],   // booking request ids
   }));
 
@@ -40,9 +41,16 @@ export function assignStudentsToRooms(students, rooms) {
     return ends.reduce((a, b) => a + b, 0) / ends.length;
   }
 
-  // ── Helper: can student s be added to slot? (capacity + start time window) ─
+  // ── Helper: does a room slot satisfy a student's required features? ─────────
+  function roomHasFeatures(slot, requiredFeatures) {
+    if (!requiredFeatures?.length) return true;
+    return requiredFeatures.every(f => slot.features.includes(f));
+  }
+
+  // ── Helper: can student s be added to slot? (capacity + features + time) ───
   function canAdd(slot, s) {
     if (slot.assigned.length >= slot.capacity) return false;
+    if (!roomHasFeatures(slot, s.requiredFeatures)) return false;
     if (s.startTimeMins == null) return true; // no time set → no conflict
     for (const sid of slot.assigned) {
       const other = students.find(x => x.id === sid);
@@ -56,13 +64,13 @@ export function assignStudentsToRooms(students, rooms) {
   // Each must be the ONLY student in their room. Assign to smallest empty room.
   const strictlySoloStudents = students.filter(s => s.strictlySolo);
   for (const s of strictlySoloStudents) {
-    const room = roomSlots.find(r => r.assigned.length === 0 && r.capacity >= 1);
+    const room = roomSlots.find(r => r.assigned.length === 0 && r.capacity >= 1 && roomHasFeatures(r, s.requiredFeatures));
     if (room) {
       room.assigned.push(s.id);
       assigned.add(s.id);
     } else {
-      // Graceful degradation: put in smallest available room (edge case)
-      const fallback = roomSlots.find(r => r.assigned.length < r.capacity);
+      // Graceful degradation: put in smallest available room with required features (edge case)
+      const fallback = roomSlots.find(r => r.assigned.length < r.capacity && roomHasFeatures(r, s.requiredFeatures));
       if (fallback) {
         fallback.assigned.push(s.id);
         assigned.add(s.id);
@@ -76,7 +84,7 @@ export function assignStudentsToRooms(students, rooms) {
   for (const s of preferSoloStudents) {
     // Prefer smallest room so that larger rooms remain available for groups
     const sorted = [...roomSlots].sort((a, b) => a.capacity - b.capacity);
-    const room = sorted.find(r => r.assigned.length < r.capacity);
+    const room = sorted.find(r => r.assigned.length < r.capacity && roomHasFeatures(r, s.requiredFeatures));
     if (room) {
       room.assigned.push(s.id);
       assigned.add(s.id);

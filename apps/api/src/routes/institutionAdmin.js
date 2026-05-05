@@ -157,10 +157,17 @@ router.get("/rooms", async (req, res, next) => {
   try {
     const result = await tenantQuery(
       req.tenantSchema,
-      `SELECT id, name, capacity, notes
-       FROM booking_room
-       WHERE is_active = TRUE
-       ORDER BY capacity ASC, name ASC`,
+      `SELECT br.id, br.name, br.capacity, br.notes,
+              COALESCE(
+                array_agg(rf.code ORDER BY rf.code) FILTER (WHERE rf.code IS NOT NULL),
+                '{}'
+              ) AS features
+       FROM booking_room br
+       LEFT JOIN booking_room_feature brf ON brf.room_id = br.id
+       LEFT JOIN room_feature rf ON rf.id = brf.feature_id AND rf.is_active = TRUE
+       WHERE br.is_active = TRUE
+       GROUP BY br.id, br.name, br.capacity, br.notes
+       ORDER BY br.capacity ASC, br.name ASC`,
     );
     res.json({ ok: true, data: result.rows });
   } catch (err) {
@@ -169,9 +176,10 @@ router.get("/rooms", async (req, res, next) => {
 });
 
 const RoomSchema = z.object({
-  name: z.string().min(1).max(100),
+  name:     z.string().min(1).max(100),
   capacity: z.number().int().min(1).max(200),
-  notes: z.string().max(500).optional(),
+  notes:    z.string().max(500).optional(),
+  features: z.array(z.string()).optional(),
 });
 
 // ── POST /api/institution/rooms ───────────────────────────────────────────────
@@ -185,7 +193,19 @@ router.post("/rooms", async (req, res, next) => {
        RETURNING id, name, capacity, notes`,
       [body.name, body.capacity, body.notes ?? null],
     );
-    res.status(201).json({ ok: true, data: result.rows[0] });
+    const room = result.rows[0];
+    if (body.features?.length) {
+      await tenantQuery(
+        req.tenantSchema,
+        `INSERT INTO booking_room_feature (room_id, feature_id)
+         SELECT $1, rf.id FROM room_feature rf
+         WHERE rf.code = ANY($2) AND rf.is_active = TRUE
+         ON CONFLICT DO NOTHING`,
+        [room.id, body.features],
+      );
+    }
+    room.features = body.features ?? [];
+    res.status(201).json({ ok: true, data: room });
   } catch (err) {
     next(err);
   }
@@ -210,20 +230,46 @@ router.patch("/rooms/:id", async (req, res, next) => {
       sets.push(`notes = $${vals.length}`);
     }
 
-    if (!sets.length) return res.json({ ok: true });
-
-    vals.push(req.params.id);
-    const result = await tenantQuery(
-      req.tenantSchema,
-      `UPDATE booking_room SET ${sets.join(", ")}
-       WHERE id = $${vals.length} AND is_active = TRUE
-       RETURNING id, name, capacity, notes`,
-      vals,
-    );
-    if (!result.rows.length) {
-      return res.status(404).json({ ok: false, error: "Room not found" });
+    let room;
+    if (sets.length) {
+      vals.push(req.params.id);
+      const result = await tenantQuery(
+        req.tenantSchema,
+        `UPDATE booking_room SET ${sets.join(", ")}
+         WHERE id = $${vals.length} AND is_active = TRUE
+         RETURNING id, name, capacity, notes`,
+        vals,
+      );
+      if (!result.rows.length) {
+        return res.status(404).json({ ok: false, error: "Room not found" });
+      }
+      room = result.rows[0];
+    } else {
+      const check = await tenantQuery(
+        req.tenantSchema,
+        `SELECT id, name, capacity, notes FROM booking_room WHERE id = $1 AND is_active = TRUE`,
+        [req.params.id],
+      );
+      if (!check.rows.length) return res.status(404).json({ ok: false, error: "Room not found" });
+      room = check.rows[0];
     }
-    res.json({ ok: true, data: result.rows[0] });
+
+    if (body.features !== undefined) {
+      await tenantQuery(req.tenantSchema, `DELETE FROM booking_room_feature WHERE room_id = $1`, [room.id]);
+      if (body.features.length) {
+        await tenantQuery(
+          req.tenantSchema,
+          `INSERT INTO booking_room_feature (room_id, feature_id)
+           SELECT $1, rf.id FROM room_feature rf
+           WHERE rf.code = ANY($2) AND rf.is_active = TRUE
+           ON CONFLICT DO NOTHING`,
+          [room.id, body.features],
+        );
+      }
+      room.features = body.features;
+    }
+
+    res.json({ ok: true, data: room });
   } catch (err) {
     next(err);
   }
@@ -242,6 +288,229 @@ router.delete("/rooms/:id", async (req, res, next) => {
     if (!result.rows.length) {
       return res.status(404).json({ ok: false, error: "Room not found" });
     }
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/institution/room-features ───────────────────────────────────────
+router.get("/room-features", async (req, res, next) => {
+  try {
+    const all = req.query.all === "true";
+    const result = await tenantQuery(
+      req.tenantSchema,
+      all
+        ? `SELECT id, code, label, is_active FROM room_feature ORDER BY label`
+        : `SELECT id, code, label FROM room_feature WHERE is_active = TRUE ORDER BY label`,
+    );
+    res.json({ ok: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const RoomFeatureSchema = z.object({
+  code:  z.string().min(1).max(50).transform(v => v.toLowerCase().replace(/\s+/g, '_')),
+  label: z.string().min(1).max(100),
+});
+
+// ── POST /api/institution/room-features ───────────────────────────────────────
+router.post("/room-features", async (req, res, next) => {
+  try {
+    const body = RoomFeatureSchema.parse(req.body);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO room_feature (code, label) VALUES ($1, $2)
+       RETURNING id, code, label, is_active`,
+      [body.code, body.label],
+    );
+    res.status(201).json({ ok: true, data: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/institution/room-features/:id ──────────────────────────────────
+router.patch("/room-features/:id", async (req, res, next) => {
+  try {
+    const body = RoomFeatureSchema.partial()
+      .extend({ is_active: z.boolean().optional() })
+      .parse(req.body);
+    const sets = [];
+    const vals = [];
+    if (body.label     !== undefined) { vals.push(body.label);     sets.push(`label = $${vals.length}`); }
+    if (body.is_active !== undefined) { vals.push(body.is_active); sets.push(`is_active = $${vals.length}`); }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE room_feature SET ${sets.join(", ")} WHERE id = $${vals.length}
+       RETURNING id, code, label, is_active`,
+      vals,
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: "Feature not found" });
+    res.json({ ok: true, data: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── DELETE /api/institution/room-features/:id ─────────────────────────────────
+router.delete("/room-features/:id", async (req, res, next) => {
+  try {
+    const inUse = await tenantQuery(
+      req.tenantSchema,
+      `SELECT 1 FROM booking_room_feature WHERE feature_id = $1 LIMIT 1`,
+      [req.params.id],
+    );
+    if (inUse.rows.length) {
+      return res.status(409).json({ ok: false, error: "Feature is assigned to rooms — hide it instead" });
+    }
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `DELETE FROM room_feature WHERE id = $1 RETURNING id`,
+      [req.params.id],
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: "Feature not found" });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/institution/accommodation-feature-mappings ───────────────────────
+router.get("/accommodation-feature-mappings", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT ac.id, ac.code, ac.label,
+              COALESCE(
+                array_agg(rf.code ORDER BY rf.code) FILTER (WHERE rf.code IS NOT NULL),
+                '{}'
+              ) AS required_features
+       FROM accommodation_code ac
+       LEFT JOIN accommodation_required_feature arf ON arf.accommodation_code_id = ac.id
+       LEFT JOIN room_feature rf ON rf.id = arf.feature_id AND rf.is_active = TRUE
+       WHERE ac.is_active = TRUE
+       GROUP BY ac.id, ac.code, ac.label
+       ORDER BY ac.code`,
+    );
+    res.json({ ok: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PUT /api/institution/accommodation-feature-mappings/:id ──────────────────
+router.put("/accommodation-feature-mappings/:id", async (req, res, next) => {
+  try {
+    const { featureCodes } = z.object({ featureCodes: z.array(z.string()) }).parse(req.body);
+    await tenantQuery(
+      req.tenantSchema,
+      `DELETE FROM accommodation_required_feature WHERE accommodation_code_id = $1`,
+      [req.params.id],
+    );
+    if (featureCodes.length) {
+      await tenantQuery(
+        req.tenantSchema,
+        `INSERT INTO accommodation_required_feature (accommodation_code_id, feature_id)
+         SELECT $1, rf.id FROM room_feature rf
+         WHERE rf.code = ANY($2) AND rf.is_active = TRUE
+         ON CONFLICT DO NOTHING`,
+        [req.params.id, featureCodes],
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/institution/accommodation-codes ──────────────────────────────────
+router.get("/accommodation-codes", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT id, code, label, triggers_rwg_flag, prefers_solo_room, is_active
+       FROM accommodation_code
+       ORDER BY code`,
+    );
+    res.json({ ok: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const AccomCodeSchema = z.object({
+  code:              z.string().min(1).max(50).transform(v => v.toUpperCase()),
+  label:             z.string().min(1).max(100),
+  triggers_rwg_flag: z.boolean().default(false),
+  prefers_solo_room: z.boolean().default(false),
+});
+
+// ── POST /api/institution/accommodation-codes ─────────────────────────────────
+router.post("/accommodation-codes", async (req, res, next) => {
+  try {
+    const body = AccomCodeSchema.parse(req.body);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO accommodation_code (code, label, triggers_rwg_flag, prefers_solo_room)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, code, label, triggers_rwg_flag, prefers_solo_room, is_active`,
+      [body.code, body.label, body.triggers_rwg_flag, body.prefers_solo_room],
+    );
+    res.status(201).json({ ok: true, data: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/institution/accommodation-codes/:id ────────────────────────────
+router.patch("/accommodation-codes/:id", async (req, res, next) => {
+  try {
+    const body = AccomCodeSchema.partial()
+      .extend({ is_active: z.boolean().optional() })
+      .parse(req.body);
+    const sets = [];
+    const vals = [];
+    if (body.label             !== undefined) { vals.push(body.label);             sets.push(`label = $${vals.length}`); }
+    if (body.triggers_rwg_flag !== undefined) { vals.push(body.triggers_rwg_flag); sets.push(`triggers_rwg_flag = $${vals.length}`); }
+    if (body.prefers_solo_room !== undefined) { vals.push(body.prefers_solo_room); sets.push(`prefers_solo_room = $${vals.length}`); }
+    if (body.is_active         !== undefined) { vals.push(body.is_active);         sets.push(`is_active = $${vals.length}`); }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE accommodation_code SET ${sets.join(", ")}
+       WHERE id = $${vals.length}
+       RETURNING id, code, label, triggers_rwg_flag, prefers_solo_room, is_active`,
+      vals,
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: "Code not found" });
+    res.json({ ok: true, data: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── DELETE /api/institution/accommodation-codes/:id ───────────────────────────
+router.delete("/accommodation-codes/:id", async (req, res, next) => {
+  try {
+    const inUse = await tenantQuery(
+      req.tenantSchema,
+      `SELECT 1 FROM student_accommodation WHERE accommodation_code_id = $1 LIMIT 1`,
+      [req.params.id],
+    );
+    if (inUse.rows.length) {
+      return res.status(409).json({ ok: false, error: "Code is in use — hide it instead" });
+    }
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `DELETE FROM accommodation_code WHERE id = $1 RETURNING id`,
+      [req.params.id],
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: "Code not found" });
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -279,29 +548,52 @@ router.post("/schedule", async (req, res, next) => {
         .json({ ok: false, error: "No confirmed bookings for this date" });
     }
 
-    // 2. Fetch accommodation flags for each student
+    // 2. Fetch accommodation flags + required features for each student
     const studentIds = [
       ...new Set(bookingsResult.rows.map((r) => r.student_profile_id)),
     ];
-    const accomResult = await tenantQuery(
-      schema,
-      `SELECT sa.student_profile_id,
-              bool_or(ac.triggers_rwg_flag)  AS strictly_solo,
-              bool_or(ac.prefers_solo_room)  AS prefers_solo
-       FROM student_accommodation sa
-       JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
-       WHERE sa.student_profile_id = ANY($1)
-         AND ac.is_active = TRUE
-       GROUP BY sa.student_profile_id`,
-      [studentIds],
-    );
+    const [accomResult, featuresResult] = await Promise.all([
+      tenantQuery(
+        schema,
+        `SELECT sa.student_profile_id,
+                bool_or(ac.triggers_rwg_flag)  AS strictly_solo,
+                bool_or(ac.prefers_solo_room)  AS prefers_solo
+         FROM student_accommodation sa
+         JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+         WHERE sa.student_profile_id = ANY($1)
+           AND ac.is_active = TRUE
+         GROUP BY sa.student_profile_id`,
+        [studentIds],
+      ),
+      tenantQuery(
+        schema,
+        `SELECT sa.student_profile_id,
+                array_agg(DISTINCT rf.code) AS required_features
+         FROM student_accommodation sa
+         JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+         JOIN accommodation_required_feature arf ON arf.accommodation_code_id = ac.id
+         JOIN room_feature rf ON rf.id = arf.feature_id
+         WHERE sa.student_profile_id = ANY($1)
+           AND ac.is_active = TRUE AND rf.is_active = TRUE
+         GROUP BY sa.student_profile_id`,
+        [studentIds],
+      ),
+    ]);
 
     const accomMap = {};
     for (const row of accomResult.rows) {
       accomMap[row.student_profile_id] = {
         strictlySolo: row.strictly_solo,
         prefersSolo: row.prefers_solo,
+        requiredFeatures: [],
       };
+    }
+    for (const row of featuresResult.rows) {
+      if (accomMap[row.student_profile_id]) {
+        accomMap[row.student_profile_id].requiredFeatures = row.required_features ?? [];
+      } else {
+        accomMap[row.student_profile_id] = { strictlySolo: false, prefersSolo: false, requiredFeatures: row.required_features ?? [] };
+      }
     }
 
     // Build student objects for the algorithm
@@ -314,6 +606,7 @@ router.post("/schedule", async (req, res, next) => {
       const flags = accomMap[r.student_profile_id] ?? {
         strictlySolo: false,
         prefersSolo: false,
+        requiredFeatures: [],
       };
       return {
         id: r.id,
@@ -322,6 +615,7 @@ router.post("/schedule", async (req, res, next) => {
         computedDurationMins: r.computed_duration_mins,
         strictlySolo: flags.strictlySolo ?? false,
         prefersSolo: flags.prefersSolo ?? false,
+        requiredFeatures: flags.requiredFeatures ?? [],
         firstName: r.first_name,
         lastName: r.last_name,
         studentNumber: r.student_number,
@@ -329,13 +623,20 @@ router.post("/schedule", async (req, res, next) => {
       };
     });
 
-    // 3. Fetch selected rooms ordered by capacity ASC
+    // 3. Fetch selected rooms with features ordered by capacity ASC
     const roomsResult = await tenantQuery(
       schema,
-      `SELECT id, name, capacity
-       FROM booking_room
-       WHERE id = ANY($1) AND is_active = TRUE
-       ORDER BY capacity ASC, name ASC`,
+      `SELECT br.id, br.name, br.capacity,
+              COALESCE(
+                array_agg(rf.code) FILTER (WHERE rf.code IS NOT NULL),
+                '{}'
+              ) AS features
+       FROM booking_room br
+       LEFT JOIN booking_room_feature brf ON brf.room_id = br.id
+       LEFT JOIN room_feature rf ON rf.id = brf.feature_id AND rf.is_active = TRUE
+       WHERE br.id = ANY($1) AND br.is_active = TRUE
+       GROUP BY br.id, br.name, br.capacity
+       ORDER BY br.capacity ASC, br.name ASC`,
       [body.roomIds],
     );
 
@@ -911,7 +1212,6 @@ router.patch("/cancellation-requests/:id/reject", async (req, res, next) => {
       return res.status(404).json({ ok: false, error: "Cancellation request not found or already reviewed" });
     }
 
-    const cr = crResult.rows[0];
     const adminProfileId = req.user.id;
 
     // Update cancellation_request to rejected
