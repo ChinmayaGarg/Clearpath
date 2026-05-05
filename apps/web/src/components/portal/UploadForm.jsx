@@ -70,7 +70,7 @@ const BOOKLET_TYPES = [
   { value: "essay_booklet", label: "Essay booklet" },
 ];
 
-export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false, profId = null, onClose, onSaved }) {
+export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false, profId = null, prefill = null, onClose, onSaved }) {
   const isEdit = !!uploadId;
   // When editing an existing upload, `isWordDoc` comes from the server; when creating, from the prop
   const [isWordDoc, setIsWordDoc] = useState(isWordDocProp);
@@ -79,8 +79,8 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
   const uploadsBase = profId ? `/portal/professor/${profId}/uploads` : `/portal/uploads`;
 
   const [form, setForm] = useState({
-    courseCode:        "",
-    examTypeLabel:     "midterm",
+    courseCode:        prefill?.courseCode    ?? "",
+    examTypeLabel:     prefill?.examTypeLabel ?? "midterm",
     delivery:          profId ? "dropped" : "file_upload",
     materials:         "",
     password:          "",
@@ -96,8 +96,9 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
     examCollectionMethod: "",
   });
   const [dates, setDates] = useState([]);
-  const [newDate, setNewDate] = useState("");
-  const [newTime, setNewTime] = useState("");
+  const [newDate, setNewDate] = useState(prefill?.examDate ?? "");
+  const [newTime, setNewTime] = useState(prefill?.examTime ?? "");
+  const prefillDateAdded = useRef(false);
   const [courses, setCourses] = useState([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [uploadId_, setUploadId_] = useState(uploadId);
@@ -165,6 +166,14 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
       mounted = false;
     };
   }, []); // eslint-disable-line
+
+  // Auto-add the prefill date when reaching the dates step
+  useEffect(() => {
+    if (step === "dates" && prefill?.examDate && !prefillDateAdded.current && dates.length === 0) {
+      prefillDateAdded.current = true;
+      handleAddDate();
+    }
+  }, [step]); // eslint-disable-line
 
   function buildPayload() {
     return {
@@ -387,9 +396,10 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                 onChange={(e) =>
                   setForm((f) => ({ ...f, courseCode: e.target.value }))
                 }
-                disabled={coursesLoading || courses.length === 0}
+                disabled={coursesLoading || courses.length === 0 || !!prefill}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+                           focus:outline-none focus:ring-2 focus:ring-brand-600
+                           disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
               >
                 <option value="" disabled>
                   {coursesLoading
@@ -419,8 +429,10 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                 onChange={(e) =>
                   setForm((f) => ({ ...f, examTypeLabel: e.target.value }))
                 }
+                disabled={!!prefill}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-600"
+                           focus:outline-none focus:ring-2 focus:ring-brand-600
+                           disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
               >
                 {EXAM_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>

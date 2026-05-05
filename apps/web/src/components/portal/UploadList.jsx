@@ -62,18 +62,27 @@ function canEditUpload(upload) {
 
 // ── Missing-exam banner ───────────────────────────────────────────────────────
 
-function MissingBanner({ courseCode, examDate, examTime, examType, studentCount }) {
+function MissingBanner({ courseCode, examDate, examTime, examType, studentCount, onUpload }) {
   const typeLabel = TYPE_LABELS[examType] ?? examType ?? '';
   return (
-    <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-      <span className="text-red-500 text-base shrink-0 mt-0.5">⚠</span>
-      <div>
+    <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+      <span className="text-red-500 text-base shrink-0">⚠</span>
+      <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-red-700">
           {courseCode} — {studentCount} student{studentCount !== 1 ? 's' : ''} writing {typeLabel} on {fmtDate(examDate)}
           {examTime ? ` at ${fmt12(examTime)}` : ''}
         </p>
         <p className="text-xs text-red-500 mt-0.5">Exam not uploaded yet</p>
       </div>
+      {onUpload && (
+        <button
+          onClick={onUpload}
+          className="shrink-0 px-3 py-1.5 text-xs font-medium text-red-700 border border-red-300
+                     bg-white hover:bg-red-100 rounded-lg transition-colors"
+        >
+          Upload exam
+        </button>
+      )}
     </div>
   );
 }
@@ -208,7 +217,7 @@ function UploadCards({ uploads, onEdit }) {
 
 const UPLOAD_TABS = ['Upcoming', 'Pending', 'History'];
 
-export default function UploadList({ onEdit }) {
+export default function UploadList({ onEdit, onNewUpload }) {
   const [uploads,       setUploads]       = useState([]);
   const [missingCourses, setMissingCourses] = useState([]); // courses with students but no upload
   const [loading,       setLoading]       = useState(true);
@@ -258,7 +267,16 @@ export default function UploadList({ onEdit }) {
       {missingCourses.length > 0 && (
         <div className="space-y-2 mb-5">
           {missingCourses.map(b => (
-            <MissingBanner key={b.key} {...b} />
+            <MissingBanner
+              key={b.key}
+              {...b}
+              onUpload={onNewUpload ? () => onNewUpload({
+                courseCode: b.courseCode,
+                examType:   b.examType,
+                examDate:   b.examDate,
+                examTime:   b.examTime,
+              }) : undefined}
+            />
           ))}
         </div>
       )}

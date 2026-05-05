@@ -16,10 +16,11 @@ export default function ProfessorPortal() {
   const [tab,      setTab]     = useState('Dashboard');
   const [me,       setMe]      = useState(null);
   const [loading,  setLoading] = useState(true);
-  const [showForm,   setShowForm]   = useState(false);
-  const [editId,     setEditId]     = useState(null);
-  const [isWordDoc,  setIsWordDoc]  = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [showForm,    setShowForm]    = useState(false);
+  const [editId,      setEditId]      = useState(null);
+  const [isWordDoc,   setIsWordDoc]   = useState(false);
+  const [refreshKey,  setRefreshKey]  = useState(0);
+  const [prefillData, setPrefillData] = useState(null);
 
   async function loadMe() {
     try {
@@ -39,6 +40,13 @@ export default function ProfessorPortal() {
   function refresh() {
     setRefreshKey(k => k + 1);
     loadMe();
+  }
+
+  function handleUploadFromAlert({ courseCode, examType, examDate, examTime }) {
+    setPrefillData({ courseCode, examTypeLabel: examType, examDate, examTime });
+    setEditId(null);
+    setIsWordDoc(false);
+    setShowForm(true);
   }
 
   if (loading) return (
@@ -328,6 +336,7 @@ export default function ProfessorPortal() {
                 key={refreshKey}
                 onEdit={id => { setEditId(id); setIsWordDoc(false); setShowForm(true); }}
                 onRefresh={refresh}
+                onNewUpload={handleUploadFromAlert}
               />
             )}
           </div>
@@ -353,8 +362,9 @@ export default function ProfessorPortal() {
         <UploadForm
           uploadId={editId}
           isWordDoc={isWordDoc}
-          onClose={() => setShowForm(false)}
-          onSaved={() => { setShowForm(false); refresh(); }}
+          prefill={prefillData}
+          onClose={() => { setShowForm(false); setPrefillData(null); }}
+          onSaved={() => { setShowForm(false); setPrefillData(null); refresh(); }}
         />
       )}
     </div>
