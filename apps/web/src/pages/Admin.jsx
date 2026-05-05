@@ -12,11 +12,11 @@ import ScheduleExamsTab from "../components/admin/ScheduleExamsTab.jsx";
 import CancellationRequestsTab from "../components/admin/CancellationRequestsTab.jsx";
 import AttendanceTab from "../components/admin/AttendanceTab.jsx";
 
-const ADMIN_TABS = ["Users", "Bookings", "Rooms", "Schedule", "Schedule Exams", "Cancellation Requests", "Attendance"];
+const ADMIN_TABS = ["Users", "Exam Requests", "Room Setup", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests", "Attendance"];
 
 export default function Admin() {
   const [searchParams] = useSearchParams();
-  const initialTab = ADMIN_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'Users';
+  const initialTab = ADMIN_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : "Users";
   const [tab, setTab] = useState(initialTab);
   const [showInvite, setShowInvite] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -80,11 +80,11 @@ export default function Admin() {
           </>
         )}
 
-        {tab === "Bookings" && <BookingsTab />}
-        {tab === "Rooms" && <RoomsTab />}
-        {tab === "Schedule" && <ScheduleTab />}
-        {tab === "Schedule Exams" && <ScheduleExamsTab />}
-        {tab === "Cancellation Requests" && <CancellationRequestsTab />}
+        {tab === "Exam Requests" && <BookingsTab />}
+        {tab === "Room Setup" && <RoomsTab />}
+        {tab === "Assign Rooms" && <ScheduleTab />}
+        {tab === "Auto-Approve Exams" && <ScheduleExamsTab />}
+        {tab === "Exam Cancellation Requests" && <CancellationRequestsTab />}
         {tab === "Attendance" && <AttendanceTab />}
       </div>
     </div>
