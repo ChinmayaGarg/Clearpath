@@ -12,7 +12,7 @@ import ScheduleExamsTab from "../components/admin/ScheduleExamsTab.jsx";
 import CancellationRequestsTab from "../components/admin/CancellationRequestsTab.jsx";
 import AttendanceTab from "../components/admin/AttendanceTab.jsx";
 
-const ADMIN_TABS = ["Users", "Exam Requests", "Room Setup", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests", "Attendance"];
+const ADMIN_TABS = ["Users", "Exam Booking Requests", "Room Setup", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests", "Attendance"];
 
 export default function Admin() {
   const [searchParams] = useSearchParams();
@@ -80,7 +80,7 @@ export default function Admin() {
           </>
         )}
 
-        {tab === "Exam Requests" && <BookingsTab />}
+        {tab === "Exam Booking Requests" && <BookingsTab />}
         {tab === "Room Setup" && <RoomsTab />}
         {tab === "Assign Rooms" && <ScheduleTab />}
         {tab === "Auto-Approve Exams" && <ScheduleExamsTab />}
