@@ -1620,9 +1620,101 @@ function ReturnsTab() {
   );
 }
 
+// ── Conflicts Tab ─────────────────────────────────────────────────────────────
+
+function ConflictsTab() {
+  const [groups,    setGroups]    = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [resolving, setResolving] = useState(null); // 'courseCode__examDate' while saving
+
+  useEffect(() => {
+    api.get('/portal/conflicts')
+      .then(res => setGroups(res.conflicts ?? []))
+      .catch(err => toast(err.message, 'error'))
+      .finally(() => setLoading(false));
+  }, []); // eslint-disable-line
+
+  async function handleResolve(courseCode, examDate, winnerUploadId) {
+    const key = `${courseCode}__${examDate}`;
+    setResolving(key);
+    try {
+      await api.post('/portal/conflicts/resolve', { courseCode, examDate, winnerUploadId });
+      toast('Conflict resolved', 'success');
+      setGroups(prev => prev.filter(g => !(g.courseCode === courseCode && g.examDate === examDate)));
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setResolving(null);
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-16"><Spinner /></div>;
+
+  if (!groups.length) return (
+    <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+      <p className="text-sm font-medium text-gray-700">No upload conflicts</p>
+      <p className="text-xs text-gray-400 mt-1">
+        Conflicts occur when two professors submit exams for the same course and date.
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {groups.map(g => {
+        const key = `${g.courseCode}__${g.examDate}`;
+        const isResolving = resolving === key;
+        return (
+          <div key={key} className="bg-white rounded-xl border border-red-200 overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border-b border-red-200">
+              <span className="text-red-500">⚠</span>
+              <div>
+                <p className="text-sm font-semibold text-red-800">
+                  {g.courseCode} — {fmtDateShort(g.examDate)}
+                </p>
+                <p className="text-xs text-red-500">{g.uploads.length} competing uploads — pick one to keep</p>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {g.uploads.map(u => (
+                <div key={u.uploadId} className="flex items-center justify-between px-4 py-3 gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">
+                      {TYPE_LABELS[u.examTypeLabel] ?? u.examTypeLabel}
+                      {u.versionLabel && <span className="ml-2 text-xs text-gray-400 italic">{u.versionLabel}</span>}
+                      {u.timeSlot && <span className="ml-2 text-xs text-gray-500">at {u.timeSlot.slice(0, 5)}</span>}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {u.professorName}
+                      {u.professorEmail && <span className="ml-2 text-gray-400">{u.professorEmail}</span>}
+                    </p>
+                    {u.submittedAt && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Submitted {new Date(u.submittedAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleResolve(g.courseCode, g.examDate, u.uploadId)}
+                    disabled={isResolving}
+                    className="shrink-0 px-3 py-1.5 text-xs font-medium text-white bg-brand-600
+                               hover:bg-brand-700 disabled:opacity-50 rounded-lg transition-colors"
+                  >
+                    {isResolving ? 'Resolving…' : 'Use this one'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const TABS = ['Exam Day', 'Exam Details', 'Exam Book', 'Dropoffs', 'Returns'];
+const TABS = ['Exam Day', 'Exam Details', 'Exam Book', 'Dropoffs', 'Returns', 'Conflicts'];
 
 export default function Prep() {
   const [tab, setTab] = useState('Exam Day');
@@ -1660,6 +1752,7 @@ export default function Prep() {
         {tab === 'Exam Book'    && <ExamBookTab />}
         {tab === 'Dropoffs'     && <DropoffsTab />}
         {tab === 'Returns'      && <ReturnsTab />}
+        {tab === 'Conflicts'    && <ConflictsTab />}
       </div>
     </div>
   );

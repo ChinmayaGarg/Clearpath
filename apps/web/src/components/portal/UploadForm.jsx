@@ -106,6 +106,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [step, setStep] = useState("details"); // 'details' | 'dates'
+  const [dupConflicts, setDupConflicts] = useState(null); // non-null = show conflict warning
 
   // Multi-file state
   const [uploadedFiles, setUploadedFiles] = useState([]); // server-side files
@@ -322,18 +323,23 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
       ? [form.courseCode, ...courses]
       : courses;
 
-  async function handleSubmit() {
+  async function handleSubmit({ force = false } = {}) {
     if (!dates.length) {
       toast("Add at least one exam date before saving", "warning");
       return;
     }
     setSubmitting(true);
     try {
-      await api.post(`${uploadsBase}/${uploadId_}/submit`, {});
+      await api.post(`${uploadsBase}/${uploadId_}/submit`, force ? { force: true } : {});
+      setDupConflicts(null);
       toast("Exam saved successfully", "success");
       onSaved?.();
     } catch (err) {
-      toast(err.message, "error");
+      if (err.status === 409 && err.conflicts) {
+        setDupConflicts(err.conflicts);
+      } else {
+        toast(err.message, "error");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -881,6 +887,41 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
             </p>
           )}
 
+          {/* Duplicate-upload conflict warning */}
+          {dupConflicts && (
+            <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-3 space-y-2">
+              <p className="text-xs font-semibold text-amber-800">
+                ⚠ Another submitted upload already covers these date(s):
+              </p>
+              <ul className="space-y-0.5">
+                {dupConflicts.map(c => (
+                  <li key={c.id} className="text-xs text-amber-700">
+                    · {c.exam_type_label}{c.version_label ? ` (${c.version_label})` : ''} — {c.conflicting_dates.join(", ")}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-amber-600">
+                Submitting will create a conflict that a lead must manually resolve. Are you sure?
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setDupConflicts(null)}
+                  className="flex-1 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleSubmit({ force: true })}
+                  disabled={submitting}
+                  className="flex-1 py-1.5 text-xs font-medium text-white bg-amber-600
+                             hover:bg-amber-700 rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  {submitting ? "Submitting…" : "Submit anyway"}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 pt-2">
             <button
               onClick={() => setStep("details")}
@@ -890,7 +931,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
               ← Back
             </button>
             <button
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={submitting || !dates.length}
               className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white text-sm
                          font-medium rounded-lg transition-colors disabled:opacity-50"

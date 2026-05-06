@@ -654,6 +654,30 @@ router.post("/uploads/:id/submit", async (req, res, next) => {
       });
     }
 
+    // Duplicate upload check — warn if another submitted upload covers the same course+date
+    if (!req.body?.force) {
+      const dupCheck = await tenantQuery(
+        req.tenantSchema,
+        `SELECT eu.id, eu.exam_type_label, eu.version_label,
+                array_agg(DISTINCT eud.exam_date::text ORDER BY eud.exam_date::text) AS conflicting_dates
+         FROM exam_upload eu
+         JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+         WHERE eu.course_code = (SELECT course_code FROM exam_upload WHERE id = $1)
+           AND eu.status = 'submitted'
+           AND eu.id != $1
+           AND eud.exam_date IN (SELECT exam_date FROM exam_upload_date WHERE exam_upload_id = $1)
+         GROUP BY eu.id`,
+        [req.params.id],
+      );
+      if (dupCheck.rows.length > 0) {
+        return res.status(409).json({
+          ok: false,
+          error: "A submitted upload already exists for the same course and date(s). Submitting will create a conflict a lead must resolve.",
+          conflicts: dupCheck.rows,
+        });
+      }
+    }
+
     await submitUpload(req.tenantSchema, req.params.id, profId);
     await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
 
@@ -1300,6 +1324,30 @@ router.post(
   requireRole("lead", "institution_admin"),
   async (req, res, next) => {
     try {
+      // Duplicate upload check
+      if (!req.body?.force) {
+        const dupCheck = await tenantQuery(
+          req.tenantSchema,
+          `SELECT eu.id, eu.exam_type_label, eu.version_label,
+                  array_agg(DISTINCT eud.exam_date::text ORDER BY eud.exam_date::text) AS conflicting_dates
+           FROM exam_upload eu
+           JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+           WHERE eu.course_code = (SELECT course_code FROM exam_upload WHERE id = $1)
+             AND eu.status = 'submitted'
+             AND eu.id != $1
+             AND eud.exam_date IN (SELECT exam_date FROM exam_upload_date WHERE exam_upload_id = $1)
+           GROUP BY eu.id`,
+          [req.params.id],
+        );
+        if (dupCheck.rows.length > 0) {
+          return res.status(409).json({
+            ok: false,
+            error: "A submitted upload already exists for the same course and date(s). Submitting will create a conflict a lead must resolve.",
+            conflicts: dupCheck.rows,
+          });
+        }
+      }
+
       await submitUpload(req.tenantSchema, req.params.id, req.params.profId);
       await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
 
@@ -1404,6 +1452,146 @@ router.delete(
         req.params.dateId,
         req.params.id,
       );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /api/portal/conflicts ─────────────────────────────────────────────────
+// Returns all upload date rows with match_status='conflict', grouped by course+date.
+router.get(
+  "/conflicts",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const result = await tenantQuery(
+        req.tenantSchema,
+        `SELECT
+           eu.id           AS upload_id,
+           eu.course_code,
+           eu.exam_type_label,
+           eu.version_label,
+           eu.submitted_at,
+           eud.id          AS upload_date_id,
+           eud.exam_date,
+           eud.time_slot,
+           u.first_name || ' ' || u.last_name AS professor_name,
+           u.email                            AS professor_email
+         FROM exam_upload_date eud
+         JOIN exam_upload      eu ON eu.id  = eud.exam_upload_id
+         JOIN professor_profile pp ON pp.id = eu.professor_profile_id
+         JOIN "user"            u  ON u.id  = pp.user_id
+         WHERE eud.match_status = 'conflict'
+         ORDER BY eud.exam_date, eu.course_code`,
+        [],
+      );
+
+      // Group by course_code + exam_date
+      const map = new Map();
+      for (const row of result.rows) {
+        const key = `${row.course_code}__${String(row.exam_date).slice(0, 10)}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            courseCode: row.course_code,
+            examDate:   String(row.exam_date).slice(0, 10),
+            uploads:    [],
+          });
+        }
+        map.get(key).uploads.push({
+          uploadId:       row.upload_id,
+          uploadDateId:   row.upload_date_id,
+          examTypeLabel:  row.exam_type_label,
+          versionLabel:   row.version_label,
+          submittedAt:    row.submitted_at,
+          timeSlot:       row.time_slot,
+          professorName:  row.professor_name,
+          professorEmail: row.professor_email,
+        });
+      }
+
+      res.json({ ok: true, conflicts: [...map.values()] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /api/portal/conflicts/resolve ───────────────────────────────────────
+// Pick the winning upload for a course+date conflict; losers revert to unmatched.
+router.post(
+  "/conflicts/resolve",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const { courseCode, examDate, winnerUploadId } = req.body;
+      if (!courseCode || !examDate || !winnerUploadId) {
+        return res.status(400).json({ ok: false, error: "courseCode, examDate, and winnerUploadId are required" });
+      }
+
+      // Find all conflict rows for this course+date
+      const conflictRows = await tenantQuery(
+        req.tenantSchema,
+        `SELECT eud.id AS date_id, eud.exam_upload_id
+         FROM exam_upload_date eud
+         JOIN exam_upload eu ON eu.id = eud.exam_upload_id AND eu.course_code = $1
+         WHERE eud.exam_date = $2 AND eud.match_status = 'conflict'`,
+        [courseCode, examDate],
+      );
+
+      if (!conflictRows.rows.length) {
+        return res.status(404).json({ ok: false, error: "No conflicts found for this course and date" });
+      }
+
+      // Find the exam record for this course+date so we can link the winner
+      const examRow = await tenantQuery(
+        req.tenantSchema,
+        `SELECT e.id FROM exam e
+         JOIN exam_day ed ON ed.id = e.exam_day_id AND ed.date = $2
+         WHERE e.course_code = $1
+           AND e.status NOT IN ('cancelled', 'dropped')
+         LIMIT 1`,
+        [courseCode, examDate],
+      );
+      const examId = examRow.rows[0]?.id ?? null;
+
+      const winnerDateId = conflictRows.rows.find(r => r.exam_upload_id === winnerUploadId)?.date_id;
+      const loserDateIds = conflictRows.rows
+        .filter(r => r.exam_upload_id !== winnerUploadId)
+        .map(r => r.date_id);
+
+      // Resolve winner
+      if (winnerDateId) {
+        await tenantQuery(
+          req.tenantSchema,
+          `UPDATE exam_upload_date
+           SET match_status = 'matched', matched_exam_id = $2
+           WHERE id = $1`,
+          [winnerDateId, examId],
+        );
+      }
+
+      // Revert losers to unmatched
+      if (loserDateIds.length) {
+        await tenantQuery(
+          req.tenantSchema,
+          `UPDATE exam_upload_date
+           SET match_status = 'unmatched', matched_exam_id = NULL
+           WHERE id = ANY($1::uuid[])`,
+          [loserDateIds],
+        );
+      }
+
+      // Link the exam to the winning upload
+      if (examId) {
+        await tenantQuery(
+          req.tenantSchema,
+          `UPDATE exam SET exam_upload_id = $1 WHERE id = $2`,
+          [winnerUploadId, examId],
+        );
+      }
+
       res.json({ ok: true });
     } catch (err) {
       next(err);
