@@ -100,7 +100,7 @@ const EXAM_TYPES = [
 ];
 const DELIVERIES = ["pickup", "dropped", "delivery", "pending", "file_upload"];
 
-const createUploadSchema = z.object({
+const createUploadSchemaBase = z.object({
   courseCode:        z.string().min(1).max(50).trim().toUpperCase(),
   examTypeLabel:     z.enum(EXAM_TYPES),
   versionLabel:      z.string().max(100).optional().nullable(),
@@ -119,7 +119,9 @@ const createUploadSchema = z.object({
   calculatorType:        z.enum(['scientific', 'non_programmable', 'financial', 'basic', 'none']).optional().nullable(),
   studentInstructions:   z.string().max(1000).optional().nullable(),
   examCollectionMethod:  z.enum(['delivery', 'pickup_mah', 'pickup_sexton']).optional().nullable(),
-}).superRefine((data, ctx) => {
+});
+
+const createUploadSchema = createUploadSchemaBase.superRefine((data, ctx) => {
   if (!data.isWordDoc) {
     if (data.examDurationMins == null) ctx.addIssue({ code: "custom", path: ["examDurationMins"], message: "Required" });
     if (data.examFormat == null)        ctx.addIssue({ code: "custom", path: ["examFormat"],        message: "Required" });
@@ -640,7 +642,7 @@ router.put("/uploads/:id", async (req, res, next) => {
       }
     }
 
-    const data = createUploadSchema.partial().parse(req.body);
+    const data = createUploadSchemaBase.partial().parse(req.body);
     const dbFields = {};
     if (data.courseCode !== undefined) {
       await ensureCourseAllowed(req.tenantSchema, profId, data.courseCode);
@@ -1377,7 +1379,7 @@ router.put(
   requireRole("lead", "institution_admin"),
   async (req, res, next) => {
     try {
-      const data = createUploadSchema.partial().parse(req.body);
+      const data = createUploadSchemaBase.partial().parse(req.body);
       const dbFields = {};
       if (data.courseCode !== undefined)           dbFields.course_code             = data.courseCode;
       if (data.examTypeLabel !== undefined)        dbFields.exam_type_label         = data.examTypeLabel;
