@@ -383,16 +383,12 @@ router.get("/me", async (req, res, next) => {
                  )
                )
            ) AS uploaded,
-           EXISTS (
-             SELECT 1 FROM exam_booking_request ebr2
-             JOIN student_accommodation sa ON sa.student_profile_id = ebr2.student_profile_id
+           BOOL_OR(EXISTS (
+             SELECT 1 FROM student_accommodation sa
              JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
-             WHERE UPPER(ebr2.course_code) = UPPER(ebr.course_code)
-               AND ebr2.exam_date::text = ebr.exam_date::text
-               AND ebr2.exam_type = ebr.exam_type
-               AND ebr2.status IN ('professor_approved', 'confirmed')
+             WHERE sa.student_profile_id = ebr.student_profile_id
                AND ac.triggers_rwg_flag = TRUE
-           ) AS has_rwg_students,
+           )) AS has_rwg_students,
            EXISTS (
              SELECT 1 FROM exam_upload eu3
              JOIN exam_upload_date eud3 ON eud3.exam_upload_id = eu3.id
