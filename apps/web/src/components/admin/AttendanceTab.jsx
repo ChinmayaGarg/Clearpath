@@ -89,59 +89,25 @@ function fmtDate(d) {
 
 function AttendanceControls({ bookingId, status, acting, onAttendance }) {
   const isActing = acting === bookingId;
-  if (status === 'show') {
-    return (
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="text-xs px-2.5 py-1 rounded-full bg-green-100 text-green-700 font-medium">Show</span>
-        <button
-          disabled={isActing}
-          onClick={() => onAttendance(bookingId, 'no_show')}
-          className="px-2.5 py-1 text-xs font-medium text-red-600 border border-red-200
-                     rounded-lg hover:bg-red-50 disabled:opacity-40 transition-colors"
-        >{isActing ? '…' : 'No Show'}</button>
-        <button
-          disabled={isActing}
-          onClick={() => onAttendance(bookingId, null)}
-          className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40 px-1"
-          title="Clear"
-        >×</button>
-      </div>
-    );
-  }
-  if (status === 'no_show') {
-    return (
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="text-xs px-2.5 py-1 rounded-full bg-red-100 text-red-700 font-medium">No Show</span>
-        <button
-          disabled={isActing}
-          onClick={() => onAttendance(bookingId, 'show')}
-          className="px-2.5 py-1 text-xs font-medium text-green-700 border border-green-300
-                     rounded-lg hover:bg-green-50 disabled:opacity-40 transition-colors"
-        >{isActing ? '…' : 'Show'}</button>
-        <button
-          disabled={isActing}
-          onClick={() => onAttendance(bookingId, null)}
-          className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40 px-1"
-          title="Clear"
-        >×</button>
-      </div>
-    );
-  }
+
+  const colourClass =
+    status === 'show'    ? 'text-green-700 border-green-300 bg-green-50'  :
+    status === 'no_show' ? 'text-red-600   border-red-200   bg-red-50'    :
+                           'text-gray-500  border-gray-300  bg-white';
+
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      <button
-        disabled={isActing}
-        onClick={() => onAttendance(bookingId, 'show')}
-        className="px-2.5 py-1 text-xs font-medium text-green-700 border border-green-300
-                   rounded-lg hover:bg-green-50 disabled:opacity-40 transition-colors"
-      >{isActing ? '…' : 'Show'}</button>
-      <button
-        disabled={isActing}
-        onClick={() => onAttendance(bookingId, 'no_show')}
-        className="px-2.5 py-1 text-xs font-medium text-red-600 border border-red-200
-                   rounded-lg hover:bg-red-50 disabled:opacity-40 transition-colors"
-      >{isActing ? '…' : 'No Show'}</button>
-    </div>
+    <select
+      value={status ?? ''}
+      disabled={isActing}
+      onChange={e => onAttendance(bookingId, e.target.value || null)}
+      className={`shrink-0 px-2.5 py-1 text-xs font-medium border rounded-lg
+                  focus:outline-none focus:ring-2 focus:ring-brand-400
+                  disabled:opacity-50 transition-colors ${colourClass}`}
+    >
+      <option value="">Not marked</option>
+      <option value="show">Show</option>
+      <option value="no_show">No Show</option>
+    </select>
   );
 }
 
