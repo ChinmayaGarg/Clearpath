@@ -49,6 +49,13 @@ export default function ProfessorPortal() {
     setShowForm(true);
   }
 
+  function handleWordDocFromAlert({ courseCode, examType, examDate, examTime }) {
+    setPrefillData({ courseCode, examTypeLabel: examType, examDate, examTime });
+    setEditId(null);
+    setIsWordDoc(true);
+    setShowForm(true);
+  }
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <Spinner size="lg" />
@@ -135,6 +142,16 @@ export default function ProfessorPortal() {
                   subColour: 'text-red-500',
                   onClick: () => { setEditId(null); setIsWordDoc(false); setShowForm(true); },
                 }] : []),
+                ...(stats.missingWordDocUploads > 0 ? [{
+                  key: 'rwg',
+                  value: stats.missingWordDocUploads,
+                  label: 'Upcoming exam' + (stats.missingWordDocUploads !== 1 ? 's' : '') + ' need a Word doc for RWG/Dragon students',
+                  sub: 'Students with RWG or Dragon accommodation require a .docx version of your exam',
+                  bg: 'bg-purple-50 border-purple-300',
+                  numColour: 'text-purple-700',
+                  subColour: 'text-purple-500',
+                  onClick: () => setTab('My uploads'),
+                }] : []),
                 ...(stats.pendingDropoffs > 0 ? [{
                   key: 'dropoffs',
                   value: stats.pendingDropoffs,
@@ -215,15 +232,24 @@ export default function ProfessorPortal() {
                           {' · '}{e.studentCount} student{e.studentCount !== 1 ? 's' : ''}
                         </p>
                       </div>
-                      {e.uploaded ? (
-                        <span className="text-xs text-green-600 font-medium shrink-0">Uploaded ✓</span>
-                      ) : (
-                        <button
-                          onClick={() => { setEditId(null); setIsWordDoc(false); setShowForm(true); }}
-                          className="text-xs text-red-600 font-semibold underline shrink-0">
-                          Upload needed
-                        </button>
-                      )}
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {e.uploaded ? (
+                          <span className="text-xs text-green-600 font-medium">Uploaded ✓</span>
+                        ) : (
+                          <button
+                            onClick={() => handleUploadFromAlert({ courseCode: e.courseCode, examType: e.examType, examDate: e.examDate, examTime: e.examTime })}
+                            className="text-xs text-red-600 font-semibold underline">
+                            Upload needed
+                          </button>
+                        )}
+                        {e.hasRwgStudents && !e.wordDocUploaded && (
+                          <button
+                            onClick={() => handleWordDocFromAlert({ courseCode: e.courseCode, examType: e.examType, examDate: e.examDate, examTime: e.examTime })}
+                            className="text-xs text-purple-600 font-semibold underline">
+                            Word doc needed
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -337,6 +363,7 @@ export default function ProfessorPortal() {
                 onEdit={id => { setEditId(id); setIsWordDoc(false); setShowForm(true); }}
                 onRefresh={refresh}
                 onNewUpload={handleUploadFromAlert}
+                onNewWordDocUpload={handleWordDocFromAlert}
               />
             )}
           </div>

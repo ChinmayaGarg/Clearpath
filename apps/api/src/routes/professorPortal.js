@@ -201,7 +201,7 @@ router.get("/me", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
-    const [profileResult, statsResult, notifResult, requestsResult, missingResult, dropoffResult, upcomingResult, reuseResult, studentsResult, rwgResult, nextExamsResult] = await Promise.all([
+    const [profileResult, statsResult, notifResult, requestsResult, missingResult, dropoffResult, upcomingResult, reuseResult, studentsResult, rwgResult, nextExamsResult, missingWordDocResult] = await Promise.all([
       tenantQuery(
         req.tenantSchema,
         `SELECT pp.id, pp.department, pp.phone, pp.office,
@@ -382,7 +382,34 @@ router.get("/me", async (req, res, next) => {
                      AND cd.professor_id = $1
                  )
                )
-           ) AS uploaded
+           ) AS uploaded,
+           EXISTS (
+             SELECT 1 FROM exam_booking_request ebr2
+             JOIN student_accommodation sa ON sa.student_profile_id = ebr2.student_profile_id
+             JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+             WHERE UPPER(ebr2.course_code) = UPPER(ebr.course_code)
+               AND ebr2.exam_date::text = ebr.exam_date::text
+               AND ebr2.exam_type = ebr.exam_type
+               AND ebr2.status IN ('professor_approved', 'confirmed')
+               AND ac.triggers_rwg_flag = TRUE
+           ) AS has_rwg_students,
+           EXISTS (
+             SELECT 1 FROM exam_upload eu3
+             JOIN exam_upload_date eud3 ON eud3.exam_upload_id = eu3.id
+             WHERE eu3.status = 'submitted'
+               AND eu3.is_word_doc = TRUE
+               AND UPPER(eu3.course_code) = UPPER(ebr.course_code)
+               AND eud3.exam_date::text = ebr.exam_date::text
+               AND eu3.exam_type_label::text = ebr.exam_type
+               AND (
+                 eu3.professor_profile_id = $1
+                 OR EXISTS (
+                   SELECT 1 FROM course_dossier cd
+                   WHERE UPPER(cd.course_code) = UPPER(eu3.course_code)
+                     AND cd.professor_id = $1
+                 )
+               )
+           ) AS word_doc_uploaded
          FROM exam_booking_request ebr
          WHERE ebr.status IN ('confirmed', 'professor_approved')
            AND ebr.exam_date >= CURRENT_DATE
@@ -399,6 +426,52 @@ router.get("/me", async (req, res, next) => {
          LIMIT 5`,
         [profId],
       ),
+      // Course+date combos with RWG students but no submitted Word doc upload
+      tenantQuery(
+        req.tenantSchema,
+        `SELECT COUNT(*) AS missing_word_docs
+         FROM (
+           SELECT UPPER(ebr.course_code) AS course_code,
+                  ebr.exam_date::text    AS exam_date,
+                  ebr.exam_type
+           FROM exam_booking_request ebr
+           WHERE ebr.status IN ('professor_approved', 'confirmed')
+             AND ebr.exam_date >= CURRENT_DATE
+             AND (
+               ebr.professor_profile_id = $1
+               OR EXISTS (
+                 SELECT 1 FROM course_dossier cd
+                 WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+                   AND cd.professor_id = $1
+               )
+             )
+             AND EXISTS (
+               SELECT 1 FROM student_accommodation sa
+               JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+               WHERE sa.student_profile_id = ebr.student_profile_id
+                 AND ac.triggers_rwg_flag = TRUE
+             )
+           GROUP BY UPPER(ebr.course_code), ebr.exam_date::text, ebr.exam_type
+         ) rwg_groups
+         WHERE NOT EXISTS (
+           SELECT 1 FROM exam_upload eu
+           JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+           WHERE eu.status = 'submitted'
+             AND eu.is_word_doc = TRUE
+             AND UPPER(eu.course_code) = rwg_groups.course_code
+             AND eud.exam_date::text = rwg_groups.exam_date
+             AND eu.exam_type_label::text = rwg_groups.exam_type
+             AND (
+               eu.professor_profile_id = $1
+               OR EXISTS (
+                 SELECT 1 FROM course_dossier cd
+                 WHERE UPPER(cd.course_code) = UPPER(eu.course_code)
+                   AND cd.professor_id = $1
+               )
+             )
+         )`,
+        [profId],
+      ),
     ]);
 
     res.json({
@@ -407,21 +480,24 @@ router.get("/me", async (req, res, next) => {
       stats: {
         ...statsResult.rows[0],
         pendingRequests: parseInt(requestsResult.rows[0].pending_requests),
-        missingUploads:  parseInt(missingResult.rows[0].missing_uploads),
-        pendingDropoffs: parseInt(dropoffResult.rows[0].pending_dropoffs),
-        upcomingExams:   parseInt(upcomingResult.rows[0].upcoming_exams),
-        reuseCount:      parseInt(reuseResult.rows[0].reuse_count),
-        totalStudents:   parseInt(studentsResult.rows[0].total_students),
-        rwgStudents:     parseInt(rwgResult.rows[0].rwg_students),
+        missingUploads:        parseInt(missingResult.rows[0].missing_uploads),
+        pendingDropoffs:       parseInt(dropoffResult.rows[0].pending_dropoffs),
+        upcomingExams:         parseInt(upcomingResult.rows[0].upcoming_exams),
+        reuseCount:            parseInt(reuseResult.rows[0].reuse_count),
+        totalStudents:         parseInt(studentsResult.rows[0].total_students),
+        rwgStudents:           parseInt(rwgResult.rows[0].rwg_students),
+        missingWordDocUploads: parseInt(missingWordDocResult.rows[0].missing_word_docs),
       },
       unread:     parseInt(notifResult.rows[0].unread),
       nextExams:  nextExamsResult.rows.map(r => ({
-        courseCode:   r.course_code,
-        examDate:     r.exam_date,
-        examTime:     r.exam_time,
-        examType:     r.exam_type,
-        studentCount: parseInt(r.student_count),
-        uploaded:     r.uploaded,
+        courseCode:      r.course_code,
+        examDate:        r.exam_date,
+        examTime:        r.exam_time,
+        examType:        r.exam_type,
+        studentCount:    parseInt(r.student_count),
+        uploaded:        r.uploaded,
+        hasRwgStudents:  r.has_rwg_students,
+        wordDocUploaded: r.word_doc_uploaded,
       })),
     });
   } catch (err) {
@@ -954,7 +1030,13 @@ router.get("/my-students", async (req, res, next) => {
          ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
          ebr.student_duration_mins,
          u.first_name, u.last_name, u.email,
-         sp.student_number
+         sp.student_number,
+         EXISTS (
+           SELECT 1 FROM student_accommodation sa
+           JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+           WHERE sa.student_profile_id = ebr.student_profile_id
+             AND ac.triggers_rwg_flag = TRUE
+         ) AS has_rwg
        FROM exam_booking_request ebr
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
@@ -978,7 +1060,8 @@ router.get("/my-students", async (req, res, next) => {
       `SELECT UPPER(eu.course_code) AS course_code,
               eud.exam_date::text    AS exam_date,
               eu.exam_type_label,
-              eud.time_slot::text    AS time_slot
+              eud.time_slot::text    AS time_slot,
+              eu.is_word_doc
        FROM exam_upload eu
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
        WHERE eu.status = 'submitted'
@@ -997,12 +1080,16 @@ router.get("/my-students", async (req, res, next) => {
     //   uploadedAllDay — course+date+type (null time_slot upload covers all times)
     const uploadedExact  = new Set();
     const uploadedAllDay = new Set();
+    const wordDocExact   = new Set();
+    const wordDocAllDay  = new Set();
     for (const r of uploadResult.rows) {
       const base = `${r.course_code}__${r.exam_date.slice(0, 10)}__${r.exam_type_label}`;
       if (r.time_slot) {
         uploadedExact.add(`${base}__${r.time_slot.slice(0, 5)}`);
+        if (r.is_word_doc) wordDocExact.add(`${base}__${r.time_slot.slice(0, 5)}`);
       } else {
         uploadedAllDay.add(base);
+        if (r.is_word_doc) wordDocAllDay.add(base);
       }
     }
 
@@ -1013,19 +1100,25 @@ router.get("/my-students", async (req, res, next) => {
       const dateKey   = `${row.exam_date}__${row.exam_time ?? ''}__${row.exam_type}`;
       const timeStr   = row.exam_time ? row.exam_time.slice(0, 5) : null;
       const base      = `${row.course_code.toUpperCase()}__${row.exam_date.slice(0, 10)}__${row.exam_type}`;
-      const examUploaded = uploadedAllDay.has(base) ||
-                           (timeStr ? uploadedExact.has(`${base}__${timeStr}`) : false);
+      const examUploaded    = uploadedAllDay.has(base) ||
+                              (timeStr ? uploadedExact.has(`${base}__${timeStr}`) : false);
+      const wordDocUploaded = wordDocAllDay.has(base) ||
+                              (timeStr ? wordDocExact.has(`${base}__${timeStr}`) : false);
 
       if (!grouped[courseKey]) grouped[courseKey] = { courseCode: courseKey, dates: {} };
 
       if (!grouped[courseKey].dates[dateKey]) {
         grouped[courseKey].dates[dateKey] = {
-          examDate:     row.exam_date,
-          examTime:     timeStr,
-          examType:     row.exam_type,
+          examDate:        row.exam_date,
+          examTime:        timeStr,
+          examType:        row.exam_type,
           examUploaded,
-          students:     [],
+          wordDocUploaded,
+          hasRwgStudents:  !!row.has_rwg,
+          students:        [],
         };
+      } else if (row.has_rwg) {
+        grouped[courseKey].dates[dateKey].hasRwgStudents = true;
       }
 
       grouped[courseKey].dates[dateKey].students.push({

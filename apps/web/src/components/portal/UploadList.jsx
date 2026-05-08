@@ -60,7 +60,32 @@ function canEditUpload(upload) {
   });
 }
 
-// ── Missing-exam banner ───────────────────────────────────────────────────────
+// ── Missing-exam banners ──────────────────────────────────────────────────────
+
+function MissingWordDocBanner({ courseCode, examDate, examTime, examType, onUpload }) {
+  const typeLabel = TYPE_LABELS[examType] ?? examType ?? '';
+  return (
+    <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+      <span className="text-purple-500 text-base shrink-0">⚠</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-purple-700">
+          {courseCode} — Word doc needed for RWG/Dragon students — {typeLabel} on {fmtDate(examDate)}
+          {examTime ? ` at ${fmt12(examTime)}` : ''}
+        </p>
+        <p className="text-xs text-purple-500 mt-0.5">Upload a .docx version of this exam for students with RWG or Dragon accommodation</p>
+      </div>
+      {onUpload && (
+        <button
+          onClick={onUpload}
+          className="shrink-0 px-3 py-1.5 text-xs font-medium text-purple-700 border border-purple-300
+                     bg-white hover:bg-purple-100 rounded-lg transition-colors"
+        >
+          Upload Word doc
+        </button>
+      )}
+    </div>
+  );
+}
 
 function MissingBanner({ courseCode, examDate, examTime, examType, studentCount, onUpload }) {
   const typeLabel = TYPE_LABELS[examType] ?? examType ?? '';
@@ -217,11 +242,12 @@ function UploadCards({ uploads, onEdit }) {
 
 const UPLOAD_TABS = ['Upcoming', 'Pending', 'History'];
 
-export default function UploadList({ onEdit, onNewUpload }) {
-  const [uploads,       setUploads]       = useState([]);
-  const [missingCourses, setMissingCourses] = useState([]); // courses with students but no upload
-  const [loading,       setLoading]       = useState(true);
-  const [activeTab,     setActiveTab]     = useState('Upcoming');
+export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) {
+  const [uploads,        setUploads]        = useState([]);
+  const [missingCourses, setMissingCourses] = useState([]);
+  const [missingWordDocs, setMissingWordDocs] = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [activeTab,      setActiveTab]      = useState('Upcoming');
 
   useEffect(() => {
     Promise.all([
@@ -231,24 +257,34 @@ export default function UploadList({ onEdit, onNewUpload }) {
       .then(([uploadsRes, studentsRes]) => {
         setUploads(uploadsRes.uploads ?? []);
 
-        // Collect date groups where exam is upcoming and not uploaded
-        const missing = [];
+        const missing   = [];
+        const missingWd = [];
         for (const course of (studentsRes.courses ?? [])) {
           for (const dg of (course.dates ?? [])) {
-            if (!dg.examUploaded && String(dg.examDate).slice(0, 10) >= todayStr) {
-              const count = dg.students?.length ?? 0;
+            const dateStr = String(dg.examDate).slice(0, 10);
+            if (!dg.examUploaded && dateStr >= todayStr) {
               missing.push({
                 key: `${course.courseCode}__${dg.examDate}__${dg.examType}`,
                 courseCode:   course.courseCode,
                 examDate:     dg.examDate,
                 examTime:     dg.examTime ?? null,
                 examType:     dg.examType ?? null,
-                studentCount: count,
+                studentCount: dg.students?.length ?? 0,
+              });
+            }
+            if (dg.hasRwgStudents && !dg.wordDocUploaded && dateStr >= todayStr) {
+              missingWd.push({
+                key: `wd__${course.courseCode}__${dg.examDate}__${dg.examType}`,
+                courseCode: course.courseCode,
+                examDate:   dg.examDate,
+                examTime:   dg.examTime ?? null,
+                examType:   dg.examType ?? null,
               });
             }
           }
         }
         setMissingCourses(missing);
+        setMissingWordDocs(missingWd);
       })
       .catch(err => toast(err.message, 'error'))
       .finally(() => setLoading(false));
@@ -265,12 +301,30 @@ export default function UploadList({ onEdit, onNewUpload }) {
     <div>
       {/* Missing-exam red banners */}
       {missingCourses.length > 0 && (
-        <div className="space-y-2 mb-5">
+        <div className="space-y-2 mb-3">
           {missingCourses.map(b => (
             <MissingBanner
               key={b.key}
               {...b}
               onUpload={onNewUpload ? () => onNewUpload({
+                courseCode: b.courseCode,
+                examType:   b.examType,
+                examDate:   b.examDate,
+                examTime:   b.examTime,
+              }) : undefined}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Missing Word doc purple banners */}
+      {missingWordDocs.length > 0 && (
+        <div className="space-y-2 mb-5">
+          {missingWordDocs.map(b => (
+            <MissingWordDocBanner
+              key={b.key}
+              {...b}
+              onUpload={onNewWordDocUpload ? () => onNewWordDocUpload({
                 courseCode: b.courseCode,
                 examType:   b.examType,
                 examDate:   b.examDate,
