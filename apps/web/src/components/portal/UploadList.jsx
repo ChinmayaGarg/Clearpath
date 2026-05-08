@@ -124,13 +124,12 @@ function UploadCard({ upload, onEdit }) {
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center flex-wrap gap-2">
           <span className="font-semibold text-gray-900">{upload.course_code}</span>
-          {upload.is_word_doc ? (
+          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+            {TYPE_LABELS[upload.exam_type_label] ?? upload.exam_type_label}
+          </span>
+          {upload.is_word_doc && (
             <span className="text-xs text-purple-700 bg-purple-100 px-2 py-0.5 rounded font-medium">
               RWG Word doc
-            </span>
-          ) : (
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-              {TYPE_LABELS[upload.exam_type_label] ?? upload.exam_type_label}
             </span>
           )}
           {upload.is_makeup && !upload.is_word_doc && (

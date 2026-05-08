@@ -112,6 +112,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
   const [uploadedFiles, setUploadedFiles] = useState([]); // server-side files
   const [pendingFile, setPendingFile] = useState(null);   // selected but not yet uploaded
   const [fileUploading, setFileUploading] = useState(false);
+  const [fileIsWordDoc, setFileIsWordDoc] = useState(false); // true when selected/uploaded file is .docx
   const fileInputRef = useRef(null);
 
   // Load existing upload if editing
@@ -141,6 +142,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
         });
         setDates(u.dates ?? []);
         setUploadedFiles(u.files ?? []);
+        setFileIsWordDoc((u.files ?? []).some(f => /\.docx?$/i.test(f.file_original_name)));
       })
       .catch((err) => toast(err.message, "error"))
       .finally(() => setLoading(false));
@@ -177,10 +179,11 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
   }, [step]); // eslint-disable-line
 
   function buildPayload() {
+    const effectiveIsWordDoc = isWordDoc || fileIsWordDoc;
     return {
       ...form,
-      isWordDoc,
-      delivery: isWordDoc ? "file_upload" : form.delivery,
+      isWordDoc: effectiveIsWordDoc,
+      delivery: effectiveIsWordDoc ? "file_upload" : form.delivery,
       estimatedCopies:   form.estimatedCopies   !== "" ? Number(form.estimatedCopies)   : null,
       examDurationMins:  form.examDurationMins  !== "" ? Number(form.examDurationMins)  : null,
       examFormat:           form.examFormat           || null,
@@ -548,8 +551,15 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept={isWordDoc ? ".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword" : "application/pdf"}
-                  onChange={(e) => setPendingFile(e.target.files?.[0] || null)}
+                  accept={isWordDoc
+                    ? ".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                    : ".docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                  }
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setPendingFile(file);
+                    if (file) setFileIsWordDoc(/\.docx?$/i.test(file.name));
+                  }}
                   className="hidden"
                 />
                 <div className="flex items-center gap-2">
@@ -558,7 +568,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                     onClick={() => fileInputRef.current?.click()}
                     className={`px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors ${isWordDoc ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                   >
-                    {pendingFile ? "Change file" : isWordDoc ? "Add Word file" : "Add PDF file"}
+                    {pendingFile ? "Change file" : isWordDoc ? "Add Word file" : "Add exam file"}
                   </button>
                   {pendingFile && (
                     <button
@@ -578,8 +588,15 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                   </p>
                 )}
                 <p className={`text-xs mt-1 ${isWordDoc ? 'text-purple-600' : 'text-blue-600'}`}>
-                  {isWordDoc ? ".docx or .doc files up to 10 MB." : "PDF files up to 10 MB each."}
+                  {isWordDoc
+                    ? ".docx or .doc files up to 10 MB."
+                    : "PDF or Word doc (.docx) up to 10 MB. Uploading a .docx will also satisfy the RWG Word doc requirement."}
                 </p>
+                {!isWordDoc && fileIsWordDoc && (
+                  <p className="text-xs mt-1 text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                    Word doc detected — this upload will also satisfy the RWG/Dragon Word doc requirement.
+                  </p>
+                )}
               </div>
             </div>
           )}
