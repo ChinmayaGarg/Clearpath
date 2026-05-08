@@ -21,6 +21,7 @@ export default function TopNav() {
 
   if (isAdmin || isLead) {
     navLinks.push({ to: "/prep", label: "Prep" });
+    navLinks.push({ to: "/attendance", label: "Attendance" });
   }
 
   return (
