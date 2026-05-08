@@ -270,6 +270,7 @@ router.get("/me", async (req, res, next) => {
            SELECT 1 FROM exam_upload eu
            JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
            WHERE eu.status = 'submitted'
+             AND eu.is_word_doc = FALSE
              AND UPPER(eu.course_code) = bookings.course_code
              AND eud.exam_date::text = bookings.exam_date
              AND eu.exam_type_label::text = bookings.exam_type
@@ -395,7 +396,14 @@ router.get("/me", async (req, res, next) => {
              SELECT 1 FROM exam_upload eu3
              JOIN exam_upload_date eud3 ON eud3.exam_upload_id = eu3.id
              WHERE eu3.status = 'submitted'
-               AND eu3.is_word_doc = TRUE
+               AND (
+                 eu3.is_word_doc = TRUE
+                 OR EXISTS (
+                   SELECT 1 FROM exam_upload_file euf3
+                   WHERE euf3.exam_upload_id = eu3.id
+                     AND euf3.file_original_name ILIKE '%.doc%'
+                 )
+               )
                AND UPPER(eu3.course_code) = UPPER(ebr.course_code)
                AND eud3.exam_date::text = ebr.exam_date::text
                AND eu3.exam_type_label::text = ebr.exam_type
@@ -455,7 +463,14 @@ router.get("/me", async (req, res, next) => {
            SELECT 1 FROM exam_upload eu
            JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
            WHERE eu.status = 'submitted'
-             AND eu.is_word_doc = TRUE
+             AND (
+               eu.is_word_doc = TRUE
+               OR EXISTS (
+                 SELECT 1 FROM exam_upload_file euf
+                 WHERE euf.exam_upload_id = eu.id
+                   AND euf.file_original_name ILIKE '%.doc%'
+               )
+             )
              AND UPPER(eu.course_code) = rwg_groups.course_code
              AND eud.exam_date::text = rwg_groups.exam_date
              AND eu.exam_type_label::text = rwg_groups.exam_type
@@ -1062,7 +1077,12 @@ router.get("/my-students", async (req, res, next) => {
               eud.exam_date::text    AS exam_date,
               eu.exam_type_label,
               eud.time_slot::text    AS time_slot,
-              eu.is_word_doc
+              eu.is_word_doc,
+              EXISTS (
+                SELECT 1 FROM exam_upload_file euf
+                WHERE euf.exam_upload_id = eu.id
+                  AND euf.file_original_name ILIKE '%.doc%'
+              ) AS has_docx_file
        FROM exam_upload eu
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
        WHERE eu.status = 'submitted'
@@ -1085,12 +1105,14 @@ router.get("/my-students", async (req, res, next) => {
     const wordDocAllDay  = new Set();
     for (const r of uploadResult.rows) {
       const base = `${r.course_code}__${r.exam_date.slice(0, 10)}__${r.exam_type_label}`;
-      if (r.time_slot) {
-        uploadedExact.add(`${base}__${r.time_slot.slice(0, 5)}`);
-        if (r.is_word_doc) wordDocExact.add(`${base}__${r.time_slot.slice(0, 5)}`);
-      } else {
-        uploadedAllDay.add(base);
-        if (r.is_word_doc) wordDocAllDay.add(base);
+      const slot = r.time_slot?.slice(0, 5);
+      // Only non-word-doc uploads count as the real exam being uploaded
+      if (!r.is_word_doc) {
+        slot ? uploadedExact.add(`${base}__${slot}`) : uploadedAllDay.add(base);
+      }
+      // Word doc satisfied by dedicated word doc OR any upload with a .docx file
+      if (r.is_word_doc || r.has_docx_file) {
+        slot ? wordDocExact.add(`${base}__${slot}`) : wordDocAllDay.add(base);
       }
     }
 

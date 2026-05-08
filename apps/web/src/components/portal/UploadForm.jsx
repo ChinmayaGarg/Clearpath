@@ -179,11 +179,10 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
   }, [step]); // eslint-disable-line
 
   function buildPayload() {
-    const effectiveIsWordDoc = isWordDoc || fileIsWordDoc;
     return {
       ...form,
-      isWordDoc: effectiveIsWordDoc,
-      delivery: effectiveIsWordDoc ? "file_upload" : form.delivery,
+      isWordDoc,
+      delivery: isWordDoc ? "file_upload" : form.delivery,
       estimatedCopies:   form.estimatedCopies   !== "" ? Number(form.estimatedCopies)   : null,
       examDurationMins:  form.examDurationMins  !== "" ? Number(form.examDurationMins)  : null,
       examFormat:           form.examFormat           || null,

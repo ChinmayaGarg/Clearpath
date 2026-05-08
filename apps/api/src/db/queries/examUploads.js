@@ -88,6 +88,9 @@ export async function listUploadsForProfessor(schema, professorProfileId) {
        eu.estimated_copies,
        eu.is_word_doc,
        eu.dropoff_confirmed_at,
+       EXISTS (
+         SELECT 1 FROM exam_upload_file euf WHERE euf.exam_upload_id = eu.id
+       ) AS has_files,
        COALESCE(
          json_agg(
            json_build_object(

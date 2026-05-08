@@ -175,7 +175,7 @@ function UploadCard({ upload, onEdit }) {
             <span className="text-red-600 font-medium">Pending drop-off</span>
           )
         ) : upload.delivery === 'file_upload' ? (
-          upload.file_path ? (
+          (upload.file_path || upload.has_files) ? (
             <span className="text-green-600 font-medium">File uploaded</span>
           ) : (
             <span className="text-amber-600 font-medium">File pending upload</span>
@@ -247,6 +247,8 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
   const [missingWordDocs, setMissingWordDocs] = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [activeTab,      setActiveTab]      = useState('Upcoming');
+  const [searchQuery,    setSearchQuery]    = useState('');
+  const [filterType,     setFilterType]     = useState('all');
 
   useEffect(() => {
     Promise.all([
@@ -296,6 +298,22 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
   const upcoming = uploads.filter(u => u.status === 'submitted' && hasUpcomingDate(u));
   const history  = uploads.filter(u => u.status === 'submitted' && !hasUpcomingDate(u));
 
+  // Search + filter
+  function applyFilters(list) {
+    return list.filter(u => {
+      const q = searchQuery.trim().toLowerCase();
+      const matchSearch = !q || u.course_code.toLowerCase().includes(q);
+      const matchType   = filterType === 'all' || u.exam_type_label === filterType;
+      return matchSearch && matchType;
+    });
+  }
+  const visibleUpcoming = applyFilters(upcoming);
+  const visiblePending  = applyFilters(pending);
+  const visibleHistory  = applyFilters(history);
+
+  // Collect all type labels present across all tabs for the filter dropdown
+  const availableTypes = [...new Set(uploads.map(u => u.exam_type_label).filter(Boolean))].sort();
+
   return (
     <div>
       {/* Missing-exam red banners */}
@@ -334,12 +352,44 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
         </div>
       )}
 
+      {/* Search + filter bar */}
+      <div className="flex gap-2 mb-3">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search by course code…"
+          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg
+                     focus:outline-none focus:ring-2 focus:ring-brand-400"
+        />
+        <select
+          value={filterType}
+          onChange={e => setFilterType(e.target.value)}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white
+                     focus:outline-none focus:ring-2 focus:ring-brand-400"
+        >
+          <option value="all">All types</option>
+          {availableTypes.map(t => (
+            <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
+          ))}
+        </select>
+        {(searchQuery || filterType !== 'all') && (
+          <button
+            onClick={() => { setSearchQuery(''); setFilterType('all'); }}
+            className="px-3 py-1.5 text-xs text-gray-500 border border-gray-300 rounded-lg
+                       hover:bg-gray-50 transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {/* Sub-tab strip */}
       <div className="flex gap-1 border-b border-gray-200 mb-4">
         {UPLOAD_TABS.map(t => {
-          const count = t === 'Upcoming' ? upcoming.length
-                      : t === 'Pending'  ? pending.length
-                      : history.length;
+          const count = t === 'Upcoming' ? visibleUpcoming.length
+                      : t === 'Pending'  ? visiblePending.length
+                      : visibleHistory.length;
           return (
             <button
               key={t}
@@ -362,9 +412,9 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
       </div>
 
       {/* Tab content */}
-      {activeTab === 'Upcoming' && <UploadCards uploads={upcoming} onEdit={onEdit} />}
-      {activeTab === 'Pending'  && <UploadCards uploads={pending}  onEdit={onEdit} />}
-      {activeTab === 'History'  && <UploadCards uploads={history}  onEdit={onEdit} />}
+      {activeTab === 'Upcoming' && <UploadCards uploads={visibleUpcoming} onEdit={onEdit} />}
+      {activeTab === 'Pending'  && <UploadCards uploads={visiblePending}  onEdit={onEdit} />}
+      {activeTab === 'History'  && <UploadCards uploads={visibleHistory}  onEdit={onEdit} />}
     </div>
   );
 }
