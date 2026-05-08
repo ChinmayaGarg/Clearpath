@@ -715,13 +715,16 @@ router.post("/uploads/:id/submit", async (req, res, next) => {
     // Check if upload requires a file
     const uploadResult = await tenantQuery(
       req.tenantSchema,
-      `SELECT delivery, file_path FROM exam_upload WHERE id = $1 AND professor_profile_id = $2`,
+      `SELECT eu.delivery, eu.file_path,
+              EXISTS (SELECT 1 FROM exam_upload_file euf WHERE euf.exam_upload_id = eu.id) AS has_files
+       FROM exam_upload eu
+       WHERE eu.id = $1 AND eu.professor_profile_id = $2`,
       [req.params.id, profId],
     );
     const upload = uploadResult.rows[0];
 
-    // Validate file upload requirement
-    if (upload?.delivery === "file_upload" && !upload?.file_path) {
+    // Validate file upload requirement (check both legacy file_path and multi-file table)
+    if (upload?.delivery === "file_upload" && !upload?.file_path && !upload?.has_files) {
       return res.status(400).json({
         ok: false,
         error: "Please upload the exam file before submitting",
