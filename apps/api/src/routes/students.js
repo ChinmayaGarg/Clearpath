@@ -16,6 +16,9 @@ import {
   searchStudents,
   getStudent,
   updateStudent,
+  getStudentAccommodationsForPanel,
+  getStudentCoursesForPanel,
+  getStudentExamRequestsForPanel,
 } from '../db/queries/students.js';
 
 const router = Router();
@@ -57,6 +60,39 @@ router.get('/:id', async (req, res, next) => {
     res.json({ ok: true, student });
   } catch (err) { next(err); }
 });
+
+// ── GET /api/students/:id/accommodations ─────────────────────────────────────
+router.get('/:id/accommodations',
+  requireRole('lead', 'institution_admin', 'counsellor'),
+  async (req, res, next) => {
+    try {
+      const rows = await getStudentAccommodationsForPanel(req.tenantSchema, req.params.id);
+      res.json({ ok: true, accommodations: rows });
+    } catch (err) { next(err); }
+  }
+);
+
+// ── GET /api/students/:id/courses ─────────────────────────────────────────────
+router.get('/:id/courses',
+  requireRole('lead', 'institution_admin', 'counsellor'),
+  async (req, res, next) => {
+    try {
+      const rows = await getStudentCoursesForPanel(req.tenantSchema, req.params.id);
+      res.json({ ok: true, courses: rows });
+    } catch (err) { next(err); }
+  }
+);
+
+// ── GET /api/students/:id/exam-requests ───────────────────────────────────────
+router.get('/:id/exam-requests',
+  requireRole('lead', 'institution_admin', 'counsellor'),
+  async (req, res, next) => {
+    try {
+      const rows = await getStudentExamRequestsForPanel(req.tenantSchema, req.params.id);
+      res.json({ ok: true, examRequests: rows });
+    } catch (err) { next(err); }
+  }
+);
 
 // ── PUT /api/students/:id ─────────────────────────────────────────────────────
 router.put('/:id',

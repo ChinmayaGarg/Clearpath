@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import TopNav from "../components/ui/TopNav.jsx";
 import { api } from "../lib/api.js";
 import { toast } from "../components/ui/Toast.jsx";
-import Modal from "../components/ui/Modal.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
-import StudentDetail from "../components/students/StudentDetail.jsx";
+import StudentSidePanel from "../components/students/StudentSidePanel.jsx";
 
 function AccommodationPill({ code }) {
   const rwg = code.triggers_rwg_flag;
@@ -68,13 +68,19 @@ function StudentRow({ student, onClick }) {
 }
 
 export default function Students() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [students, setStudents] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState(null);
+
+  const selected = searchParams.get("id");
+
+  function selectStudent(id) {
+    setSearchParams(id ? { id } : {});
+  }
 
   const LIMIT = 50;
 
@@ -190,7 +196,7 @@ export default function Students() {
                     <StudentRow
                       key={s.id}
                       student={s}
-                      onClick={() => setSelected(s.id)}
+                      onClick={() => selectStudent(s.id)}
                     />
                   ))}
                 </tbody>
@@ -225,19 +231,12 @@ export default function Students() {
         )}
       </div>
 
-      {/* Student detail modal */}
+      {/* Student side panel */}
       {selected && (
-        <Modal
-          title="Student profile"
-          onClose={() => setSelected(null)}
-          width="max-w-2xl"
-        >
-          <StudentDetail
-            studentId={selected}
-            onClose={() => setSelected(null)}
-            onUpdated={() => loadPage(page)}
-          />
-        </Modal>
+        <StudentSidePanel
+          studentId={selected}
+          onClose={() => selectStudent(null)}
+        />
       )}
     </div>
   );

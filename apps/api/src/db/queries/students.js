@@ -177,6 +177,78 @@ export async function getStudentAccommodationSummary(schema, studentProfileId) {
 }
 
 /**
+ * Get student's active accommodations (per-term) for the side panel.
+ */
+export async function getStudentAccommodationsForPanel(schema, studentProfileId) {
+  const result = await tenantQuery(schema,
+    `SELECT sa.id, sa.term, sa.notes,
+            ac.code, ac.label, ac.triggers_rwg_flag,
+            u.first_name || ' ' || u.last_name AS added_by_name
+     FROM student_accommodation sa
+     JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+     LEFT JOIN counsellor_profile cp ON cp.id = sa.counsellor_profile_id
+     LEFT JOIN "user" u ON u.id = cp.user_id
+     WHERE sa.student_profile_id = $1
+     ORDER BY sa.term DESC, ac.code`,
+    [studentProfileId],
+  );
+  return result.rows;
+}
+
+/**
+ * Get student's linked courses with the most-recent professor per course.
+ */
+export async function getStudentCoursesForPanel(schema, studentProfileId) {
+  const result = await tenantQuery(schema,
+    `SELECT DISTINCT ON (sc.course_code)
+            sc.course_code,
+            u.first_name AS prof_first_name,
+            u.last_name  AS prof_last_name,
+            u.email      AS prof_email
+     FROM student_course sc
+     LEFT JOIN (
+       SELECT DISTINCT ON (course_code)
+              course_code, professor_profile_id
+       FROM exam_booking_request
+       WHERE student_profile_id = $1
+       ORDER BY course_code, created_at DESC
+     ) latest ON latest.course_code = sc.course_code
+     LEFT JOIN professor_profile pp ON pp.id = latest.professor_profile_id
+     LEFT JOIN "user" u ON u.id = pp.user_id
+     WHERE sc.student_profile_id = $1
+     ORDER BY sc.course_code`,
+    [studentProfileId],
+  );
+  return result.rows;
+}
+
+/**
+ * Get all exam booking requests for a student with room and professor details.
+ */
+export async function getStudentExamRequestsForPanel(schema, studentProfileId) {
+  const result = await tenantQuery(schema,
+    `SELECT
+       ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time,
+       ebr.exam_type, ebr.status, ebr.rejection_reason,
+       ebr.base_duration_mins, ebr.student_duration_mins, ebr.confirmed_at,
+       br.name AS room_name,
+       u.first_name AS prof_first_name,
+       u.last_name  AS prof_last_name,
+       u.email      AS prof_email
+     FROM exam_booking_request ebr
+     LEFT JOIN booking_assignment ba ON ba.exam_booking_request_id = ebr.id
+     LEFT JOIN booking_schedule_room bsr ON bsr.id = ba.schedule_room_id
+     LEFT JOIN booking_room br ON br.id = bsr.booking_room_id
+     LEFT JOIN professor_profile pp ON pp.id = ebr.professor_profile_id
+     LEFT JOIN "user" u ON u.id = pp.user_id
+     WHERE ebr.student_profile_id = $1
+     ORDER BY ebr.exam_date DESC, ebr.exam_time DESC NULLS LAST`,
+    [studentProfileId],
+  );
+  return result.rows;
+}
+
+/**
  * Find a student profile by student number.
  */
 export async function findStudentByNumber(schema, studentNumber) {
