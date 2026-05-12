@@ -30,6 +30,7 @@ import {
   linkProfessorToExam,
   getOrCreateProfessorByEmail,
   linkCourseToProfessor,
+  getProfessorExamRequestsForPanel,
 } from "../db/queries/professors.js";
 import { upsertDossier } from "../db/queries/dossier.js";
 import { logger } from "../utils/logger.js";
@@ -172,6 +173,18 @@ router.post(
       next(err);
     }
   },
+);
+
+// ── GET /api/professors/:id/exam-requests ────────────────────────────────────
+router.get(
+  "/:id/exam-requests",
+  requireRole("lead", "institution_admin", "counsellor"),
+  async (req, res, next) => {
+    try {
+      const rows = await getProfessorExamRequestsForPanel(req.tenantSchema, req.params.id);
+      res.json({ ok: true, examRequests: rows });
+    } catch (err) { next(err); }
+  }
 );
 
 // ── PUT /api/professors/:id ───────────────────────────────────────────────────

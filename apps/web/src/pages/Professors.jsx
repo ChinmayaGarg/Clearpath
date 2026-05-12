@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import TopNav from "../components/ui/TopNav.jsx";
 import { api } from "../lib/api.js";
 import { toast } from "../components/ui/Toast.jsx";
-import Modal from "../components/ui/Modal.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
-import ProfessorDetail from "../components/professors/ProfessorDetail.jsx";
+import ProfessorSidePanel from "../components/professors/ProfessorSidePanel.jsx";
 import AddDossierModal from "../components/professors/AddDossierModal.jsx";
 
 function ProfRow({ prof, onClick }) {
@@ -47,12 +47,15 @@ function ProfRow({ prof, onClick }) {
 }
 
 export default function Professors() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [professors, setProfessors] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState(null);
   const [showAddDossier, setShowAddDossier] = useState(false);
+
+  const selected = searchParams.get("id");
+  function selectProf(id) { setSearchParams(id ? { id } : {}); }
 
   async function load() {
     setLoading(true);
@@ -165,7 +168,7 @@ export default function Professors() {
                   <ProfRow
                     key={p.id}
                     prof={p}
-                    onClick={() => setSelected(p.id)}
+                    onClick={() => selectProf(p.id)}
                   />
                 ))}
               </tbody>
@@ -174,19 +177,12 @@ export default function Professors() {
         )}
       </div>
 
-      {/* Professor detail modal */}
+      {/* Professor side panel */}
       {selected && (
-        <Modal
-          title="Professor"
-          onClose={() => setSelected(null)}
-          width="max-w-2xl"
-        >
-          <ProfessorDetail
-            professorId={selected}
-            onClose={() => setSelected(null)}
-            onUpdated={load}
-          />
-        </Modal>
+        <ProfessorSidePanel
+          professorId={selected}
+          onClose={() => selectProf(null)}
+        />
       )}
 
       {/* Add dossier modal */}

@@ -345,6 +345,34 @@ export async function linkCourseToProfessor(
 }
 
 /**
+ * Get all exam booking requests for a professor's courses, with student and room info.
+ */
+export async function getProfessorExamRequestsForPanel(schema, profId) {
+  const result = await tenantQuery(
+    schema,
+    `SELECT
+       ebr.id, ebr.student_profile_id,
+       ebr.course_code, ebr.exam_date, ebr.exam_time,
+       ebr.exam_type, ebr.status, ebr.rejection_reason,
+       ebr.base_duration_mins, ebr.student_duration_mins,
+       br.name AS room_name,
+       sp.student_number,
+       u.first_name AS student_first_name,
+       u.last_name  AS student_last_name
+     FROM exam_booking_request ebr
+     LEFT JOIN booking_assignment    ba  ON ba.exam_booking_request_id = ebr.id
+     LEFT JOIN booking_schedule_room bsr ON bsr.id = ba.schedule_room_id
+     LEFT JOIN booking_room          br  ON br.id  = bsr.booking_room_id
+     LEFT JOIN student_profile       sp  ON sp.id  = ebr.student_profile_id
+     LEFT JOIN "user"                u   ON u.id   = sp.user_id
+     WHERE ebr.professor_profile_id = $1
+     ORDER BY ebr.exam_date DESC, ebr.exam_time DESC NULLS LAST`,
+    [profId],
+  );
+  return result.rows;
+}
+
+/**
  * Get list of available terms that have course-dossier entries.
  */
 export async function listAvailableTerms(schema) {

@@ -297,7 +297,7 @@ function CoursesPanel({ dossiers }) {
 
 // ── Lead upload panel ─────────────────────────────────────────────────────────
 
-function LeadUploadPanel({ professorId }) {
+export function LeadUploadPanel({ professorId }) {
   const [uploads,  setUploads]  = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [showForm, setShowForm] = useState(false);
