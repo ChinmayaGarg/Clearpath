@@ -4,11 +4,15 @@
  * GET /api/prep/students?date=YYYY-MM-DD  — confirmed students grouped by room
  * GET /api/prep/ede?date=YYYY-MM-DD       — print-ready EDE HTML (one per student)
  * GET /api/prep/labels?date=YYYY-MM-DD    — print-ready Avery-5160 label sheet
+ * GET /api/prep/exams                     — all submitted exam uploads (past + future)
+ * GET /api/prep/uploads/:id/file          — download legacy single exam file
+ * GET /api/prep/uploads/:id/files/:fileId — download a specific extra file
  */
 import { Router }      from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { tenantQuery } from '../db/tenantPool.js';
+import { readFileFromStorage } from '../services/fileStorage.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -264,6 +268,102 @@ router.get('/exam-details', async (req, res, next) => {
        ORDER BY MIN(eud.exam_date) ASC, UPPER(eu.course_code) ASC`,
     );
     res.json({ ok: true, uploads: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/prep/exams ───────────────────────────────────────────────────────
+// All submitted exam uploads (past + future) with file info for the Exams tab.
+router.get('/exams', async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         eu.id AS upload_id,
+         eu.course_code, eu.exam_type_label, eu.version_label,
+         eu.delivery, eu.dropoff_confirmed_at, eu.submitted_at,
+         eu.exam_duration_mins, eu.exam_format,
+         eu.booklet_type, eu.scantron_needed,
+         eu.calculator_type, eu.student_instructions,
+         eu.exam_collection_method, eu.materials, eu.password,
+         eu.rwg_flag, eu.is_makeup, eu.makeup_notes,
+         eu.is_word_doc, eu.estimated_copies,
+         eu.file_path, eu.file_original_name, eu.file_size,
+         u.first_name AS prof_first, u.last_name AS prof_last,
+         u.email AS prof_email, pp.phone AS prof_phone, pp.id AS prof_id,
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'exam_date', eud.exam_date::text,
+               'time_slot',  eud.time_slot::text
+             ) ORDER BY eud.exam_date ASC, eud.time_slot ASC NULLS LAST
+           ) FILTER (WHERE eud.id IS NOT NULL), '[]'
+         ) AS dates,
+         COALESCE(
+           (SELECT json_agg(json_build_object(
+               'id', f.id,
+               'name', f.file_original_name,
+               'size', f.file_size
+             )) FROM exam_upload_file f WHERE f.exam_upload_id = eu.id
+           ), '[]'
+         ) AS extra_files
+       FROM exam_upload eu
+       JOIN professor_profile pp ON pp.id = eu.professor_profile_id
+       JOIN "user" u ON u.id = pp.user_id
+       LEFT JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+       WHERE eu.status = 'submitted'
+       GROUP BY eu.id, u.first_name, u.last_name, u.email, pp.phone, pp.id
+       ORDER BY MAX(eud.exam_date) DESC NULLS LAST, UPPER(eu.course_code) ASC`,
+    );
+    res.json({ ok: true, uploads: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/prep/uploads/:id/file ───────────────────────────────────────────
+// Download the legacy single exam file for an upload.
+router.get('/uploads/:id/file', async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT file_path, file_original_name, file_size FROM exam_upload WHERE id = $1 AND status = 'submitted'`,
+      [req.params.id],
+    );
+    const row = result.rows[0];
+    if (!row || !row.file_path) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    const fileBuffer = await readFileFromStorage(row.file_path);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(row.file_original_name)}"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', row.file_size);
+    res.send(fileBuffer);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/prep/uploads/:id/files/:fileId ───────────────────────────────────
+// Download a specific extra file from exam_upload_file.
+router.get('/uploads/:id/files/:fileId', async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT f.file_path, f.file_original_name, f.file_size
+       FROM exam_upload_file f
+       JOIN exam_upload eu ON eu.id = f.exam_upload_id
+       WHERE f.id = $1 AND f.exam_upload_id = $2 AND eu.status = 'submitted'`,
+      [req.params.fileId, req.params.id],
+    );
+    const row = result.rows[0];
+    if (!row || !row.file_path) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    const fileBuffer = await readFileFromStorage(row.file_path);
+    const name = row.file_original_name ?? 'download';
+    const isDocx = name.toLowerCase().endsWith('.docx');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(name)}"`);
+    res.setHeader('Content-Type', isDocx
+      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      : 'application/pdf');
+    res.setHeader('Content-Length', row.file_size);
+    res.send(fileBuffer);
   } catch (err) { next(err); }
 });
 

@@ -20,6 +20,7 @@ export default function TopNav() {
   }
 
   if (isAdmin || isLead) {
+    navLinks.push({ to: "/exams", label: "Exams" });
     navLinks.push({ to: "/prep", label: "Prep" });
     navLinks.push({ to: "/attendance", label: "Attendance" });
   }
