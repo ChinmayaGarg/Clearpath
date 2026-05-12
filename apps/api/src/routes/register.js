@@ -39,6 +39,24 @@ const BodySchema = z.object({
   providerPhone:          z.string().max(30).optional(),
 });
 
+// ── POST /api/register/check-domain ──────────────────────────────────────────
+router.post('/check-domain', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ valid: false });
+    }
+    const domain = email.split('@')[1];
+    if (!domain) return res.json({ valid: false });
+
+    const result = await pool.query(
+      `SELECT id FROM public.institution WHERE email_domain = $1 AND is_active = TRUE`,
+      [domain.toLowerCase()],
+    );
+    res.json({ valid: result.rows.length > 0 });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/register ────────────────────────────────────────────────────────
 router.post('/', async (req, res, next) => {
   try {
@@ -54,10 +72,9 @@ router.post('/', async (req, res, next) => {
     );
 
     if (!instResult.rows.length) {
-      // Don't reveal institutional configuration
-      return res.json({
-        ok: true,
-        message: 'Registration submitted. Check your email to activate your account.',
+      return res.status(422).json({
+        ok: false,
+        error: 'Your email domain is not recognized. Please use your institutional email address.',
       });
     }
 

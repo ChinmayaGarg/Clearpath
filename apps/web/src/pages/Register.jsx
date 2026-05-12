@@ -322,10 +322,11 @@ function StepAccommodations({ data, onChange }) {
 const STEPS = ['Identity', 'Disability info', 'Accommodations'];
 
 export default function Register() {
-  const [step, setStep]     = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [step, setStep]         = useState(0);
+  const [loading, setLoading]   = useState(false);
+  const [checking, setChecking] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [error, setError]   = useState('');
+  const [error, setError]       = useState('');
 
   const [form, setForm] = useState({
     // Step 1
@@ -365,10 +366,32 @@ export default function Register() {
     return null;
   }
 
-  function handleNext() {
+  async function handleNext() {
     const err = validateStep();
     if (err) { setError(err); return; }
     setError('');
+
+    if (step === 0) {
+      setChecking(true);
+      try {
+        const res = await fetch('/api/register/check-domain', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ email: form.email }),
+        });
+        const data = await res.json();
+        if (!data.valid) {
+          setError('This email address is not recognized as an institutional email. Please use your university email (e.g., you@yourschool.ca).');
+          return;
+        }
+      } catch {
+        setError('Unable to verify your email address. Please try again.');
+        return;
+      } finally {
+        setChecking(false);
+      }
+    }
+
     setStep(s => s + 1);
   }
 
@@ -494,14 +517,14 @@ export default function Register() {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || checking}
                 className="px-5 py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
                            font-medium rounded-lg transition-colors
                            disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {step === STEPS.length - 1
                   ? (loading ? 'Submitting…' : 'Submit registration')
-                  : 'Continue'}
+                  : (checking ? 'Verifying…' : 'Continue')}
               </button>
             </div>
           </form>
