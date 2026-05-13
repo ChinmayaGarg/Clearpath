@@ -12,7 +12,7 @@ import ScheduleExamsTab from "../components/admin/ScheduleExamsTab.jsx";
 import CancellationRequestsTab from "../components/admin/CancellationRequestsTab.jsx";
 import AccommodationsTab from "../components/admin/AccommodationsTab.jsx";
 
-const ADMIN_TABS = ["Users", "Exam Booking Requests", "Room Setup", "Accommodations", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests"];
+const ADMIN_TABS = ["Users", "Link Courses to Prof", "Exam Booking Requests", "Room Setup", "Accommodations", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests"];
 
 export default function Admin() {
   const [searchParams] = useSearchParams();
@@ -65,10 +65,6 @@ export default function Admin() {
               <StatusBoardSettings />
             </div>
 
-            <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6">
-              <CourseProfessorLinkForm />
-            </div>
-
             <UserTable key={refreshKey} onInvite={() => setShowInvite(true)} />
 
             {showInvite && (
@@ -78,6 +74,12 @@ export default function Admin() {
               />
             )}
           </>
+        )}
+
+        {tab === "Link Courses to Prof" && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <CourseProfessorLinkForm />
+          </div>
         )}
 
         {tab === "Exam Booking Requests" && <BookingsTab />}
