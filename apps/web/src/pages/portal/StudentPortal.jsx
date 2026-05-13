@@ -108,14 +108,18 @@ function AccomList({ items }) {
 
 // ── Accommodations tab ─────────────────────────────────────────────────────────
 function AccommodationsTab({ me }) {
-  const [terms, setTerms] = useState([]); // [{ term, items[] }]
+  const [terms,  setTerms]  = useState([]); // [{ term, items[] }]
+  const [grants, setGrants] = useState([]); // registration-approved, no term
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("Active");
 
   useEffect(() => {
     api
       .get("/student/accommodations")
-      .then((d) => setTerms(d.data ?? []))
+      .then((d) => {
+        setTerms(d.data ?? []);
+        setGrants(d.grants ?? []);
+      })
       .catch(() => toast("Failed to load accommodations", "error"))
       .finally(() => setLoading(false));
   }, []);
@@ -182,6 +186,19 @@ function AccommodationsTab({ me }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Core accommodations — granted via registration, no term */}
+      {grants.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Core accommodations
+          </h2>
+          <p className="text-xs text-gray-400 mb-2">
+            Granted via registration — applies to all terms
+          </p>
+          <AccomList items={grants} />
         </div>
       )}
 

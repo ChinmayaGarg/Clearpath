@@ -47,57 +47,43 @@ export async function getStudentPortalMe(schema, studentProfileId) {
 }
 
 /**
- * Get all active accommodation grants for a student (from registration approval).
- * Kept for backward-compatibility; not used by the student portal accommodations tab.
- */
-export async function getStudentPortalGrants(schema, studentProfileId) {
-  const result = await tenantQuery(
-    schema,
-    `SELECT
-       ag.id,
-       ag.approved_at,
-       ag.expires_at,
-       ag.notes,
-       ac.code,
-       ac.label,
-       ac.triggers_rwg_flag
-     FROM accommodation_grant ag
-     JOIN accommodation_code ac ON ac.id = ag.accommodation_code_id
-     WHERE ag.student_profile_id = $1
-       AND ag.is_active = TRUE
-     ORDER BY ac.code`,
-    [studentProfileId],
-  );
-  return result.rows;
-}
-
-/**
- * Get all counsellor-managed accommodations for a student, grouped by term.
- * Returns [{ term, items: [{ id, code, label, triggers_rwg_flag, notes, created_at }] }]
- * sorted most-recent term first.
+ * Get all active accommodations for a student, split into:
+ *   grants — registration-approved (source='granted', no term)
+ *   terms  — counsellor-added per term (source='manual', grouped by term)
+ *
+ * Returns { grants: [...], terms: [{ term, items: [...] }] }
  */
 export async function getStudentAccommodations(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
     `SELECT
-       sa.id, sa.term, sa.notes, sa.created_at,
+       sa.id, sa.source, sa.term, sa.notes, sa.created_at, sa.expires_at,
        ac.code, ac.label, ac.triggers_rwg_flag
      FROM student_accommodation sa
      JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
      WHERE sa.student_profile_id = $1
+       AND sa.is_active = TRUE
        AND ac.is_active = TRUE
-     ORDER BY sa.term DESC, ac.code`,
+     ORDER BY sa.source DESC, sa.term DESC NULLS FIRST, ac.code`,
     [studentProfileId],
   );
 
+  const grants = [];
   const byTerm = {};
+
   for (const row of result.rows) {
-    (byTerm[row.term] ??= []).push(row);
+    if (row.source === 'granted') {
+      grants.push(row);
+    } else {
+      (byTerm[row.term] ??= []).push(row);
+    }
   }
 
-  return Object.entries(byTerm)
+  const terms = Object.entries(byTerm)
     .sort(([a], [b]) => b.localeCompare(a))
     .map(([term, items]) => ({ term, items }));
+
+  return { grants, terms };
 }
 
 /**
@@ -129,6 +115,7 @@ export async function getStudentAccommodationCodes(schema, studentProfileId) {
      FROM student_accommodation sa
      JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
      WHERE sa.student_profile_id = $1
+       AND sa.is_active = TRUE
        AND ac.is_active = TRUE`,
     [studentProfileId],
   );

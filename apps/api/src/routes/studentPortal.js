@@ -16,7 +16,6 @@ import { tenantQuery } from "../db/tenantPool.js";
 import {
   getStudentProfileId,
   getStudentPortalMe,
-  getStudentPortalGrants,
   getStudentAccommodations,
   getStudentExamBookings,
   createExamBookingRequest,
@@ -108,8 +107,8 @@ router.get("/accommodations", async (req, res, next) => {
         .json({ ok: false, error: "Student profile not found" });
     }
 
-    const terms = await getStudentAccommodations(schema, studentProfileId);
-    res.json({ ok: true, data: terms });
+    const { grants, terms } = await getStudentAccommodations(schema, studentProfileId);
+    res.json({ ok: true, data: terms, grants });
   } catch (err) {
     next(err);
   }

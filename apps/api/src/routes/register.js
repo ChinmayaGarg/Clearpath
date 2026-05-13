@@ -39,6 +39,29 @@ const BodySchema = z.object({
   providerPhone:          z.string().max(30).optional(),
 });
 
+// ── GET /api/register/accommodation-codes?emailDomain=dal.ca ─────────────────
+// Public endpoint — no auth. Returns active accommodation codes for the
+// institution matching the given email domain. Used by the signup form.
+router.get('/accommodation-codes', async (req, res, next) => {
+  try {
+    const domain = (req.query.emailDomain ?? '').trim().toLowerCase();
+    if (!domain) return res.json({ codes: [] });
+
+    const instResult = await pool.query(
+      `SELECT slug FROM public.institution WHERE email_domain = $1 AND is_active = TRUE`,
+      [domain],
+    );
+    if (!instResult.rows.length) return res.json({ codes: [] });
+
+    const schema = instResult.rows[0].slug;
+    const result = await tenantQuery(
+      schema,
+      `SELECT id, code, label FROM accommodation_code WHERE is_active = TRUE ORDER BY code`,
+    );
+    res.json({ codes: result.rows });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/register/check-domain ──────────────────────────────────────────
 router.post('/check-domain', async (req, res, next) => {
   try {

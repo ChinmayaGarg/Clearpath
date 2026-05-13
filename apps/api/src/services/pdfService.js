@@ -337,8 +337,9 @@ async function upsertAppointment(client, { examId, roomId, appt }) {
   // appointment so counsellors don't have to manually re-apply them.
   const grantsResult = await client.query(
     `SELECT accommodation_code_id
-     FROM accommodation_grant
+     FROM student_accommodation
      WHERE student_profile_id = $1
+       AND source = 'granted'
        AND is_active = TRUE
        AND (expires_at IS NULL OR expires_at > NOW())`,
     [studentProfileId]

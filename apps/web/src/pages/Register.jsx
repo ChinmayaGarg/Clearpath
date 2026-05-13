@@ -23,19 +23,6 @@ const STUDENT_STATUS_OPTIONS = [
   { value: 'part_time',       label: 'Part-time student' },
 ];
 
-const ACCOMMODATION_OPTIONS = [
-  'Extended test time (1.5×)',
-  'Extended test time (2×)',
-  'Reduced-distraction environment',
-  'Reader / scribe',
-  'Assistive technology',
-  'Preferential seating',
-  'Frequent breaks',
-  'Note-taking support',
-  'Alternative format materials',
-  'Sign language interpreter',
-  'Other',
-];
 
 // ── Step components ────────────────────────────────────────────────────────────
 
@@ -220,7 +207,9 @@ function StepDisability({ data, onChange }) {
   );
 }
 
-function StepAccommodations({ data, onChange }) {
+function StepAccommodations({ data, onChange, accommodationCodes }) {
+  const options = accommodationCodes.length > 0 ? accommodationCodes : [];
+
   return (
     <div className="space-y-5">
       <div>
@@ -230,24 +219,28 @@ function StepAccommodations({ data, onChange }) {
         <p className="text-xs text-gray-500 mb-3">
           Select any accommodations you are requesting. Your counsellor will review and confirm which apply.
         </p>
-        <div className="grid grid-cols-1 gap-2">
-          {ACCOMMODATION_OPTIONS.map(opt => (
-            <label key={opt} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data.requestedAccommodations.includes(opt)}
-                onChange={e => {
-                  const accs = e.target.checked
-                    ? [...data.requestedAccommodations, opt]
-                    : data.requestedAccommodations.filter(a => a !== opt);
-                  onChange('requestedAccommodations', accs);
-                }}
-                className="rounded border-gray-300 text-brand-600"
-              />
-              <span className="text-sm text-gray-700">{opt}</span>
-            </label>
-          ))}
-        </div>
+        {options.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">Loading accommodation options…</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-2">
+            {options.map(opt => (
+              <label key={opt.code} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={data.requestedAccommodations.includes(opt.code)}
+                  onChange={e => {
+                    const accs = e.target.checked
+                      ? [...data.requestedAccommodations, opt.code]
+                      : data.requestedAccommodations.filter(a => a !== opt.code);
+                    onChange('requestedAccommodations', accs);
+                  }}
+                  className="rounded border-gray-300 text-brand-600"
+                />
+                <span className="text-sm text-gray-700">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>
@@ -257,24 +250,26 @@ function StepAccommodations({ data, onChange }) {
         <p className="text-xs text-gray-500 mb-2">
           List any accommodations you have received at this or other institutions.
         </p>
-        <div className="grid grid-cols-1 gap-2">
-          {ACCOMMODATION_OPTIONS.map(opt => (
-            <label key={opt} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data.pastAccommodations.includes(opt)}
-                onChange={e => {
-                  const accs = e.target.checked
-                    ? [...data.pastAccommodations, opt]
-                    : data.pastAccommodations.filter(a => a !== opt);
-                  onChange('pastAccommodations', accs);
-                }}
-                className="rounded border-gray-300 text-brand-600"
-              />
-              <span className="text-sm text-gray-700">{opt}</span>
-            </label>
-          ))}
-        </div>
+        {options.length > 0 && (
+          <div className="grid grid-cols-1 gap-2">
+            {options.map(opt => (
+              <label key={opt.code} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={data.pastAccommodations.includes(opt.code)}
+                  onChange={e => {
+                    const accs = e.target.checked
+                      ? [...data.pastAccommodations, opt.code]
+                      : data.pastAccommodations.filter(a => a !== opt.code);
+                    onChange('pastAccommodations', accs);
+                  }}
+                  className="rounded border-gray-300 text-brand-600"
+                />
+                <span className="text-sm text-gray-700">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="border-t border-gray-200 pt-5">
@@ -322,11 +317,12 @@ function StepAccommodations({ data, onChange }) {
 const STEPS = ['Identity', 'Disability info', 'Accommodations'];
 
 export default function Register() {
-  const [step, setStep]         = useState(0);
-  const [loading, setLoading]   = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError]       = useState('');
+  const [step, setStep]                       = useState(0);
+  const [loading, setLoading]                 = useState(false);
+  const [checking, setChecking]               = useState(false);
+  const [submitted, setSubmitted]             = useState(false);
+  const [error, setError]                     = useState('');
+  const [accommodationCodes, setAccommodationCodes] = useState([]);
 
   const [form, setForm] = useState({
     // Step 1
@@ -374,16 +370,22 @@ export default function Register() {
     if (step === 0) {
       setChecking(true);
       try {
-        const res = await fetch('/api/register/check-domain', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ email: form.email }),
-        });
-        const data = await res.json();
-        if (!data.valid) {
+        const domain = form.email.split('@')[1] ?? '';
+        const [domainRes, codesRes] = await Promise.all([
+          fetch('/api/register/check-domain', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ email: form.email }),
+          }),
+          fetch(`/api/register/accommodation-codes?emailDomain=${encodeURIComponent(domain)}`),
+        ]);
+        const domainData = await domainRes.json();
+        if (!domainData.valid) {
           setError('This email address is not recognized as an institutional email. Please use your university email (e.g., you@yourschool.ca).');
           return;
         }
+        const codesData = await codesRes.json().catch(() => ({ codes: [] }));
+        setAccommodationCodes(codesData.codes ?? []);
       } catch {
         setError('Unable to verify your email address. Please try again.');
         return;
@@ -492,7 +494,7 @@ export default function Register() {
           <form onSubmit={step === STEPS.length - 1 ? handleSubmit : e => { e.preventDefault(); handleNext(); }}>
             {step === 0 && <StepIdentity      data={form} onChange={handleChange} />}
             {step === 1 && <StepDisability    data={form} onChange={handleChange} />}
-            {step === 2 && <StepAccommodations data={form} onChange={handleChange} />}
+            {step === 2 && <StepAccommodations data={form} onChange={handleChange} accommodationCodes={accommodationCodes} />}
 
             {error && (
               <p className="mt-4 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">

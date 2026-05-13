@@ -32,13 +32,17 @@ export async function listAccommodationCodes(schema) {
 
 /**
  * Search students by name, email, or student number.
+ * Returns latest registration_status so the UI can gate unapproved students.
  */
 export async function searchStudents(schema, query) {
   const result = await tenantQuery(
     schema,
     `SELECT
        sp.id, u.first_name, u.last_name, u.email,
-       sp.student_number, sp.phone
+       sp.student_number, sp.phone,
+       (SELECT status FROM student_registration_request
+        WHERE student_profile_id = sp.id
+        ORDER BY created_at DESC LIMIT 1) AS registration_status
      FROM student_profile sp
      JOIN "user" u ON u.id = sp.user_id
      WHERE u.is_active = TRUE
@@ -74,16 +78,21 @@ export async function getStudentDetail(schema, studentProfileId) {
     tenantQuery(
       schema,
       `SELECT
-         sa.id, sa.term, sa.notes, sa.created_at,
+         sa.id, sa.source, sa.term, sa.notes, sa.created_at, sa.expires_at,
          ac.code, ac.label, ac.triggers_rwg_flag,
          sa.counsellor_profile_id,
-         u.first_name || ' ' || u.last_name AS added_by_name
+         CASE
+           WHEN sa.source = 'manual'  THEN uc.first_name || ' ' || uc.last_name
+           WHEN sa.source = 'granted' THEN ug.first_name || ' ' || ug.last_name
+         END AS added_by_name
        FROM student_accommodation sa
        JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
        LEFT JOIN counsellor_profile cp ON cp.id = sa.counsellor_profile_id
-       LEFT JOIN "user" u ON u.id = cp.user_id
+       LEFT JOIN "user" uc ON uc.id = cp.user_id
+       LEFT JOIN "user" ug ON ug.id = sa.granted_by
        WHERE sa.student_profile_id = $1
-       ORDER BY sa.term DESC, ac.code`,
+         AND sa.is_active = TRUE
+       ORDER BY sa.source DESC, sa.term DESC NULLS FIRST, ac.code`,
       [studentProfileId],
     ),
     tenantQuery(
@@ -197,8 +206,8 @@ export async function addStudentAccommodation(
   const result = await tenantQuery(
     schema,
     `INSERT INTO student_accommodation
-       (student_profile_id, counsellor_profile_id, accommodation_code_id, term, notes)
-     VALUES ($1, $2, $3, $4, $5)
+       (student_profile_id, counsellor_profile_id, accommodation_code_id, source, term, notes)
+     VALUES ($1, $2, $3, 'manual', $4, $5)
      ON CONFLICT (student_profile_id, accommodation_code_id, term)
      DO UPDATE SET
        notes      = EXCLUDED.notes,
@@ -227,8 +236,8 @@ export async function removeStudentAccommodation(
   const result = await tenantQuery(
     schema,
     counsellorProfileId
-      ? `DELETE FROM student_accommodation WHERE id = $1 AND counsellor_profile_id = $2 RETURNING id`
-      : `DELETE FROM student_accommodation WHERE id = $1 RETURNING id`,
+      ? `DELETE FROM student_accommodation WHERE id = $1 AND source = 'manual' AND counsellor_profile_id = $2 RETURNING id`
+      : `DELETE FROM student_accommodation WHERE id = $1 AND source = 'manual' RETURNING id`,
     counsellorProfileId ? [accId, counsellorProfileId] : [accId],
   );
   return result.rows[0]?.id ?? null;

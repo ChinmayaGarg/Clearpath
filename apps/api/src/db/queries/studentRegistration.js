@@ -132,7 +132,7 @@ export async function listPendingRegistrations(schema) {
 }
 
 /**
- * Approve a registration: update status, create accommodation_grant rows.
+ * Approve a registration: update status, upsert granted accommodations into student_accommodation.
  * grantedCodes: [{ accommodationCodeId, notes?, expiresAt? }]
  */
 export async function approveRegistration(schema, requestId, { reviewedBy, grantedCodes }) {
@@ -154,24 +154,25 @@ export async function approveRegistration(schema, requestId, { reviewedBy, grant
       [requestId, reviewedBy],
     );
 
-    // Insert accommodation grants
+    // Upsert accommodation grants (source='granted', no term)
     for (const grant of grantedCodes ?? []) {
       await client.query(
-        `INSERT INTO accommodation_grant
-           (student_profile_id, accommodation_code_id, approved_by, notes, expires_at)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (student_profile_id, accommodation_code_id) DO UPDATE
-           SET is_active = TRUE,
-               approved_by = EXCLUDED.approved_by,
-               notes = EXCLUDED.notes,
-               expires_at = EXCLUDED.expires_at,
-               approved_at = NOW()`,
+        `INSERT INTO student_accommodation
+           (student_profile_id, accommodation_code_id, source, term, notes, is_active, expires_at, granted_by)
+         VALUES ($1, $2, 'granted', NULL, $3, TRUE, $4, $5)
+         ON CONFLICT (student_profile_id, accommodation_code_id) WHERE source = 'granted'
+         DO UPDATE SET
+           is_active  = TRUE,
+           notes      = EXCLUDED.notes,
+           expires_at = EXCLUDED.expires_at,
+           granted_by = EXCLUDED.granted_by,
+           updated_at = NOW()`,
         [
           studentProfileId,
           grant.accommodationCodeId,
-          reviewedBy,
           grant.notes ?? null,
           grant.expiresAt ?? null,
+          reviewedBy,
         ],
       );
     }
@@ -223,20 +224,21 @@ export async function updateProviderFormStatus(schema, registrationRequestId, st
 }
 
 /**
- * Get all active accommodation grants for a student.
+ * Get all active accommodation grants for a student (source='granted').
  * Used for auto-applying to appointments and student portal display.
  */
 export async function getStudentGrants(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
     `SELECT
-       ag.id, ag.accommodation_code_id, ag.approved_at, ag.expires_at,
-       ag.notes, ag.is_active,
+       sa.id, sa.accommodation_code_id, sa.created_at AS approved_at, sa.expires_at,
+       sa.notes, sa.is_active,
        ac.code, ac.label, ac.triggers_rwg_flag
-     FROM accommodation_grant ag
-     JOIN accommodation_code ac ON ac.id = ag.accommodation_code_id
-     WHERE ag.student_profile_id = $1
-       AND ag.is_active = TRUE
+     FROM student_accommodation sa
+     JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+     WHERE sa.student_profile_id = $1
+       AND sa.source = 'granted'
+       AND sa.is_active = TRUE
      ORDER BY ac.code`,
     [studentProfileId],
   );

@@ -178,27 +178,61 @@ function StudentSearch({ onSelect }) {
 
       {results.length > 0 && (
         <div className="space-y-1">
-          {results.map(s => (
-            <button
-              key={s.id}
-              onClick={() => onSelect(s)}
-              className="w-full text-left px-4 py-3 bg-white rounded-xl border
-                         border-gray-200 hover:border-brand-300 hover:bg-brand-50
-                         transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-sm font-medium text-gray-900">
-                    {s.first_name} {s.last_name}
-                  </span>
-                  {s.student_number && (
-                    <span className="ml-2 text-xs text-gray-400">#{s.student_number}</span>
-                  )}
+          {results.map(s => {
+            const approved = s.registration_status === 'approved';
+            const statusMsg =
+              !s.registration_status         ? 'No registration submitted' :
+              s.registration_status === 'submitted'    ? 'Pending approval — see Registrations tab' :
+              s.registration_status === 'under_review' ? 'Pending approval — see Registrations tab' :
+              s.registration_status === 'rejected'     ? 'Registration rejected' : null;
+
+            if (approved) {
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => onSelect(s)}
+                  className="w-full text-left px-4 py-3 bg-white rounded-xl border
+                             border-gray-200 hover:border-brand-300 hover:bg-brand-50
+                             transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">
+                        {s.first_name} {s.last_name}
+                      </span>
+                      {s.student_number && (
+                        <span className="ml-2 text-xs text-gray-400">#{s.student_number}</span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400">{s.email}</span>
+                  </div>
+                </button>
+              );
+            }
+
+            return (
+              <div
+                key={s.id}
+                className="w-full px-4 py-3 bg-gray-50 rounded-xl border border-gray-200
+                           opacity-60 cursor-not-allowed"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">
+                      {s.first_name} {s.last_name}
+                    </span>
+                    {s.student_number && (
+                      <span className="ml-2 text-xs text-gray-400">#{s.student_number}</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-400">{s.email}</span>
                 </div>
-                <span className="text-xs text-gray-400">{s.email}</span>
+                {statusMsg && (
+                  <p className="text-xs text-amber-600 mt-1">{statusMsg}</p>
+                )}
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -344,11 +378,15 @@ function StudentDetail({ student: initialStudent, onBack }) {
   const canEdit        = isCounsellor || isAdmin;
   const canEditCourses = isAdmin;
 
-  // Group accommodations by term
-  const byTerm = (student?.accommodations ?? []).reduce((acc, row) => {
-    (acc[row.term] = acc[row.term] ?? []).push(row);
-    return acc;
-  }, {});
+  // Split accommodations into granted (registration-approved) and manual (term-based)
+  const allAccommodations = student?.accommodations ?? [];
+  const grants = allAccommodations.filter(a => a.source === 'granted');
+  const byTerm = allAccommodations
+    .filter(a => a.source !== 'granted')
+    .reduce((acc, row) => {
+      (acc[row.term] = acc[row.term] ?? []).push(row);
+      return acc;
+    }, {});
   const terms = Object.keys(byTerm).sort((a, b) => b.localeCompare(a));
 
   return (
@@ -486,12 +524,31 @@ function StudentDetail({ student: initialStudent, onBack }) {
           </form>
         )}
 
-        {/* Accommodation list grouped by term */}
-        {terms.length === 0 ? (
+        {/* Granted via registration (source='granted') */}
+        {grants.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Granted via registration — all terms
+            </p>
+            <div className="space-y-2">
+              {grants.map(acc => (
+                <AccommodationRow
+                  key={acc.id}
+                  acc={acc}
+                  canRemove={false}
+                  onRemove={null}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Manually added accommodations grouped by term */}
+        {terms.length === 0 && grants.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-4">
             No accommodations recorded for this student
           </p>
-        ) : (
+        ) : terms.length > 0 ? (
           <div className="space-y-4">
             {terms.map(term => (
               <div key={term}>
@@ -511,7 +568,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Courses */}
@@ -974,10 +1031,14 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
       setReg(regData.registration);
       const codeList = codesData.codes ?? [];
       setCodes(codeList);
-      // Initialise one pending decision per requested accommodation
+      // Initialise one decision per requested accommodation.
+      // If the stored value matches a known code (new format), pre-select it.
       const reqAccs = regData.registration?.requested_accommodations ?? [];
       const initDecisions = {};
-      reqAccs.forEach((_, i) => { initDecisions[i] = { decision: 'pending', codeId: '', notes: '' }; });
+      reqAccs.forEach((reqText, i) => {
+        const match = codeList.find(c => c.code === reqText);
+        initDecisions[i] = { decision: 'pending', codeId: match?.id ?? '', notes: '' };
+      });
       setRequestedDecisions(initDecisions);
       setAdditionalGrants([]);
     } catch (err) {
@@ -1193,9 +1254,14 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
           <div>
             <p className="text-xs font-medium text-gray-500 mb-1.5">Requested</p>
             <div className="flex flex-wrap gap-1.5">
-              {reg.requested_accommodations.map(a => (
-                <span key={a} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full">{a}</span>
-              ))}
+              {reg.requested_accommodations.map(a => {
+                const match = codes.find(c => c.code === a);
+                return (
+                  <span key={a} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full">
+                    {match?.label ?? a}
+                  </span>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1309,6 +1375,8 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
                   <div className="space-y-2">
                     {reg.requested_accommodations.map((reqText, i) => {
                       const d = requestedDecisions[i] ?? { decision: 'pending', codeId: '', notes: '' };
+                      const matchedCode = codes.find(c => c.code === reqText);
+                      const displayText = matchedCode?.label ?? reqText;
                       return (
                         <div key={i} className={`rounded-lg border p-3 transition-colors ${
                           d.decision === 'accept' ? 'border-green-200 bg-green-50' :
@@ -1318,7 +1386,7 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
                           {/* Request text + Accept / Reject buttons */}
                           <div className="flex items-start justify-between gap-3">
                             <span className={`text-sm flex-1 ${d.decision === 'reject' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                              {reqText}
+                              {displayText}
                             </span>
                             <div className="flex gap-1 shrink-0">
                               <button
