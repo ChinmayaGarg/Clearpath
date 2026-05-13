@@ -202,6 +202,7 @@ export async function getStudentCoursesForPanel(schema, studentProfileId) {
   const result = await tenantQuery(schema,
     `SELECT DISTINCT ON (sc.course_code)
             sc.course_code,
+            pp.id        AS prof_id,
             u.first_name AS prof_first_name,
             u.last_name  AS prof_last_name,
             u.email      AS prof_email
@@ -232,6 +233,7 @@ export async function getStudentExamRequestsForPanel(schema, studentProfileId) {
        ebr.exam_type, ebr.status, ebr.rejection_reason,
        ebr.base_duration_mins, ebr.student_duration_mins, ebr.confirmed_at,
        br.name AS room_name,
+       pp.id        AS prof_id,
        u.first_name AS prof_first_name,
        u.last_name  AS prof_last_name,
        u.email      AS prof_email

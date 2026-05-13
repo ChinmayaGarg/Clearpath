@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api }    from '../../lib/api.js';
 import Spinner    from '../ui/Spinner.jsx';
 
@@ -33,14 +34,14 @@ function formatTime(timeStr) {
   return `${hour % 12 || 12}:${m}${ampm}`;
 }
 
-function ProfLink({ firstName, lastName, email }) {
+function ProfLink({ firstName, lastName, profId }) {
   const name = [firstName, lastName].filter(Boolean).join(' ');
   if (!name) return <span className="text-gray-300">—</span>;
-  if (!email) return <span className="text-sm text-gray-700">{name}</span>;
+  if (!profId) return <span className="text-sm text-gray-700">{name}</span>;
   return (
-    <a href={`mailto:${email}`} className="text-sm text-brand-600 hover:underline">
+    <Link to={`/professors?id=${profId}`} className="text-sm text-brand-600 hover:underline">
       {name}
-    </a>
+    </Link>
   );
 }
 
@@ -107,7 +108,7 @@ function CoursesTab({ courses }) {
           <ProfLink
             firstName={c.prof_first_name}
             lastName={c.prof_last_name}
-            email={c.prof_email}
+            profId={c.prof_id}
           />
         </div>
       ))}
@@ -149,7 +150,7 @@ function PastExamsTab({ exams }) {
             <ProfLink
               firstName={e.prof_first_name}
               lastName={e.prof_last_name}
-              email={e.prof_email}
+              profId={e.prof_id}
             />
           </div>
         </div>
@@ -202,7 +203,7 @@ function FutureExamsTab({ exams }) {
             <ProfLink
               firstName={e.prof_first_name}
               lastName={e.prof_last_name}
-              email={e.prof_email}
+              profId={e.prof_id}
             />
           </div>
         </div>
