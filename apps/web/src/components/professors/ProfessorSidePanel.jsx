@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api }          from '../../lib/api.js';
 import { toast }        from '../ui/Toast.jsx';
 import Spinner          from '../ui/Spinner.jsx';
@@ -187,6 +188,17 @@ function ExamCard({ exam, dimmed }) {
           >
             {exam.student_number ? `#${exam.student_number} · ` : ''}{studentName}
           </a>
+        </div>
+      )}
+      {exam.upload_id && (
+        <div className="text-xs mt-1">
+          <Link
+            to={`/exams?id=${exam.upload_id}`}
+            className="text-gray-400 hover:text-brand-600 hover:underline"
+            onClick={e => e.stopPropagation()}
+          >
+            View exam upload →
+          </Link>
         </div>
       )}
     </div>

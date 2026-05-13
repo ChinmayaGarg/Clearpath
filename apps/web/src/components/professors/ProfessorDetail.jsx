@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api }                 from '../../lib/api.js';
 import { toast }               from '../ui/Toast.jsx';
 import Spinner                 from '../ui/Spinner.jsx';
@@ -347,9 +348,18 @@ export function LeadUploadPanel({ professorId }) {
                   <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">Makeup</span>
                 )}
               </div>
-              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium shrink-0">
-                {u.status}
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <Link
+                  to={`/exams?id=${u.id}`}
+                  className="text-xs text-brand-600 hover:underline"
+                  onClick={e => e.stopPropagation()}
+                >
+                  View →
+                </Link>
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">
+                  {u.status}
+                </span>
+              </div>
             </div>
             {u.delivery !== 'pending' && (
               <p className="text-xs text-gray-500 mt-1">

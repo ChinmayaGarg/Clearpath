@@ -358,7 +358,17 @@ export async function getProfessorExamRequestsForPanel(schema, profId) {
        br.name AS room_name,
        sp.student_number,
        u.first_name AS student_first_name,
-       u.last_name  AS student_last_name
+       u.last_name  AS student_last_name,
+       (
+         SELECT eu.id
+         FROM exam_upload eu
+         JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+         WHERE UPPER(eu.course_code) = UPPER(ebr.course_code)
+           AND eud.exam_date = ebr.exam_date
+           AND eu.status = 'submitted'
+         ORDER BY eu.submitted_at DESC
+         LIMIT 1
+       ) AS upload_id
      FROM exam_booking_request ebr
      LEFT JOIN booking_assignment    ba  ON ba.exam_booking_request_id = ebr.id
      LEFT JOIN booking_schedule_room bsr ON bsr.id = ba.schedule_room_id
