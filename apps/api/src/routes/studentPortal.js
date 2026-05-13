@@ -107,8 +107,8 @@ router.get("/accommodations", async (req, res, next) => {
         .json({ ok: false, error: "Student profile not found" });
     }
 
-    const { grants, terms } = await getStudentAccommodations(schema, studentProfileId);
-    res.json({ ok: true, data: terms, grants });
+    const terms = await getStudentAccommodations(schema, studentProfileId);
+    res.json({ ok: true, data: terms });
   } catch (err) {
     next(err);
   }

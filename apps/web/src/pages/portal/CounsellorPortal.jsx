@@ -378,15 +378,11 @@ function StudentDetail({ student: initialStudent, onBack }) {
   const canEdit        = isCounsellor || isAdmin;
   const canEditCourses = isAdmin;
 
-  // Split accommodations into granted (registration-approved) and manual (term-based)
-  const allAccommodations = student?.accommodations ?? [];
-  const grants = allAccommodations.filter(a => a.source === 'granted');
-  const byTerm = allAccommodations
-    .filter(a => a.source !== 'granted')
-    .reduce((acc, row) => {
-      (acc[row.term] = acc[row.term] ?? []).push(row);
-      return acc;
-    }, {});
+  // Group all accommodations by term (both 'manual' and 'granted' sources)
+  const byTerm = (student?.accommodations ?? []).reduce((acc, row) => {
+    (acc[row.term] = acc[row.term] ?? []).push(row);
+    return acc;
+  }, {});
   const terms = Object.keys(byTerm).sort((a, b) => b.localeCompare(a));
 
   return (
@@ -524,31 +520,12 @@ function StudentDetail({ student: initialStudent, onBack }) {
           </form>
         )}
 
-        {/* Granted via registration (source='granted') */}
-        {grants.length > 0 && (
-          <div className="mb-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Granted via registration — all terms
-            </p>
-            <div className="space-y-2">
-              {grants.map(acc => (
-                <AccommodationRow
-                  key={acc.id}
-                  acc={acc}
-                  canRemove={false}
-                  onRemove={null}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Manually added accommodations grouped by term */}
-        {terms.length === 0 && grants.length === 0 ? (
+        {/* Accommodations grouped by term */}
+        {terms.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-4">
             No accommodations recorded for this student
           </p>
-        ) : terms.length > 0 ? (
+        ) : (
           <div className="space-y-4">
             {terms.map(term => (
               <div key={term}>
@@ -560,7 +537,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
                     <AccommodationRow
                       key={acc.id}
                       acc={acc}
-                      canRemove={canEdit}
+                      canRemove={canEdit && acc.source !== 'granted'}
                       onRemove={() => handleRemove(acc.id)}
                     />
                   ))}
@@ -568,7 +545,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
               </div>
             ))}
           </div>
-        ) : null}
+        )}
       </div>
 
       {/* Courses */}
@@ -1019,6 +996,7 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
   // counsellor-added grants not in the student's request: [{ codeId, notes }]
   const [additionalGrants,   setAdditionalGrants]   = useState([]);
   const [rejectReason,  setRejectReason]  = useState('');
+  const [approveTerm,   setApproveTerm]   = useState(CURRENT_TERM);
   const [action,        setAction]        = useState(null); // 'approve' | 'reject' | null
 
   async function load() {
@@ -1095,7 +1073,7 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
 
     setSubmitting(true);
     try {
-      await api.post(`/counsellor/registrations/${initialReg.id}/approve`, { grantedCodes });
+      await api.post(`/counsellor/registrations/${initialReg.id}/approve`, { term: approveTerm, grantedCodes });
       toast('Registration approved');
       onBack();
     } catch (err) {
@@ -1365,6 +1343,21 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
           {/* Approve form */}
           {action === 'approve' && (
             <form onSubmit={handleApprove} className="space-y-4 pt-2 border-t border-gray-100">
+
+              {/* ── Term selector ── */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Term</label>
+                <select
+                  value={approveTerm}
+                  onChange={e => setApproveTerm(e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs
+                             focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
+                >
+                  {TERM_OPTIONS.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
 
               {/* ── Requested accommodations ── */}
               {reg.requested_accommodations?.length > 0 && (

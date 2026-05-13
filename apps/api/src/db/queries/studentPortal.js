@@ -47,43 +47,34 @@ export async function getStudentPortalMe(schema, studentProfileId) {
 }
 
 /**
- * Get all active accommodations for a student, split into:
- *   grants — registration-approved (source='granted', no term)
- *   terms  — counsellor-added per term (source='manual', grouped by term)
- *
- * Returns { grants: [...], terms: [{ term, items: [...] }] }
+ * Get all active accommodations for a student, grouped by term.
+ * Includes both counsellor-added ('manual') and registration-approved ('granted') rows.
+ * Returns [{ term, items: [{ id, source, code, label, triggers_rwg_flag, notes, created_at }] }]
+ * sorted most-recent term first.
  */
 export async function getStudentAccommodations(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
     `SELECT
-       sa.id, sa.source, sa.term, sa.notes, sa.created_at, sa.expires_at,
+       sa.id, sa.source, sa.term, sa.notes, sa.created_at,
        ac.code, ac.label, ac.triggers_rwg_flag
      FROM student_accommodation sa
      JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
      WHERE sa.student_profile_id = $1
        AND sa.is_active = TRUE
        AND ac.is_active = TRUE
-     ORDER BY sa.source DESC, sa.term DESC NULLS FIRST, ac.code`,
+     ORDER BY sa.term DESC, ac.code`,
     [studentProfileId],
   );
 
-  const grants = [];
   const byTerm = {};
-
   for (const row of result.rows) {
-    if (row.source === 'granted') {
-      grants.push(row);
-    } else {
-      (byTerm[row.term] ??= []).push(row);
-    }
+    (byTerm[row.term] ??= []).push(row);
   }
 
-  const terms = Object.entries(byTerm)
+  return Object.entries(byTerm)
     .sort(([a], [b]) => b.localeCompare(a))
     .map(([term, items]) => ({ term, items }));
-
-  return { grants, terms };
 }
 
 /**

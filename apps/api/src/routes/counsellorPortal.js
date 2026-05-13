@@ -274,6 +274,7 @@ router.post("/registrations/:id/start-review", async (req, res, next) => {
 
 // ── POST /api/counsellor/registrations/:id/approve ───────────────────────────
 const ApproveSchema = z.object({
+  term: z.string().min(1).max(100),
   grantedCodes: z.array(z.object({
     accommodationCodeId: z.string().uuid(),
     notes:     z.string().max(1000).optional().nullable(),
@@ -283,10 +284,12 @@ const ApproveSchema = z.object({
 
 router.post("/registrations/:id/approve", async (req, res, next) => {
   try {
-    const { grantedCodes } = ApproveSchema.parse(req.body);
+    const { term, grantedCodes } = ApproveSchema.parse(req.body);
+    // Attach the selected term to each granted code
+    const codesWithTerm = grantedCodes.map(g => ({ ...g, term }));
     await approveRegistration(req.tenantSchema, req.params.id, {
       reviewedBy:  req.user.id,
-      grantedCodes,
+      grantedCodes: codesWithTerm,
     });
     res.json({ ok: true });
   } catch (err) { next(err); }
