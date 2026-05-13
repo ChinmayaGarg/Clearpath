@@ -11,8 +11,9 @@ import ScheduleTab from "../components/admin/ScheduleTab.jsx";
 import ScheduleExamsTab from "../components/admin/ScheduleExamsTab.jsx";
 import CancellationRequestsTab from "../components/admin/CancellationRequestsTab.jsx";
 import AccommodationsTab from "../components/admin/AccommodationsTab.jsx";
+import StudentCoursesTab from "../components/admin/StudentCoursesTab.jsx";
 
-const ADMIN_TABS = ["Users", "Link Courses to Prof", "Exam Booking Requests", "Room Setup", "Accommodations", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests"];
+const ADMIN_TABS = ["Users", "Link Courses to Prof", "Link Student to Courses", "Exam Booking Requests", "Room Setup", "Accommodations", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests"];
 
 export default function Admin() {
   const [searchParams] = useSearchParams();
@@ -87,6 +88,8 @@ export default function Admin() {
               <CourseProfessorLinkForm />
             </div>
           )}
+
+          {tab === "Link Student to Courses" && <StudentCoursesTab />}
 
           {tab === "Exam Booking Requests" && <BookingsTab />}
           {tab === "Room Setup" && <RoomsTab />}

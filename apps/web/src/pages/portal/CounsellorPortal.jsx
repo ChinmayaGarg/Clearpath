@@ -249,27 +249,20 @@ function StudentDetail({ student: initialStudent, onBack }) {
   const [showForm,       setShowForm]      = useState(false);
   const [form,           setForm]          = useState({ accommodationCodeId: '', term: CURRENT_TERM, notes: '' });
   const [saving,         setSaving]        = useState(false);
-  const [courses,           setCourses]          = useState([]);
-  const [courseInput,       setCourseInput]      = useState('');
-  const [savingCourse,      setSavingCourse]     = useState(false);
-  const [showCourseForm,    setShowCourseForm]   = useState(false);
   const [examRequests,      setExamRequests]     = useState([]);
-  const [profModal,         setProfModal]        = useState(null); // { courseCode, professor|null, loading }
 
   async function load() {
     setLoading(true);
     try {
-      const [studentData, codesData, examsData, coursesData, examReqData] = await Promise.all([
+      const [studentData, codesData, examsData, examReqData] = await Promise.all([
         api.get(`/counsellor/students/${initialStudent.id}`),
         api.get('/counsellor/accommodation-codes'),
         api.get(`/counsellor/students/${initialStudent.id}/exams`),
-        api.get(`/counsellor/students/${initialStudent.id}/courses`),
         api.get(`/counsellor/students/${initialStudent.id}/exam-requests`),
       ]);
       setStudent(studentData.student);
       setCodes(codesData.codes ?? []);
       setExams(examsData.exams ?? []);
-      setCourses(coursesData.courses ?? []);
       setExamRequests(examReqData.examRequests ?? []);
     } catch (err) {
       toast(err.message, 'error');
@@ -333,50 +326,12 @@ function StudentDetail({ student: initialStudent, onBack }) {
     }
   }
 
-  async function handleAddCourse(e) {
-    e.preventDefault();
-    const code = courseInput.trim().toUpperCase();
-    if (!code) { toast('Enter a course code', 'warning'); return; }
-    setSavingCourse(true);
-    try {
-      await api.post(`/counsellor/students/${initialStudent.id}/courses`, { courseCode: code });
-      toast('Course added', 'success');
-      setCourseInput('');
-      setShowCourseForm(false);
-      load();
-    } catch (err) {
-      toast(err.message, 'error');
-    } finally {
-      setSavingCourse(false);
-    }
-  }
-
-  async function handleRemoveCourse(courseCode) {
-    try {
-      await api.delete(`/counsellor/students/${initialStudent.id}/courses/${encodeURIComponent(courseCode)}`);
-      toast('Course removed', 'success');
-      load();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  }
-
-  async function handleCourseClick(courseCode) {
-    setProfModal({ courseCode, professor: null, loading: true });
-    try {
-      const data = await api.get(`/counsellor/courses/${encodeURIComponent(courseCode)}/professor`);
-      setProfModal({ courseCode, professor: data.professor, loading: false });
-    } catch (err) {
-      setProfModal({ courseCode, professor: null, loading: false });
-    }
-  }
 
   if (loading) return (
     <div className="flex justify-center py-12"><Spinner /></div>
   );
 
-  const canEdit        = isCounsellor || isAdmin;
-  const canEditCourses = isAdmin;
+  const canEdit = isCounsellor || isAdmin;
 
   // Group all accommodations by term (both 'manual' and 'granted' sources)
   const byTerm = (student?.accommodations ?? []).reduce((acc, row) => {
@@ -548,83 +503,6 @@ function StudentDetail({ student: initialStudent, onBack }) {
         )}
       </div>
 
-      {/* Courses */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900">Courses</h3>
-          {canEditCourses && !showCourseForm && (
-            <button
-              onClick={() => setShowCourseForm(true)}
-              className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white
-                         text-xs font-medium rounded-lg transition-colors"
-            >
-              + Add course
-            </button>
-          )}
-        </div>
-
-        {showCourseForm && (
-          <form onSubmit={handleAddCourse} className="flex gap-2 mb-3">
-            <input
-              autoFocus
-              value={courseInput}
-              onChange={e => setCourseInput(e.target.value.toUpperCase())}
-              placeholder="e.g. CSCI3110"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
-            />
-            <button
-              type="button"
-              onClick={() => { setShowCourseForm(false); setCourseInput(''); }}
-              className="px-3 py-2 border border-gray-300 text-gray-700 text-sm
-                         rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={savingCourse}
-              className="px-3 py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm
-                         font-medium rounded-lg transition-colors disabled:opacity-50"
-            >
-              {savingCourse ? 'Adding…' : 'Add'}
-            </button>
-          </form>
-        )}
-
-        {courses.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">
-            No manually-added courses
-          </p>
-        ) : (
-          <div className="space-y-1.5">
-            {courses.map(c => (
-              <div
-                key={c.id}
-                className="flex items-center justify-between px-3 py-2 rounded-lg
-                           border border-gray-100 bg-gray-50"
-              >
-                <button
-                  onClick={() => handleCourseClick(c.course_code)}
-                  className="text-sm font-medium text-brand-700 hover:text-brand-900
-                             hover:underline transition-colors text-left"
-                >
-                  {c.course_code}
-                </button>
-                {canEditCourses && (
-                  <button
-                    onClick={() => handleRemoveCourse(c.course_code)}
-                    className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Exam booking requests */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">Exam requests</h3>
@@ -675,16 +553,6 @@ function StudentDetail({ student: initialStudent, onBack }) {
           </div>
         )}
       </div>
-
-      {/* Professor modal */}
-      {profModal && (
-        <ProfessorModal
-          courseCode={profModal.courseCode}
-          professor={profModal.professor}
-          loading={profModal.loading}
-          onClose={() => setProfModal(null)}
-        />
-      )}
 
       {/* SARS appointment bookings */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -776,73 +644,6 @@ function BookingRequestStatusBadge({ status }) {
   );
 }
 
-// ── Professor modal ────────────────────────────────────────────────────────────
-function ProfessorModal({ courseCode, professor, loading, onClose }) {
-  // Close on backdrop click
-  function handleBackdrop(e) {
-    if (e.target === e.currentTarget) onClose();
-  }
-
-  return (
-    <div
-      onClick={handleBackdrop}
-      className="fixed inset-0 z-50 flex items-center justify-center
-                 bg-black/40 backdrop-blur-sm px-4"
-    >
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">{courseCode}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Professor details</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors text-lg leading-none"
-          >
-            ×
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center py-8"><Spinner /></div>
-        ) : professor ? (
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Name</span>
-              <span className="text-gray-900 font-medium">
-                {professor.first_name} {professor.last_name}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Phone</span>
-              <span className="text-gray-700">{professor.phone || '—'}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400 shrink-0">Email</span>
-              {professor.email
-                ? <a href={`mailto:${professor.email}`} className="text-brand-700 hover:underline truncate">{professor.email}</a>
-                : <span className="text-gray-700">—</span>
-              }
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-400 text-center py-6">
-            No professor linked to <span className="font-medium text-gray-600">{courseCode}</span> yet.
-          </p>
-        )}
-
-        <button
-          onClick={onClose}
-          className="mt-5 w-full py-2 border border-gray-200 text-gray-600 text-sm
-                     font-medium rounded-xl hover:bg-gray-50 transition-colors"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function AccommodationRow({ acc, canRemove, onRemove }) {
   return (
