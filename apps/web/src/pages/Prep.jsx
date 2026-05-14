@@ -1723,36 +1723,40 @@ export default function Prep() {
     <div className="min-h-screen bg-gray-50">
       <TopNav />
 
-      {/* Secondary tab bar — sticky below the main nav */}
-      <div className="bg-white border-b border-gray-200 sticky top-14 z-20">
-        <div className="max-w-4xl mx-auto px-4 flex">
+      <div className="flex">
+        {/* Left sticky sidebar nav */}
+        <aside className="sticky top-14 h-[calc(100vh-56px)] w-44 shrink-0
+                          bg-white border-r border-gray-200 flex flex-col py-4 overflow-y-auto z-20">
           {TABS.map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
+              className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors
+                          rounded-lg mx-1 mb-0.5
                 ${tab === t
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  ? 'bg-brand-50 text-brand-700'
+                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'}`}
             >
               {t}
             </button>
           ))}
-        </div>
-      </div>
+        </aside>
 
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-gray-900">Exam Prep</h1>
-        </div>
+        {/* Main content */}
+        <main className="flex-1 min-w-0 px-6 py-8">
+          <div className="max-w-3xl mx-auto">
+            <div className="mb-6">
+              <h1 className="text-xl font-semibold text-gray-900">Exam Prep</h1>
+            </div>
 
-        {tab === 'Exam Day'     && <ExamDayTab />}
-        {tab === 'Exam Details' && <ExamDetailsTab />}
-        {tab === 'Exam Book'    && <ExamBookTab />}
-        {tab === 'Dropoffs'     && <DropoffsTab />}
-        {tab === 'Returns'      && <ReturnsTab />}
-        {tab === 'Conflicts'    && <ConflictsTab />}
+            {tab === 'Exam Day'     && <ExamDayTab />}
+            {tab === 'Exam Details' && <ExamDetailsTab />}
+            {tab === 'Exam Book'    && <ExamBookTab />}
+            {tab === 'Dropoffs'     && <DropoffsTab />}
+            {tab === 'Returns'      && <ReturnsTab />}
+            {tab === 'Conflicts'    && <ConflictsTab />}
+          </div>
+        </main>
       </div>
     </div>
   );
