@@ -84,12 +84,87 @@ function StudentSearch({ onSelect }) {
   );
 }
 
+function CourseCombobox({ value, onChange, allCourses }) {
+  const [query,     setQuery]     = useState('');
+  const [open,      setOpen]      = useState(false);
+  const closeTimer                = useRef(null);
+
+  const filtered = query.trim()
+    ? allCourses.filter(c => c.course_code.toUpperCase().includes(query.toUpperCase()))
+    : allCourses;
+
+  function selectCourse(code) {
+    onChange(code);
+    setQuery('');
+    setOpen(false);
+  }
+
+  function handleBlur() {
+    closeTimer.current = setTimeout(() => setOpen(false), 150);
+  }
+
+  function handleFocus() {
+    clearTimeout(closeTimer.current);
+    setOpen(true);
+  }
+
+  return (
+    <div className="relative flex-1">
+      <input
+        autoFocus
+        value={value ? value : query}
+        onChange={e => {
+          const v = e.target.value.toUpperCase();
+          if (value) onChange('');
+          setQuery(v);
+          setOpen(true);
+        }}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        placeholder="Search course code…"
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                   focus:outline-none focus:ring-2 focus:ring-brand-600"
+      />
+      {open && filtered.length > 0 && (
+        <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200
+                       rounded-lg shadow-lg max-h-52 overflow-y-auto">
+          {filtered.map(c => (
+            <li key={c.course_code + (c.professor_id || '')}>
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => selectCourse(c.course_code)}
+                className="w-full text-left px-3 py-2 hover:bg-brand-50 transition-colors
+                           flex items-center gap-2"
+              >
+                <span className="text-sm font-mono font-medium text-gray-900">{c.course_code}</span>
+                {(c.first_name || c.last_name) && (
+                  <span className="text-xs text-gray-400">
+                    · {[c.first_name, c.last_name].filter(Boolean).join(' ')}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && query.trim() && filtered.length === 0 && (
+        <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200
+                        rounded-lg shadow-lg px-3 py-2 text-sm text-gray-400">
+          No matching courses
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StudentCourses({ student, onBack }) {
   const [courses,        setCourses]        = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [showForm,       setShowForm]       = useState(false);
   const [courseInput,    setCourseInput]    = useState('');
   const [savingCourse,   setSavingCourse]   = useState(false);
+  const [allCourses,     setAllCourses]     = useState([]);
 
   const name = [student.first_name, student.last_name].filter(Boolean).join(' ');
 
@@ -104,7 +179,10 @@ function StudentCourses({ student, onBack }) {
     }
   }
 
-  useEffect(() => { loadCourses(); }, [student.id]); // eslint-disable-line
+  useEffect(() => {
+    loadCourses();
+    api.get('/institution/courses').then(d => setAllCourses(d.data ?? [])).catch(() => {});
+  }, [student.id]); // eslint-disable-line
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -169,13 +247,10 @@ function StudentCourses({ student, onBack }) {
 
         {showForm && (
           <form onSubmit={handleAdd} className="flex gap-2 mb-3">
-            <input
-              autoFocus
+            <CourseCombobox
               value={courseInput}
-              onChange={e => setCourseInput(e.target.value.toUpperCase())}
-              placeholder="e.g. CSCI 3110"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm
-                         focus:outline-none focus:ring-2 focus:ring-brand-600"
+              onChange={setCourseInput}
+              allCourses={allCourses}
             />
             <button
               type="button"
