@@ -118,17 +118,20 @@ export async function getStudentAccommodationCodes(schema, studentProfileId) {
  * exam_upload matching the given course code and exam type.
  * Returns null if no upload is found.
  */
-export async function findExamUploadDuration(schema, courseCode, examType) {
+export async function findExamUploadDuration(schema, courseCode, examType, examDate, examTime) {
   const result = await tenantQuery(
     schema,
-    `SELECT exam_duration_mins
-     FROM exam_upload
-     WHERE UPPER(course_code) = UPPER($1)
-       AND exam_type_label::text = $2
-       AND status                = 'submitted'
-     ORDER BY submitted_at DESC
+    `SELECT eu.exam_duration_mins
+     FROM exam_upload eu
+     JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+     WHERE UPPER(eu.course_code) = UPPER($1)
+       AND eu.exam_type_label::text = $2
+       AND eu.status                = 'submitted'
+       AND eud.exam_date            = $3
+       AND (eud.time_slot IS NULL OR eud.time_slot = $4::time)
+     ORDER BY eu.submitted_at DESC
      LIMIT 1`,
-    [courseCode, examType],
+    [courseCode, examType, examDate, examTime ?? null],
   );
   return result.rows[0]?.exam_duration_mins ?? null;
 }

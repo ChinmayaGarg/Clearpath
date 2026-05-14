@@ -673,6 +673,7 @@ function BookingForm({ onSuccess, onCancel }) {
   });
   const [courses, setCourses] = useState([]);
   const [accommodationCodes, setAccommodationCodes] = useState([]);
+  const [professorDuration, setProfessorDuration] = useState(null); // number | null
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -686,6 +687,25 @@ function BookingForm({ onSuccess, onCancel }) {
       .then((d) => setAccommodationCodes(d.data ?? []))
       .catch(() => {});
   }, []);
+
+  // Fetch professor's uploaded duration when course + type + date are all set
+  useEffect(() => {
+    const { courseCode, examType, examDate, examTime } = form;
+    if (!courseCode || !examType || !examDate) {
+      setProfessorDuration(null);
+      return;
+    }
+    const params = new URLSearchParams({ courseCode, examType, examDate });
+    if (examTime) params.set("examTime", examTime);
+    api
+      .get(`/student/exam-upload-duration?${params}`)
+      .then((d) => {
+        const mins = d.data ?? null;
+        setProfessorDuration(mins);
+        if (mins !== null) set("examDurationMins", String(mins));
+      })
+      .catch(() => setProfessorDuration(null));
+  }, [form.courseCode, form.examType, form.examDate, form.examTime]); // eslint-disable-line
 
   // Live-compute estimated end time for display
   const estimatedEnd = (() => {
@@ -861,9 +881,18 @@ function BookingForm({ onSuccess, onCancel }) {
             value={form.examDurationMins}
             onChange={(e) => set("examDurationMins", e.target.value)}
             placeholder="e.g. 120"
-            className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
-                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+            readOnly={professorDuration !== null}
+            className={`w-full px-2.5 py-1.5 border rounded-lg text-sm
+                       focus:outline-none focus:ring-2 focus:ring-brand-600
+                       ${professorDuration !== null
+                         ? "border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed"
+                         : "border-gray-300"}`}
           />
+          {professorDuration !== null && (
+            <p className="text-xs text-brand-600 mt-0.5">
+              Duration set by your professor — cannot be changed
+            </p>
+          )}
           {estimatedEnd && (
             <p
               className={`text-xs mt-1 ${estimatedEnd.past10pm ? "text-red-600" : "text-gray-400"}`}

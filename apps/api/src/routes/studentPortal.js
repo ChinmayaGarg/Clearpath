@@ -133,6 +133,28 @@ router.get("/accommodation-codes", async (req, res, next) => {
   }
 });
 
+// ── GET /api/student/exam-upload-duration ─────────────────────────────────────
+// ?courseCode=&examType=&examDate=&examTime= (examTime optional)
+// Returns the professor's uploaded duration for this course+type+date, or null.
+router.get("/exam-upload-duration", async (req, res, next) => {
+  try {
+    const { courseCode, examType, examDate, examTime } = req.query;
+    if (!courseCode || !examType || !examDate) {
+      return res.json({ ok: true, data: null });
+    }
+    const durationMins = await findExamUploadDuration(
+      req.tenantSchema,
+      courseCode,
+      examType,
+      examDate,
+      examTime || null,
+    );
+    res.json({ ok: true, data: durationMins });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET /api/student/exam-requests ────────────────────────────────────────────
 router.get("/exam-requests", async (req, res, next) => {
   try {
@@ -207,7 +229,7 @@ router.post("/exam-requests", async (req, res, next) => {
     // ── Compute duration from accommodations + exam upload (fallback to student input) ─
     const [codes, uploadBaseMins] = await Promise.all([
       getStudentAccommodationCodes(schema, studentProfileId),
-      findExamUploadDuration(schema, body.courseCode, body.examType),
+      findExamUploadDuration(schema, body.courseCode, body.examType, body.examDate, body.examTime),
     ]);
     // Use professor's upload duration if available; otherwise use what the student entered
     const baseMins = uploadBaseMins ?? body.examDurationMins;
