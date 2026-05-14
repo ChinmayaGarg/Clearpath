@@ -59,8 +59,12 @@ async function fetchPrepData(schema, date) {
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu2.id
        WHERE UPPER(eu2.course_code) = UPPER(ebr.course_code)
          AND eud.exam_date = ebr.exam_date
-         AND eu2.status = 'submitted'
-       ORDER BY eu2.submitted_at DESC
+         AND (
+           eu2.status = 'submitted'
+           OR (eu2.delivery = 'dropped' AND eu2.dropoff_confirmed_at IS NOT NULL)
+         )
+       ORDER BY eu2.submitted_at DESC NULLS LAST,
+                eu2.dropoff_confirmed_at DESC NULLS LAST
        LIMIT 1
      ) eu ON TRUE
      -- Resolve professor: submitted upload → booking approver → course dossier (most recent)
@@ -547,7 +551,9 @@ router.post('/dropoffs/:uploadId/confirm', async (req, res, next) => {
       `UPDATE exam_upload
        SET dropoff_confirmed_at = NOW(),
            dropoff_confirmed_by = $2,
-           updated_at = NOW()
+           status               = 'submitted',
+           submitted_at         = COALESCE(submitted_at, NOW()),
+           updated_at           = NOW()
        WHERE id = $1
          AND delivery = 'dropped'
          AND dropoff_confirmed_at IS NULL
