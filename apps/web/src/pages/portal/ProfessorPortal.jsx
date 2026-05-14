@@ -6,9 +6,7 @@ import { toast }               from '../../components/ui/Toast.jsx';
 import Spinner                 from '../../components/ui/Spinner.jsx';
 import UploadList              from '../../components/portal/UploadList.jsx';
 import UploadForm              from '../../components/portal/UploadForm.jsx';
-import ReuseRequests           from '../../components/portal/ReuseRequests.jsx';
-
-const TABS = ['Dashboard', 'My uploads', 'My students', 'Reuse requests', 'Exam requests', 'Notifications'];
+const TABS = ['Dashboard', 'My uploads', 'My students', 'Exam requests'];
 
 export default function ProfessorPortal() {
   const { user, logout }       = useAuth();
@@ -64,7 +62,7 @@ export default function ProfessorPortal() {
 
   const profile = me?.profile;
   const stats   = me?.stats;
-  const unread  = me?.unread ?? 0;
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -87,16 +85,6 @@ export default function ProfessorPortal() {
                       ? 'border-brand-600 text-brand-700'
                       : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                   {t}
-                  {t === 'Reuse requests' && me?.reuseCount > 0 && (
-                    <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
-                      {me.reuseCount}
-                    </span>
-                  )}
-                  {t === 'Notifications' && unread > 0 && (
-                    <span className="ml-1.5 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">
-                      {unread}
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
@@ -171,16 +159,6 @@ export default function ProfessorPortal() {
                   numColour: 'text-amber-700',
                   subColour: 'text-amber-600',
                   onClick: () => setTab('My uploads'),
-                }] : []),
-                ...(stats.reuseCount > 0 ? [{
-                  key: 'reuse',
-                  value: stats.reuseCount,
-                  label: 'Reuse request' + (stats.reuseCount !== 1 ? 's' : '') + ' awaiting your decision',
-                  sub: 'Students have requested to reuse a previous exam',
-                  bg: 'bg-blue-50 border-blue-300',
-                  numColour: 'text-blue-700',
-                  subColour: 'text-blue-500',
-                  onClick: () => setTab('Reuse requests'),
                 }] : []),
               ];
 
@@ -371,15 +349,7 @@ export default function ProfessorPortal() {
 
         {tab === 'My students' && <MyStudentsTab />}
 
-        {tab === 'Reuse requests' && (
-          <ReuseRequests key={refreshKey} onRefresh={refresh} />
-        )}
-
         {tab === 'Exam requests' && <ProfessorExamRequestsTab />}
-
-        {tab === 'Notifications' && (
-          <NotificationsTab onRead={refresh} />
-        )}
 
 
       </div>
@@ -836,65 +806,4 @@ function MyStudentsTab() {
   );
 }
 
-function NotificationsTab({ onRead }) {
-  const [notifications, setNotifications] = useState([]);
-  const [loading,       setLoading]       = useState(true);
-
-  useEffect(() => {
-    api.get('/portal/notifications')
-      .then(d => setNotifications(d.notifications))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-
-    // Mark all read
-    api.post('/portal/notifications/read', {}).catch(() => {});
-    onRead();
-  }, []); // eslint-disable-line
-
-  const TYPE_META = {
-    upload_needed:   { icon: '📋', label: 'Upload needed',   colour: 'border-l-amber-400 bg-amber-50'   },
-    upload_received: { icon: '✓',  label: 'Upload received', colour: 'border-l-green-400 bg-green-50'   },
-    reuse_requested: { icon: '🔄', label: 'Reuse requested', colour: 'border-l-blue-400 bg-blue-50'     },
-    reuse_approved:  { icon: '✓',  label: 'Reuse approved',  colour: 'border-l-green-400 bg-green-50'   },
-    reuse_denied:           { icon: '✕',  label: 'Reuse denied',      colour: 'border-l-red-400 bg-red-50'       },
-    booking_upload_needed:  { icon: '📤', label: 'Upload needed',     colour: 'border-l-orange-400 bg-orange-50' },
-    upload_reminder:        { icon: '⏰', label: 'Upload reminder',   colour: 'border-l-amber-400 bg-amber-50'   },
-    booking_cancelled:      { icon: '✕',  label: 'Booking cancelled', colour: 'border-l-red-400 bg-red-50'       },
-  };
-
-  if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
-
-  if (!notifications.length) return (
-    <div className="text-center py-12 text-sm text-gray-400">
-      No notifications yet
-    </div>
-  );
-
-  return (
-    <div className="space-y-2">
-      {notifications.map(n => {
-        const meta = TYPE_META[n.type] ?? { icon: '·', colour: 'border-l-gray-300 bg-gray-50' };
-        return (
-          <div key={n.id}
-            className={`border-l-4 ${meta.colour} px-4 py-3 rounded-r-xl flex
-                        items-start gap-3 ${!n.is_read ? 'font-medium' : ''}`}>
-            <span className="text-base shrink-0">{meta.icon}</span>
-            <div className="flex-1">
-              <p className="text-sm text-gray-900">{n.message}</p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {new Date(n.created_at).toLocaleString('en-CA', {
-                  month: 'short', day: 'numeric',
-                  hour: 'numeric', minute: '2-digit',
-                })}
-              </p>
-            </div>
-            {!n.is_read && (
-              <span className="w-2 h-2 bg-brand-600 rounded-full shrink-0 mt-1" />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
