@@ -249,10 +249,22 @@ export async function removeStudentAccommodation(
 export async function listStudentCourses(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
-    `SELECT id, course_code, created_at
-     FROM student_course
-     WHERE student_profile_id = $1
-     ORDER BY course_code`,
+    `SELECT sc.id, sc.course_code, sc.created_at,
+            pp.id   AS professor_id,
+            u.first_name AS prof_first_name,
+            u.last_name  AS prof_last_name
+     FROM student_course sc
+     LEFT JOIN LATERAL (
+       SELECT cd.professor_id
+       FROM course_dossier cd
+       WHERE UPPER(cd.course_code) = UPPER(sc.course_code)
+       ORDER BY cd.updated_at DESC
+       LIMIT 1
+     ) latest_cd ON TRUE
+     LEFT JOIN professor_profile pp ON pp.id = latest_cd.professor_id
+     LEFT JOIN "user" u ON u.id = pp.user_id
+     WHERE sc.student_profile_id = $1
+     ORDER BY sc.course_code`,
     [studentProfileId],
   );
   return result.rows;

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { toast } from '../ui/Toast.jsx';
 import Spinner from '../ui/Spinner.jsx';
@@ -279,23 +280,40 @@ function StudentCourses({ student, onBack }) {
           </p>
         ) : (
           <div className="space-y-1.5">
-            {courses.map(c => (
-              <div
-                key={c.id}
-                className="flex items-center justify-between px-3 py-2 rounded-lg
-                           border border-gray-100 bg-gray-50"
-              >
-                <span className="text-sm font-medium font-mono text-gray-800">
-                  {c.course_code}
-                </span>
-                <button
-                  onClick={() => handleRemove(c.course_code)}
-                  className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1"
+            {courses.map(c => {
+              const profName = [c.prof_first_name, c.prof_last_name].filter(Boolean).join(' ');
+              return (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg
+                             border border-gray-100 bg-gray-50"
                 >
-                  Remove
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-medium font-mono text-gray-800">
+                      {c.course_code}
+                    </span>
+                    {profName && (
+                      c.professor_id ? (
+                        <Link
+                          to={`/professors?id=${c.professor_id}`}
+                          className="text-xs text-brand-600 hover:text-brand-800 hover:underline transition-colors truncate"
+                        >
+                          {profName}
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-gray-400 truncate">{profName}</span>
+                      )
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleRemove(c.course_code)}
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1 shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
