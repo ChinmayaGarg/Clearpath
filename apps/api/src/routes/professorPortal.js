@@ -893,11 +893,11 @@ router.post(
       res.status(201).json({
         ok: true,
         file: {
-          id:           row.id,
-          originalName: row.file_original_name,
-          size:         row.file_size,
-          uploadedAt:   row.file_uploaded_at,
-          url:          getFileUrl(storagePath),
+          id:                 row.id,
+          file_original_name: row.file_original_name,
+          file_size:          row.file_size,
+          file_uploaded_at:   row.file_uploaded_at,
+          url:                getFileUrl(storagePath),
         },
       });
     } catch (err) {
@@ -1544,11 +1544,11 @@ router.post(
       res.status(201).json({
         ok: true,
         file: {
-          id:           row.id,
-          originalName: row.file_original_name,
-          size:         row.file_size,
-          uploadedAt:   row.file_uploaded_at,
-          url:          getFileUrl(storagePath),
+          id:                 row.id,
+          file_original_name: row.file_original_name,
+          file_size:          row.file_size,
+          file_uploaded_at:   row.file_uploaded_at,
+          url:                getFileUrl(storagePath),
         },
       });
     } catch (err) {

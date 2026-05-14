@@ -201,14 +201,6 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
     let currentUploadId = uploadId_;
     if (!currentUploadId) {
       if (!form.courseCode) { toast("Please select a course before uploading", "error"); return; }
-      if (!isWordDoc) {
-        if (!form.examDurationMins)       { toast("Exam duration is required", "error"); return; }
-        if (!form.examFormat)             { toast("Exam format is required", "error"); return; }
-        if (!form.bookletType)            { toast("Booklet selection is required", "error"); return; }
-        if (form.scantronNeeded === "")   { toast("Scantron selection is required", "error"); return; }
-        if (!form.calculatorType)         { toast("Calculator selection is required", "error"); return; }
-        if (!form.examCollectionMethod)   { toast("Exam collection method is required", "error"); return; }
-      }
       try {
         const data = await api.post(uploadsBase, buildPayload());
         currentUploadId = data.uploadId;
