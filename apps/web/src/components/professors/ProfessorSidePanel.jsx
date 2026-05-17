@@ -264,8 +264,94 @@ function CoursesTab({ dossiers }) {
   );
 }
 
+// ── Notes tab ─────────────────────────────────────────────────────────────────
+function NoteCard({ dossier, professorId, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [text,    setText]    = useState(dossier.notes ?? '');
+  const [saving,  setSaving]  = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await api.put('/dossier', {
+        professorId,
+        courseCode: dossier.course_code,
+        notes: text || null,
+      });
+      toast('Notes saved', 'success');
+      setEditing(false);
+      onSaved?.();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-lg px-4 py-3 bg-white">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium font-mono text-gray-900">{dossier.course_code}</span>
+          <span className="text-xs text-gray-400">{dossier.term}</span>
+        </div>
+        {!editing ? (
+          <button onClick={() => setEditing(true)}
+            className="text-xs text-brand-600 hover:text-brand-800 font-medium">
+            Edit
+          </button>
+        ) : (
+          <div className="flex gap-3">
+            <button onClick={() => { setEditing(false); setText(dossier.notes ?? ''); }}
+              className="text-xs text-gray-400 hover:text-gray-600">
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={saving}
+              className="text-xs text-brand-600 hover:text-brand-800 font-medium disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        )}
+      </div>
+      {editing ? (
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rows={4}
+          maxLength={2000}
+          placeholder="Add notes for future leads…"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                     focus:outline-none focus:ring-2 focus:ring-brand-600 resize-none"
+        />
+      ) : (
+        <p className={`text-sm ${text ? 'text-gray-700' : 'text-gray-300 italic'}`}>
+          {text || 'No notes'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function NotesTab({ dossiers, professorId, onSaved }) {
+  if (!dossiers.length) {
+    return (
+      <p className="text-sm text-gray-400 text-center py-8">
+        No courses linked to this professor yet
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {dossiers.map(d => (
+        <NoteCard key={d.id} dossier={d} professorId={professorId} onSaved={onSaved} />
+      ))}
+    </div>
+  );
+}
+
 // ── Main panel ────────────────────────────────────────────────────────────────
-const TABS = ['Prof Details', 'Future Exams', 'Past Exams', 'Courses', 'Exam Uploads'];
+const TABS = ['Prof Details', 'Future Exams', 'Past Exams', 'Courses', 'Exam Uploads', 'Notes'];
 
 export default function ProfessorSidePanel({ professorId, onClose }) {
   const [tab,        setTab]        = useState('Prof Details');
@@ -277,7 +363,6 @@ export default function ProfessorSidePanel({ professorId, onClose }) {
   async function load() {
     if (!professorId) return;
     setLoading(true);
-    setTab('Prof Details');
     const today = new Date().toISOString().slice(0, 10);
     try {
       const [profData, examData] = await Promise.all([
@@ -295,7 +380,7 @@ export default function ProfessorSidePanel({ professorId, onClose }) {
     }
   }
 
-  useEffect(() => { load(); }, [professorId]); // eslint-disable-line
+  useEffect(() => { setTab('Prof Details'); load(); }, [professorId]); // eslint-disable-line
 
   const name = prof ? `${prof.first_name ?? ''} ${prof.last_name ?? ''}`.trim() : '';
 
@@ -400,6 +485,10 @@ export default function ProfessorSidePanel({ professorId, onClose }) {
 
               {tab === 'Exam Uploads' && (
                 <LeadUploadPanel professorId={prof.id} />
+              )}
+
+              {tab === 'Notes' && (
+                <NotesTab dossiers={prof.dossiers ?? []} professorId={prof.id} onSaved={load} />
               )}
             </>
           )}

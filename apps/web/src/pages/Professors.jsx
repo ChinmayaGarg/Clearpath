@@ -5,7 +5,6 @@ import { api } from "../lib/api.js";
 import { toast } from "../components/ui/Toast.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
 import ProfessorSidePanel from "../components/professors/ProfessorSidePanel.jsx";
-import AddDossierModal from "../components/professors/AddDossierModal.jsx";
 
 function ProfRow({ prof, onClick }) {
   return (
@@ -52,7 +51,6 @@ export default function Professors() {
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [showAddDossier, setShowAddDossier] = useState(false);
 
   const selected = searchParams.get("id");
   function selectProf(id) { setSearchParams(id ? { id } : {}); }
@@ -106,13 +104,6 @@ export default function Professors() {
               in this institution
             </p>
           </div>
-          <button
-            onClick={() => setShowAddDossier(true)}
-            className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white
-                       text-sm font-medium rounded-lg transition-colors"
-          >
-            + Add dossier
-          </button>
         </div>
 
         {/* Search */}
@@ -136,7 +127,7 @@ export default function Professors() {
           <div className="text-center py-16 text-sm text-gray-400">
             {search
               ? "No professors match your search"
-              : "No professors yet — add a dossier to get started"}
+              : "No professors yet"}
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -185,16 +176,6 @@ export default function Professors() {
         />
       )}
 
-      {/* Add dossier modal */}
-      {showAddDossier && (
-        <AddDossierModal
-          onClose={() => setShowAddDossier(false)}
-          onCreated={() => {
-            setShowAddDossier(false);
-            load();
-          }}
-        />
-      )}
     </div>
   );
 }
