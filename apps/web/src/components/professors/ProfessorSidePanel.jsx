@@ -275,7 +275,7 @@ function NoteCard({ dossier, professorId, onSaved }) {
     try {
       await api.put('/dossier', {
         professorId,
-        courseCode: dossier.course_code,
+        courseId: dossier.course_id,
         notes: text || null,
       });
       toast('Notes saved', 'success');

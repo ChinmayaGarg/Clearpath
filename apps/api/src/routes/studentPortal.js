@@ -71,25 +71,15 @@ router.get("/courses", async (req, res, next) => {
 
     const result = await tenantQuery(
       schema,
-      `SELECT course_code FROM (
-         SELECT DISTINCT e.course_code
-         FROM appointment a
-         JOIN exam_room er ON er.id = a.exam_room_id
-         JOIN exam e       ON e.id  = er.exam_id
-         WHERE a.student_profile_id = $1
-           AND a.is_cancelled = FALSE
-
-         UNION
-
-         SELECT course_code
-         FROM student_course
-         WHERE student_profile_id = $1
-       ) AS combined
-       ORDER BY course_code`,
+      `SELECT DISTINCT c.id, c.code
+       FROM student_course sc
+       JOIN course c ON c.id = sc.course_id
+       WHERE sc.student_profile_id = $1
+       ORDER BY c.code`,
       [studentProfileId],
     );
 
-    res.json({ ok: true, data: result.rows.map((r) => r.course_code) });
+    res.json({ ok: true, data: result.rows });
   } catch (err) {
     next(err);
   }
@@ -134,17 +124,17 @@ router.get("/accommodation-codes", async (req, res, next) => {
 });
 
 // ── GET /api/student/exam-upload-duration ─────────────────────────────────────
-// ?courseCode=&examType=&examDate=&examTime= (examTime optional)
+// ?courseId=&examType=&examDate=&examTime= (examTime optional)
 // Returns the professor's uploaded duration for this course+type+date, or null.
 router.get("/exam-upload-duration", async (req, res, next) => {
   try {
-    const { courseCode, examType, examDate, examTime } = req.query;
-    if (!courseCode || !examType || !examDate) {
+    const { courseId, examType, examDate, examTime } = req.query;
+    if (!courseId || !examType || !examDate) {
       return res.json({ ok: true, data: null });
     }
     const durationMins = await findExamUploadDuration(
       req.tenantSchema,
-      courseCode,
+      courseId,
       examType,
       examDate,
       examTime || null,
@@ -176,7 +166,7 @@ router.get("/exam-requests", async (req, res, next) => {
 
 // ── POST /api/student/exam-requests ──────────────────────────────────────────
 const BookingSchema = z.object({
-  courseCode: z.string().min(1).max(20),
+  courseId: z.string().uuid(),
   examDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   examTime: z
     .string()
@@ -229,7 +219,7 @@ router.post("/exam-requests", async (req, res, next) => {
     // ── Compute duration from accommodations + exam upload (fallback to student input) ─
     const [codes, uploadBaseMins] = await Promise.all([
       getStudentAccommodationCodes(schema, studentProfileId),
-      findExamUploadDuration(schema, body.courseCode, body.examType, body.examDate, body.examTime),
+      findExamUploadDuration(schema, body.courseId, body.examType, body.examDate, body.examTime),
     ]);
     // Use professor's upload duration if available; otherwise use what the student entered
     const baseMins = uploadBaseMins ?? body.examDurationMins;
@@ -284,7 +274,7 @@ router.post("/exam-requests", async (req, res, next) => {
 
     const id = await createExamBookingRequest(schema, {
       studentProfileId,
-      courseCode: body.courseCode,
+      courseId: body.courseId,
       examDate: body.examDate,
       examTime: body.examTime,
       examType: body.examType,
@@ -300,12 +290,12 @@ router.post("/exam-requests", async (req, res, next) => {
     const schedResult = await tenantQuery(
       schema,
       `SELECT id, auto_approve_enabled FROM exam_schedule
-       WHERE UPPER(course_code) = UPPER($1)
+       WHERE course_id = $1
          AND exam_date = $2
          AND (exam_time = $3 OR $3 IS NULL)
          AND auto_approve_enabled = true
        LIMIT 1`,
-      [body.courseCode, body.examDate, body.examTime || null],
+      [body.courseId, body.examDate, body.examTime || null],
     );
 
     let autoApproved = false;
@@ -426,8 +416,11 @@ router.post("/exam-requests/:id/cancellation-request", async (req, res, next) =>
     // Get exam booking request
     const bookingResult = await tenantQuery(
       schema,
-      `SELECT id, exam_date, exam_time, status, course_code, professor_profile_id
-       FROM exam_booking_request WHERE id = $1 AND student_profile_id = $2`,
+      `SELECT ebr.id, ebr.exam_date, ebr.exam_time, ebr.status,
+              ebr.course_id, c.code AS course_code, ebr.professor_profile_id
+       FROM exam_booking_request ebr
+       JOIN course c ON c.id = ebr.course_id
+       WHERE ebr.id = $1 AND ebr.student_profile_id = $2`,
       [req.params.id, studentProfileId],
     );
 

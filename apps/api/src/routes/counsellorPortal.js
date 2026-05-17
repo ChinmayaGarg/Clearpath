@@ -129,7 +129,7 @@ router.get("/students/:id/courses", async (req, res, next) => {
 
 // ── POST /api/counsellor/students/:id/courses — admin only ────────────────────
 const addCourseSchema = z.object({
-  courseCode: z.string().min(1).max(30),
+  courseId: z.string().uuid(),
 });
 
 router.post(
@@ -143,29 +143,29 @@ router.post(
       }
       const row = await addStudentCourse(req.tenantSchema, {
         studentProfileId: req.params.id,
-        courseCode:       parsed.data.courseCode,
+        courseId:         parsed.data.courseId,
         addedBy:          req.user.id,
       });
       res.status(201).json({ course: row });
     } catch (err) {
       if (err.code === "23505") {
-        return res.status(409).json({ error: "This course code is already assigned to this student" });
+        return res.status(409).json({ error: "This course is already assigned to this student" });
       }
       next(err);
     }
   },
 );
 
-// ── DELETE /api/counsellor/students/:id/courses/:courseCode — admin only ──────
+// ── DELETE /api/counsellor/students/:id/courses/:courseId — admin only ────────
 router.delete(
-  "/students/:id/courses/:courseCode",
+  "/students/:id/courses/:courseId",
   requireRole("institution_admin"),
   async (req, res, next) => {
     try {
       const deleted = await removeStudentCourse(
         req.tenantSchema,
         req.params.id,
-        req.params.courseCode,
+        req.params.courseId,
       );
       if (!deleted) {
         return res.status(404).json({ error: "Course not found for this student" });
@@ -324,8 +324,8 @@ router.patch("/registrations/:id/provider-form", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/counsellor/courses/:courseCode/professor ─────────────────────────
-router.get("/courses/:courseCode/professor", async (req, res, next) => {
+// ── GET /api/counsellor/courses/:courseId/professor ──────────────────────────
+router.get("/courses/:courseId/professor", async (req, res, next) => {
   try {
     const result = await tenantQuery(
       req.tenantSchema,
@@ -333,14 +333,15 @@ router.get("/courses/:courseCode/professor", async (req, res, next) => {
          pp.id, pp.department, pp.phone, pp.office,
          u.first_name, u.last_name, u.email,
          cd.term, cd.preferred_delivery, cd.typical_materials,
-         cd.notes, cd.course_code
+         cd.notes, c.code AS course_code
        FROM course_dossier cd
+       JOIN course c ON c.id = cd.course_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
-       WHERE UPPER(cd.course_code) = UPPER($1)
+       WHERE cd.course_id = $1
        ORDER BY cd.term DESC
        LIMIT 1`,
-      [req.params.courseCode],
+      [req.params.courseId],
     );
     if (!result.rows.length) {
       return res.json({ professor: null });
@@ -355,12 +356,14 @@ router.get("/students/:id/exam-requests", async (req, res, next) => {
     const result = await tenantQuery(
       req.tenantSchema,
       `SELECT
-         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time,
+         ebr.id, ebr.course_id, c.code AS course_code,
+         ebr.exam_date, ebr.exam_time,
          ebr.exam_type, ebr.special_materials_note, ebr.status,
          ebr.rejection_reason, ebr.confirmed_at, ebr.created_at,
          ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
          ebr.computed_duration_mins
        FROM exam_booking_request ebr
+       JOIN course c ON c.id = ebr.course_id
        WHERE ebr.student_profile_id = $1
        ORDER BY ebr.exam_date ASC, ebr.created_at ASC`,
       [req.params.id],
@@ -375,12 +378,14 @@ router.get("/exam-requests", async (req, res, next) => {
     const result = await tenantQuery(
       req.tenantSchema,
       `SELECT
-         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time,
+         ebr.id, ebr.course_id, c.code AS course_code,
+         ebr.exam_date, ebr.exam_time,
          ebr.exam_type, ebr.special_materials_note, ebr.status,
          ebr.confirmed_at, ebr.created_at,
          u.first_name, u.last_name, u.email,
          sp.student_number
        FROM exam_booking_request ebr
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        WHERE ebr.status = 'professor_approved'
@@ -416,7 +421,7 @@ router.patch("/exam-requests/:id/cancel", async (req, res, next) => {
       `UPDATE exam_booking_request
        SET status = 'cancelled', updated_at = NOW()
        WHERE id = $1 AND status = 'professor_approved'
-       RETURNING id, course_code, exam_date, exam_time, professor_profile_id,
+       RETURNING id, course_id, exam_date, exam_time, professor_profile_id,
                  (SELECT first_name || ' ' || last_name FROM "user" u
                   JOIN student_profile sp ON sp.user_id = u.id
                   WHERE sp.id = exam_booking_request.student_profile_id) AS student_name`,
@@ -426,8 +431,15 @@ router.patch("/exam-requests/:id/cancel", async (req, res, next) => {
       return res.status(404).json({ error: "Request not found or already actioned" });
     }
 
-    // Notify professor (fire-and-forget)
-    const { professor_profile_id, student_name, course_code, exam_date, exam_time } = result.rows[0];
+    const row = result.rows[0];
+    // Resolve course code for notification message
+    const courseRow = await tenantQuery(
+      req.tenantSchema,
+      `SELECT code FROM course WHERE id = $1`,
+      [row.course_id],
+    );
+    const course_code = courseRow.rows[0]?.code ?? row.course_id;
+    const { professor_profile_id, student_name, exam_date, exam_time } = row;
     if (professor_profile_id) {
       const dateStr = new Date(exam_date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' });
       const timeStr = exam_time ? ` at ${exam_time.slice(0, 5)}` : '';

@@ -1614,7 +1614,7 @@ function ReturnsTab() {
 function ConflictsTab() {
   const [groups,    setGroups]    = useState([]);
   const [loading,   setLoading]   = useState(true);
-  const [resolving, setResolving] = useState(null); // 'courseCode__examDate' while saving
+  const [resolving, setResolving] = useState(null); // 'courseId__examDate' while saving
 
   useEffect(() => {
     api.get('/portal/conflicts')
@@ -1623,13 +1623,13 @@ function ConflictsTab() {
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line
 
-  async function handleResolve(courseCode, examDate, winnerUploadId) {
-    const key = `${courseCode}__${examDate}`;
+  async function handleResolve(courseId, examDate, winnerUploadId) {
+    const key = `${courseId}__${examDate}`;
     setResolving(key);
     try {
-      await api.post('/portal/conflicts/resolve', { courseCode, examDate, winnerUploadId });
+      await api.post('/portal/conflicts/resolve', { courseId, examDate, winnerUploadId });
       toast('Conflict resolved', 'success');
-      setGroups(prev => prev.filter(g => !(g.courseCode === courseCode && g.examDate === examDate)));
+      setGroups(prev => prev.filter(g => !(g.courseId === courseId && g.examDate === examDate)));
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -1651,7 +1651,7 @@ function ConflictsTab() {
   return (
     <div className="space-y-6">
       {groups.map(g => {
-        const key = `${g.courseCode}__${g.examDate}`;
+        const key = `${g.courseId}__${g.examDate}`;
         const isResolving = resolving === key;
         return (
           <div key={key} className="bg-white rounded-xl border border-red-200 overflow-hidden">
@@ -1684,7 +1684,7 @@ function ConflictsTab() {
                     )}
                   </div>
                   <button
-                    onClick={() => handleResolve(g.courseCode, g.examDate, u.uploadId)}
+                    onClick={() => handleResolve(g.courseId, g.examDate, u.uploadId)}
                     disabled={isResolving}
                     className="shrink-0 px-3 py-1.5 text-xs font-medium text-white bg-brand-600
                                hover:bg-brand-700 disabled:opacity-50 rounded-lg transition-colors"

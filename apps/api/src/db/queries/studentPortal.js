@@ -84,13 +84,15 @@ export async function getStudentExamBookings(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
     `SELECT
-       id, course_code, exam_date, exam_time, exam_type,
-       special_materials_note, status,
-       base_duration_mins, extra_mins, stb_mins, computed_duration_mins,
-       confirmed_at, created_at, updated_at
-     FROM exam_booking_request
-     WHERE student_profile_id = $1
-     ORDER BY exam_date DESC, created_at DESC`,
+       ebr.id, ebr.course_id, c.code AS course_code,
+       ebr.exam_date, ebr.exam_time, ebr.exam_type,
+       ebr.special_materials_note, ebr.status,
+       ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins, ebr.computed_duration_mins,
+       ebr.confirmed_at, ebr.created_at, ebr.updated_at
+     FROM exam_booking_request ebr
+     JOIN course c ON c.id = ebr.course_id
+     WHERE ebr.student_profile_id = $1
+     ORDER BY ebr.exam_date DESC, ebr.created_at DESC`,
     [studentProfileId],
   );
   return result.rows;
@@ -118,20 +120,20 @@ export async function getStudentAccommodationCodes(schema, studentProfileId) {
  * exam_upload matching the given course code and exam type.
  * Returns null if no upload is found.
  */
-export async function findExamUploadDuration(schema, courseCode, examType, examDate, examTime) {
+export async function findExamUploadDuration(schema, courseId, examType, examDate, examTime) {
   const result = await tenantQuery(
     schema,
     `SELECT eu.exam_duration_mins
      FROM exam_upload eu
      JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
-     WHERE UPPER(eu.course_code) = UPPER($1)
+     WHERE eu.course_id             = $1
        AND eu.exam_type_label::text = $2
        AND eu.status                = 'submitted'
        AND eud.exam_date            = $3
        AND (eud.time_slot IS NULL OR eud.time_slot = $4::time)
      ORDER BY eu.submitted_at DESC
      LIMIT 1`,
-    [courseCode, examType, examDate, examTime ?? null],
+    [courseId, examType, examDate, examTime ?? null],
   );
   return result.rows[0]?.exam_duration_mins ?? null;
 }
@@ -147,40 +149,25 @@ export async function getStudentBookingsOnDate(
 ) {
   const result = await tenantQuery(
     schema,
-    `SELECT exam_time, computed_duration_mins, course_code
-     FROM exam_booking_request
-     WHERE student_profile_id = $1
-       AND exam_date           = $2
-       AND status NOT IN ('cancelled', 'professor_rejected')
-       AND exam_time IS NOT NULL
-       AND computed_duration_mins IS NOT NULL`,
+    `SELECT ebr.exam_time, ebr.computed_duration_mins, c.code AS course_code
+     FROM exam_booking_request ebr
+     JOIN course c ON c.id = ebr.course_id
+     WHERE ebr.student_profile_id = $1
+       AND ebr.exam_date           = $2
+       AND ebr.status NOT IN ('cancelled', 'professor_rejected')
+       AND ebr.exam_time IS NOT NULL
+       AND ebr.computed_duration_mins IS NOT NULL`,
     [studentProfileId, examDate],
   );
   return result.rows;
 }
 
 /**
- * Get existing SARS appointments for a student on a given date.
+ * SARS appointments no longer exist — always returns empty.
+ * Kept for API compatibility during transition.
  */
-export async function getSarsAppointmentsOnDate(
-  schema,
-  studentProfileId,
-  examDate,
-) {
-  const result = await tenantQuery(
-    schema,
-    `SELECT a.start_time, a.duration_mins, e.course_code
-     FROM appointment a
-     JOIN exam_room er ON er.id = a.exam_room_id
-     JOIN exam      e  ON e.id  = er.exam_id
-     JOIN exam_day  ed ON ed.id = e.exam_day_id
-     WHERE a.student_profile_id = $1
-       AND ed.date              = $2
-       AND a.is_cancelled       = FALSE
-       AND a.start_time IS NOT NULL`,
-    [studentProfileId, examDate],
-  );
-  return result.rows;
+export async function getSarsAppointmentsOnDate() {
+  return [];
 }
 
 /**
@@ -190,7 +177,7 @@ export async function createExamBookingRequest(
   schema,
   {
     studentProfileId,
-    courseCode,
+    courseId,
     examDate,
     examTime,
     examType,
@@ -202,22 +189,20 @@ export async function createExamBookingRequest(
     computedDurationMins,
   },
 ) {
-  const normalizedCode = courseCode.toUpperCase().trim();
-
   // Look up the professor responsible for this course via course_dossier
   const profResult = await tenantQuery(
     schema,
     `SELECT professor_id FROM course_dossier
-     WHERE UPPER(course_code) = $1
+     WHERE course_id = $1
      LIMIT 1`,
-    [normalizedCode],
+    [courseId],
   );
   const professorProfileId = profResult.rows[0]?.professor_id ?? null;
 
   const result = await tenantQuery(
     schema,
     `INSERT INTO exam_booking_request
-       (student_profile_id, course_code, exam_date, exam_time, exam_type,
+       (student_profile_id, course_id, exam_date, exam_time, exam_type,
         special_materials_note, professor_profile_id,
         student_duration_mins,
         base_duration_mins, extra_mins, stb_mins, computed_duration_mins)
@@ -225,7 +210,7 @@ export async function createExamBookingRequest(
      RETURNING id`,
     [
       studentProfileId,
-      normalizedCode,
+      courseId,
       examDate,
       examTime ?? null,
       examType ?? "midterm",
@@ -293,11 +278,13 @@ export async function getCancellationRequest(schema, requestId) {
        cr.id, cr.exam_booking_request_id, cr.student_profile_id, cr.student_reason,
        cr.request_status, cr.admin_profile_id, cr.admin_reason, cr.reviewed_at,
        cr.created_at, cr.updated_at,
-       ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
+       ebr.course_id, c.code AS course_code,
+       ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
        sp.student_number, u.first_name, u.last_name, u.email,
        admin_u.first_name AS admin_first_name, admin_u.last_name AS admin_last_name
      FROM cancellation_request cr
      JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+     JOIN course c ON c.id = ebr.course_id
      JOIN student_profile sp ON sp.id = cr.student_profile_id
      JOIN "user" u ON u.id = sp.user_id
      LEFT JOIN "user" admin_u ON admin_u.id = cr.admin_profile_id
@@ -320,11 +307,13 @@ export async function getPendingCancellationRequests(
        cr.id, cr.exam_booking_request_id, cr.student_profile_id, cr.student_reason,
        cr.request_status, cr.admin_profile_id, cr.admin_reason, cr.reviewed_at,
        cr.created_at, cr.updated_at,
-       ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
+       ebr.course_id, c.code AS course_code,
+       ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
        sp.student_number, u.first_name, u.last_name, u.email,
        admin_u.first_name AS admin_first_name, admin_u.last_name AS admin_last_name
      FROM cancellation_request cr
      JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+     JOIN course c ON c.id = ebr.course_id
      JOIN student_profile sp ON sp.id = cr.student_profile_id
      JOIN "user" u ON u.id = sp.user_id
      LEFT JOIN "user" admin_u ON admin_u.id = cr.admin_profile_id

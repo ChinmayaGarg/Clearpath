@@ -59,6 +59,9 @@ const migrationMap = {
   35: "035_room_features.sql",
   36: "036_merge_accommodation_tables.sql",
   37: "037_course_table.sql",
+  38: "038_drop_sars_tables.sql",
+  39: "039_course_id_fk.sql",
+  40: "040_restore_exam_stage_audit.sql",
 };
 
 const filename = migrationMap[targetVersion];

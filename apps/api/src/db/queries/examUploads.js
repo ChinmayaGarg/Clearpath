@@ -56,7 +56,8 @@ export async function getUploadFileInfo(schema, uploadId, professorProfileId) {
 }
 
 /**
- * Get the allowed course codes for a professor based on their course_dossier entries.
+ * Get the allowed course IDs for a professor based on their course_dossier entries.
+ * Returns an array of UUID strings.
  */
 export async function getAllowedCoursesForProfessor(
   schema,
@@ -64,13 +65,12 @@ export async function getAllowedCoursesForProfessor(
 ) {
   const result = await tenantQuery(
     schema,
-    `SELECT DISTINCT UPPER(course_code) AS course_code
-     FROM course_dossier
-     WHERE professor_id = $1
-     ORDER BY UPPER(course_code)`,
+    `SELECT DISTINCT cd.course_id
+     FROM course_dossier cd
+     WHERE cd.professor_id = $1`,
     [professorProfileId],
   );
-  return result.rows.map((r) => r.course_code);
+  return result.rows.map((r) => r.course_id);
 }
 
 /**
@@ -80,7 +80,7 @@ export async function listUploadsForProfessor(schema, professorProfileId) {
   const result = await tenantQuery(
     schema,
     `SELECT
-       eu.id, eu.course_code, eu.exam_type_label, eu.version_label,
+       eu.id, eu.course_id, c.code AS course_code, eu.exam_type_label, eu.version_label,
        eu.delivery, eu.materials, eu.password, eu.rwg_flag,
        eu.is_makeup, eu.makeup_notes, eu.status, eu.submitted_at,
        eu.created_at, eu.updated_at,
@@ -97,16 +97,16 @@ export async function listUploadsForProfessor(schema, professorProfileId) {
              'id',           eud.id,
              'exam_date',    eud.exam_date,
              'time_slot',    eud.time_slot,
-             'match_status', eud.match_status,
-             'matched_exam_id', eud.matched_exam_id
+             'match_status', eud.match_status
            ) ORDER BY eud.exam_date
          ) FILTER (WHERE eud.id IS NOT NULL),
          '[]'
        ) AS dates
      FROM exam_upload eu
+     JOIN course c ON c.id = eu.course_id
      LEFT JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
      WHERE eu.professor_profile_id = $1
-     GROUP BY eu.id
+     GROUP BY eu.id, c.code
      ORDER BY eu.updated_at DESC`,
     [professorProfileId],
   );
@@ -177,7 +177,7 @@ export async function createUpload(
   schema,
   {
     professorProfileId,
-    courseCode,
+    courseId,
     examTypeLabel,
     versionLabel,
     delivery,
@@ -200,7 +200,7 @@ export async function createUpload(
   const result = await tenantQuery(
     schema,
     `INSERT INTO exam_upload
-       (professor_profile_id, course_code, exam_type_label, version_label,
+       (professor_profile_id, course_id, exam_type_label, version_label,
         delivery, materials, password, rwg_flag, is_makeup, makeup_notes,
         estimated_copies, exam_duration_mins, exam_format, booklet_type,
         scantron_needed, calculator_type, student_instructions, exam_collection_method,
@@ -209,7 +209,7 @@ export async function createUpload(
      RETURNING id`,
     [
       professorProfileId,
-      courseCode,
+      courseId,
       examTypeLabel,
       versionLabel          ?? null,
       delivery              ?? "pending",
@@ -242,7 +242,7 @@ export async function updateUpload(
   fields,
 ) {
   const allowed = [
-    "course_code",
+    "course_id",
     "exam_type_label",
     "version_label",
     "delivery",
@@ -348,14 +348,12 @@ export async function getPendingReuseRequests(schema, professorProfileId) {
     schema,
     `SELECT
        err.id, err.status, err.professor_note, err.requested_at,
-       eu.course_code, eu.exam_type_label, eu.version_label,
-       ed.date     AS makeup_date,
+       c.code AS course_code, eu.exam_type_label, eu.version_label,
        u.first_name || ' ' || u.last_name AS requested_by_name
      FROM exam_reuse_request err
      JOIN exam_upload eu ON eu.id = err.original_upload_id
        AND eu.professor_profile_id = $1
-     JOIN exam      e  ON e.id  = err.makeup_exam_id
-     JOIN exam_day  ed ON ed.id = e.exam_day_id
+     JOIN course c ON c.id = eu.course_id
      LEFT JOIN "user" u ON u.id = err.requested_by
      WHERE err.status = 'pending'
      ORDER BY err.requested_at DESC`,

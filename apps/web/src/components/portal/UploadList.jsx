@@ -266,6 +266,7 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
             if (!dg.examUploaded && dateStr >= todayStr) {
               missing.push({
                 key: `${course.courseCode}__${dg.examDate}__${dg.examType}`,
+                courseId:     course.courseId,
                 courseCode:   course.courseCode,
                 examDate:     dg.examDate,
                 examTime:     dg.examTime ?? null,
@@ -276,6 +277,7 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
             if (dg.hasRwgStudents && !dg.wordDocUploaded && dateStr >= todayStr) {
               missingWd.push({
                 key: `wd__${course.courseCode}__${dg.examDate}__${dg.examType}`,
+                courseId:   course.courseId,
                 courseCode: course.courseCode,
                 examDate:   dg.examDate,
                 examTime:   dg.examTime ?? null,
@@ -324,7 +326,7 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
               key={b.key}
               {...b}
               onUpload={onNewUpload ? () => onNewUpload({
-                courseCode: b.courseCode,
+                courseId:   b.courseId,
                 examType:   b.examType,
                 examDate:   b.examDate,
                 examTime:   b.examTime,
@@ -342,7 +344,7 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
               key={b.key}
               {...b}
               onUpload={onNewWordDocUpload ? () => onNewWordDocUpload({
-                courseCode: b.courseCode,
+                courseId:   b.courseId,
                 examType:   b.examType,
                 examDate:   b.examDate,
                 examTime:   b.examTime,

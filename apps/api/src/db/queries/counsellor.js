@@ -95,22 +95,6 @@ export async function getStudentDetail(schema, studentProfileId) {
        ORDER BY sa.source DESC, sa.term DESC NULLS FIRST, ac.code`,
       [studentProfileId],
     ),
-    tenantQuery(
-      schema,
-      `SELECT
-         e.id, e.course_code, e.exam_type, e.status,
-         ed.date,
-         er.room_name,
-         a.id AS appointment_id,
-         a.start_time, a.duration_mins, a.is_cancelled
-       FROM appointment a
-       JOIN exam_room er ON er.id = a.exam_room_id
-       JOIN exam      e  ON e.id  = er.exam_id
-       JOIN exam_day  ed ON ed.id = e.exam_day_id
-       WHERE a.student_profile_id = $1
-       ORDER BY ed.date DESC`,
-      [studentProfileId],
-    ),
   ]);
 
   if (!profileResult.rows.length) return null;
@@ -118,47 +102,22 @@ export async function getStudentDetail(schema, studentProfileId) {
   return {
     ...profileResult.rows[0],
     accommodations: accResult.rows,
-    recentExams: examsResult.rows,
+    recentExams: [],
   };
 }
 
 /**
  * Get all exams a student is booked into.
  */
-export async function getStudentExams(schema, studentProfileId) {
-  const result = await tenantQuery(
-    schema,
-    `SELECT
-       e.id, e.course_code, e.exam_type, e.status,
-       ed.date,
-       er.room_name,
-       a.id AS appointment_id,
-       a.start_time, a.duration_mins, a.is_cancelled
-     FROM appointment a
-     JOIN exam_room er ON er.id = a.exam_room_id
-     JOIN exam      e  ON e.id  = er.exam_id
-     JOIN exam_day  ed ON ed.id = e.exam_day_id
-     WHERE a.student_profile_id = $1
-     ORDER BY ed.date DESC`,
-    [studentProfileId],
-  );
-  return result.rows;
+export async function getStudentExams() {
+  return [];
 }
 
 /**
  * Get accommodation codes on a specific appointment.
  */
-export async function getAppointmentAccommodations(schema, appointmentId) {
-  const result = await tenantQuery(
-    schema,
-    `SELECT aa.id, ac.code, ac.label, ac.triggers_rwg_flag, aa.raw_text
-     FROM appointment_accommodation aa
-     JOIN accommodation_code ac ON ac.id = aa.code_id
-     WHERE aa.appointment_id = $1
-     ORDER BY ac.code`,
-    [appointmentId],
-  );
-  return result.rows;
+export async function getAppointmentAccommodations() {
+  return [];
 }
 
 /**
@@ -249,53 +208,54 @@ export async function removeStudentAccommodation(
 export async function listStudentCourses(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
-    `SELECT sc.id, sc.course_code, sc.created_at,
+    `SELECT sc.id, sc.course_id, c.code AS course_code, sc.created_at,
             pp.id   AS professor_id,
             u.first_name AS prof_first_name,
             u.last_name  AS prof_last_name
      FROM student_course sc
+     JOIN course c ON c.id = sc.course_id
      LEFT JOIN LATERAL (
        SELECT cd.professor_id
        FROM course_dossier cd
-       WHERE UPPER(cd.course_code) = UPPER(sc.course_code)
+       WHERE cd.course_id = sc.course_id
        ORDER BY cd.updated_at DESC
        LIMIT 1
      ) latest_cd ON TRUE
      LEFT JOIN professor_profile pp ON pp.id = latest_cd.professor_id
      LEFT JOIN "user" u ON u.id = pp.user_id
      WHERE sc.student_profile_id = $1
-     ORDER BY sc.course_code`,
+     ORDER BY c.code`,
     [studentProfileId],
   );
   return result.rows;
 }
 
 /**
- * Manually assign a course code to a student (admin only).
- * Normalises courseCode to UPPER. Throws pg error 23505 on duplicate.
+ * Manually assign a course to a student (admin only).
+ * Throws pg error 23505 on duplicate.
  */
-export async function addStudentCourse(schema, { studentProfileId, courseCode, addedBy }) {
+export async function addStudentCourse(schema, { studentProfileId, courseId, addedBy }) {
   const result = await tenantQuery(
     schema,
-    `INSERT INTO student_course (student_profile_id, course_code, added_by)
+    `INSERT INTO student_course (student_profile_id, course_id, added_by)
      VALUES ($1, $2, $3)
-     RETURNING id, course_code, created_at`,
-    [studentProfileId, courseCode.trim().toUpperCase(), addedBy],
+     RETURNING id, course_id, created_at`,
+    [studentProfileId, courseId, addedBy],
   );
   return result.rows[0];
 }
 
 /**
- * Remove a manually-assigned course code from a student.
+ * Remove a manually-assigned course from a student.
  * Returns the deleted id, or null if not found.
  */
-export async function removeStudentCourse(schema, studentProfileId, courseCode) {
+export async function removeStudentCourse(schema, studentProfileId, courseId) {
   const result = await tenantQuery(
     schema,
     `DELETE FROM student_course
-     WHERE student_profile_id = $1 AND course_code = $2
+     WHERE student_profile_id = $1 AND course_id = $2
      RETURNING id`,
-    [studentProfileId, courseCode],
+    [studentProfileId, courseId],
   );
   return result.rows[0]?.id ?? null;
 }

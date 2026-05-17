@@ -12,91 +12,57 @@ const DELIVERY_OPTIONS = [
 
 export default function AddDossierModal({ onClose, onCreated }) {
   const [professors, setProfessors] = useState([]);
-  const [courseOptions, setCourseOptions] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [form, setForm] = useState({
     professorId: "",
-    courseCode: "",
+    courseId: "",
     preferredDelivery: "pending",
     typicalMaterials: "",
     passwordReminder: false,
     notes: "",
   });
   const [loadingProfessors, setLoadingProfessors] = useState(true);
-  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [loadingCourses, setLoadingCourses] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    async function loadProfessors() {
-      setLoadingProfessors(true);
+    async function load() {
       try {
-        const data = await api.get("/professors");
-        setProfessors(data.professors || []);
+        const [profData, courseData] = await Promise.all([
+          api.get("/professors"),
+          api.get("/institution/course-list"),
+        ]);
+        setProfessors(profData.professors || []);
+        setCourses(courseData.courses ?? []);
       } catch (err) {
         toast(err.message, "error");
       } finally {
         setLoadingProfessors(false);
-      }
-    }
-
-    loadProfessors();
-  }, []);
-
-  useEffect(() => {
-    async function loadCourses() {
-      if (!form.professorId) {
-        setCourseOptions([]);
-        setForm((prev) => ({ ...prev, courseCode: "" }));
-        return;
-      }
-
-      setLoadingCourses(true);
-      try {
-        const data = await api.get(`/professors/${form.professorId}`);
-        const professor = data.professor;
-        const courseCodes = new Set();
-
-        (professor.dossiers || []).forEach((d) => {
-          if (d.course_code) courseCodes.add(d.course_code.toUpperCase());
-        });
-        (professor.recentExams || []).forEach((e) => {
-          if (e.course_code) courseCodes.add(e.course_code.toUpperCase());
-        });
-
-        setCourseOptions(
-          Array.from(courseCodes).sort((a, b) => a.localeCompare(b)),
-        );
-      } catch (err) {
-        toast(err.message, "error");
-      } finally {
         setLoadingCourses(false);
       }
     }
-
-    loadCourses();
-  }, [form.professorId]);
+    load();
+  }, []);
 
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
     try {
       const professor = professors.find((p) => p.id === form.professorId);
-      if (!professor) {
-        throw new Error("Please select a professor");
-      }
+      if (!professor) throw new Error("Please select a professor");
+      if (!form.courseId) throw new Error("Please select a course");
 
-      if (!form.courseCode) {
-        throw new Error("Please select a course code");
-      }
+      const selectedCourse = courses.find((c) => c.id === form.courseId);
 
       await api.post("/professors/link-courses", {
         professorEmail: professor.email,
-        courseCode: form.courseCode,
+        courseId: form.courseId,
         preferredDelivery: form.preferredDelivery,
         typicalMaterials: form.typicalMaterials || undefined,
         passwordReminder: form.passwordReminder,
         notes: form.notes || undefined,
       });
-      toast(`Dossier added for ${form.courseCode}`, "success");
+      toast(`Dossier added for ${selectedCourse?.code ?? form.courseId}`, "success");
       onCreated?.();
     } catch (err) {
       toast(err.message, "error");
@@ -104,8 +70,6 @@ export default function AddDossierModal({ onClose, onCreated }) {
       setSaving(false);
     }
   }
-
-  const selectedProfessor = professors.find((p) => p.id === form.professorId);
 
   return (
     <Modal title="Add dossier" onClose={onClose}>
@@ -140,44 +104,31 @@ export default function AddDossierModal({ onClose, onCreated }) {
 
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
-            Course code
+            Course
           </label>
           <select
             required
-            disabled={
-              !form.professorId || loadingCourses || courseOptions.length === 0
-            }
-            value={form.courseCode}
+            disabled={loadingCourses || courses.length === 0}
+            value={form.courseId}
             onChange={(e) =>
-              setForm((prev) => ({ ...prev, courseCode: e.target.value }))
+              setForm((prev) => ({ ...prev, courseId: e.target.value }))
             }
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 disabled:bg-gray-100"
           >
             <option value="" disabled>
-              {loadingCourses
-                ? "Loading courses…"
-                : form.professorId
-                  ? courseOptions.length > 0
-                    ? "Select a course code"
-                    : "No associated courses found"
-                  : "Select a professor first"}
+              {loadingCourses ? "Loading courses…" : courses.length === 0 ? "No courses in master list" : "Select a course"}
             </option>
-            {courseOptions.map((code) => (
-              <option key={code} value={code}>
-                {code}
+            {courses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.code}{c.name ? ` — ${c.name}` : ""}
               </option>
             ))}
           </select>
-          {form.professorId &&
-            !loadingCourses &&
-            courseOptions.length === 0 && (
-              <p className="mt-2 text-xs text-gray-500">
-                No associated course codes were found for{" "}
-                {selectedProfessor?.first_name} {selectedProfessor?.last_name}.
-                If this is a new professor, please create a course dossier from
-                an upload first.
-              </p>
-            )}
+          {!loadingCourses && courses.length === 0 && (
+            <p className="mt-1 text-xs text-gray-500">
+              Add courses under the Courses tab first.
+            </p>
+          )}
         </div>
 
         <div>
@@ -258,7 +209,7 @@ export default function AddDossierModal({ onClose, onCreated }) {
           </button>
           <button
             type="submit"
-            disabled={saving || !form.professorId || !form.courseCode}
+            disabled={saving || !form.professorId || !form.courseId}
             className="flex-1 py-2 bg-brand-600 hover:bg-brand-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
           >
             {saving ? "Adding…" : "Add dossier"}

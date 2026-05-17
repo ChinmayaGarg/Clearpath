@@ -664,7 +664,7 @@ function computeStudentTotalMins(baseMins, codes) {
 // ── Booking form ───────────────────────────────────────────────────────────────
 function BookingForm({ onSuccess, onCancel }) {
   const [form, setForm] = useState({
-    courseCode: "",
+    courseId: "",
     examDate: "",
     examTime: "",
     examType: "midterm",
@@ -690,12 +690,12 @@ function BookingForm({ onSuccess, onCancel }) {
 
   // Fetch professor's uploaded duration when course + type + date are all set
   useEffect(() => {
-    const { courseCode, examType, examDate, examTime } = form;
-    if (!courseCode || !examType || !examDate) {
+    const { courseId, examType, examDate, examTime } = form;
+    if (!courseId || !examType || !examDate) {
       setProfessorDuration(null);
       return;
     }
-    const params = new URLSearchParams({ courseCode, examType, examDate });
+    const params = new URLSearchParams({ courseId, examType, examDate });
     if (examTime) params.set("examTime", examTime);
     api
       .get(`/student/exam-upload-duration?${params}`)
@@ -705,7 +705,7 @@ function BookingForm({ onSuccess, onCancel }) {
         if (mins !== null) set("examDurationMins", String(mins));
       })
       .catch(() => setProfessorDuration(null));
-  }, [form.courseCode, form.examType, form.examDate, form.examTime]); // eslint-disable-line
+  }, [form.courseId, form.examType, form.examDate, form.examTime]); // eslint-disable-line
 
   // Live-compute estimated end time for display
   const estimatedEnd = (() => {
@@ -736,8 +736,8 @@ function BookingForm({ onSuccess, onCancel }) {
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
-    if (!form.courseCode) {
-      setError("Course code is required.");
+    if (!form.courseId) {
+      setError("Course is required.");
       return;
     }
     if (!form.examDate) {
@@ -764,7 +764,7 @@ function BookingForm({ onSuccess, onCancel }) {
     setLoading(true);
     try {
       await api.post("/student/exam-requests", {
-        courseCode: form.courseCode,
+        courseId: form.courseId,
         examDate: form.examDate,
         examTime: form.examTime || undefined,
         examType: form.examType,
@@ -796,15 +796,15 @@ function BookingForm({ onSuccess, onCancel }) {
             </label>
             {courses.length > 0 ? (
               <select
-                value={form.courseCode}
-                onChange={(e) => set("courseCode", e.target.value)}
+                value={form.courseId}
+                onChange={(e) => set("courseId", e.target.value)}
                 className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm
                            focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
               >
                 <option value="">Select course…</option>
                 {courses.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                  <option key={c.id} value={c.id}>
+                    {c.code}
                   </option>
                 ))}
               </select>

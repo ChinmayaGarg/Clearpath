@@ -65,7 +65,7 @@ async function advanceSchema(schema, inst) {
            SELECT (eud.exam_date + MIN(ebr.exam_time))::timestamptz
            FROM exam_booking_request ebr
            JOIN exam_upload eu2 ON eu2.id = eud.exam_upload_id
-           WHERE UPPER(ebr.course_code) = UPPER(eu2.course_code)
+           WHERE ebr.course_id = eu2.course_id
              AND ebr.exam_date = eud.exam_date
              AND ebr.status = 'confirmed'
          ) <= NOW())
@@ -107,7 +107,7 @@ async function advanceSchema(schema, inst) {
            SELECT (eud.exam_date + MIN(ebr.exam_time))::timestamptz
            FROM exam_booking_request ebr
            JOIN exam_upload eu2 ON eu2.id = eud.exam_upload_id
-           WHERE UPPER(ebr.course_code) = UPPER(eu2.course_code)
+           WHERE ebr.course_id = eu2.course_id
              AND ebr.exam_date = eud.exam_date
              AND ebr.status = 'confirmed'
          ) <= NOW())
@@ -118,7 +118,7 @@ async function advanceSchema(schema, inst) {
          WHERE eu2.id = eud.exam_upload_id AND eu2.status = 'submitted'
        )
      RETURNING eud.id AS upload_date_id,
-               (SELECT eu.course_code FROM exam_upload eu WHERE eu.id = eud.exam_upload_id) AS course_code,
+               (SELECT c.code FROM exam_upload eu JOIN course c ON c.id = eu.course_id WHERE eu.id = eud.exam_upload_id) AS course_code,
                eud.exam_date,
                eud.time_slot`,
   );

@@ -4,7 +4,6 @@ import { useBook } from "../hooks/useBook.js";
 import { useBookStore } from "../store/bookStore.js";
 import { useAuth } from "../hooks/useAuth.js";
 import BookView from "../components/book/BookView.jsx";
-import PdfImport from "../components/book/PdfImport.jsx";
 import Modal from "../components/ui/Modal.jsx";
 import ExportButton from "../components/book/ExportButton.jsx";
 import TopNav from "../components/ui/TopNav.jsx";
@@ -14,7 +13,6 @@ export default function Book() {
   const { date, setDate } = useBook();
   const loadAllDates = useBookStore((s) => s.loadAllDates);
   const { user, isAdmin, logout } = useAuth();
-  const [showImport, setShowImport] = useState(false);
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
@@ -64,13 +62,6 @@ export default function Book() {
             Today
           </button>
           <ExportButton date={date} />
-          <button
-            onClick={() => setShowImport(true)}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600
-                       hover:bg-brand-800 rounded-lg transition-colors"
-          >
-            Import PDF
-          </button>
         </div>
 
         {/* Filters */}
@@ -94,12 +85,6 @@ export default function Book() {
         <BookView filter={filter} />
       </div>
 
-      {/* PDF import modal */}
-      {showImport && (
-        <Modal title="Import SARS PDFs" onClose={() => setShowImport(false)}>
-          <PdfImport onImportComplete={() => setShowImport(false)} />
-        </Modal>
-      )}
     </div>
   );
 }

@@ -79,7 +79,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
   const uploadsBase = profId ? `/portal/professor/${profId}/uploads` : `/portal/uploads`;
 
   const [form, setForm] = useState({
-    courseCode:        prefill?.courseCode    ?? "",
+    courseId:          prefill?.courseId      ?? "",
     examTypeLabel:     prefill?.examTypeLabel ?? "midterm",
     delivery:          profId ? "dropped" : "file_upload",
     materials:         "",
@@ -124,7 +124,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
         const u = d.upload;
         setIsWordDoc(!!u.is_word_doc);
         setForm({
-          courseCode:        u.course_code,
+          courseId:          u.course_id,
           examTypeLabel:     u.exam_type_label,
           delivery:          u.delivery,
           materials:         u.materials          ?? "",
@@ -200,7 +200,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
     // If no upload exists yet, create the draft first
     let currentUploadId = uploadId_;
     if (!currentUploadId) {
-      if (!form.courseCode) { toast("Please select a course before uploading", "error"); return; }
+      if (!form.courseId) { toast("Please select a course before uploading", "error"); return; }
       try {
         const data = await api.post(uploadsBase, buildPayload());
         currentUploadId = data.uploadId;
@@ -312,10 +312,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
     }
   }
 
-  const courseOptions =
-    form.courseCode && !courses.includes(form.courseCode)
-      ? [form.courseCode, ...courses]
-      : courses;
+  const courseOptions = courses;
 
   async function handleSubmit({ force = false } = {}) {
     if (!dates.length) {
@@ -392,9 +389,9 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                 Course code
               </label>
               <select
-                value={form.courseCode}
+                value={form.courseId}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, courseCode: e.target.value }))
+                  setForm((f) => ({ ...f, courseId: e.target.value }))
                 }
                 disabled={coursesLoading || courses.length === 0 || !!prefill}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
@@ -407,8 +404,8 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                     : "Select course"}
                 </option>
                 {courseOptions.map((course) => (
-                  <option key={course} value={course}>
-                    {course}
+                  <option key={course.id} value={course.id}>
+                    {course.code}
                   </option>
                 ))}
               </select>
@@ -790,7 +787,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
             disabled={
               saving ||
               fileUploading ||
-              !form.courseCode ||
+              !form.courseId ||
               (!isWordDoc && (
                 !form.examDurationMins ||
                 !form.examFormat ||

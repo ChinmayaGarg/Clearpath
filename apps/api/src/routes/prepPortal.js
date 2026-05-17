@@ -26,7 +26,7 @@ async function fetchPrepData(schema, date) {
     schema,
     `SELECT
        ebr.id AS booking_id,
-       ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type,
+       c.code AS course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type,
        ebr.special_materials_note,
        ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins, ebr.computed_duration_mins,
        ebr.student_duration_mins,
@@ -43,6 +43,7 @@ async function fetchPrepData(schema, date) {
        eu.password              AS exam_password,
        eu.scantron_needed       AS scantron_needed
      FROM exam_booking_request ebr
+     JOIN course c ON c.id = ebr.course_id
      JOIN student_profile sp ON sp.id = ebr.student_profile_id
      JOIN "user" u ON u.id = sp.user_id
      LEFT JOIN booking_assignment ba ON ba.exam_booking_request_id = ebr.id
@@ -57,7 +58,7 @@ async function fetchPrepData(schema, date) {
               TRUE AS upload_found
        FROM exam_upload eu2
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu2.id
-       WHERE UPPER(eu2.course_code) = UPPER(ebr.course_code)
+       WHERE eu2.course_id = ebr.course_id
          AND eud.exam_date = ebr.exam_date
          AND (
            eu2.status = 'submitted'
@@ -71,7 +72,7 @@ async function fetchPrepData(schema, date) {
      LEFT JOIN LATERAL (
        SELECT professor_id
        FROM course_dossier
-       WHERE UPPER(course_code) = UPPER(ebr.course_code)
+       WHERE course_id = ebr.course_id
        ORDER BY created_at DESC
        LIMIT 1
      ) cd ON TRUE
@@ -79,7 +80,7 @@ async function fetchPrepData(schema, date) {
             ON pp.id = COALESCE(eu.professor_profile_id, ebr.professor_profile_id, cd.professor_id)
      LEFT JOIN "user" pu ON pu.id = pp.user_id
      WHERE ebr.exam_date = $1 AND ebr.status = 'confirmed'
-     ORDER BY UPPER(ebr.course_code) ASC, ebr.exam_time ASC NULLS LAST, u.last_name ASC`,
+     ORDER BY c.code ASC, ebr.exam_time ASC NULLS LAST, u.last_name ASC`,
     [date],
   );
 
@@ -239,7 +240,7 @@ router.get('/exam-details', async (req, res, next) => {
       req.tenantSchema,
       `SELECT
          eu.id AS upload_id,
-         eu.course_code, eu.exam_type_label, eu.version_label,
+         c.code AS course_code, eu.exam_type_label, eu.version_label,
          eu.delivery, eu.dropoff_confirmed_at, eu.file_path, eu.submitted_at,
          eu.exam_duration_mins, eu.exam_format,
          eu.booklet_type, eu.scantron_needed,
@@ -255,7 +256,7 @@ router.get('/exam-details', async (req, res, next) => {
              'time_slot',  eud.time_slot::text,
              'student_count', (
                SELECT COUNT(*) FROM exam_booking_request ebr
-               WHERE UPPER(ebr.course_code) = UPPER(eu.course_code)
+               WHERE ebr.course_id = eu.course_id
                  AND ebr.exam_date = eud.exam_date
                  AND ebr.status IN ('confirmed', 'professor_approved')
              )
@@ -263,13 +264,14 @@ router.get('/exam-details', async (req, res, next) => {
            ORDER BY eud.exam_date ASC, eud.time_slot ASC NULLS LAST
          ) AS dates
        FROM exam_upload eu
+       JOIN course c ON c.id = eu.course_id
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
        JOIN professor_profile pp ON pp.id = eu.professor_profile_id
        JOIN "user" u ON u.id = pp.user_id
        WHERE eu.status = 'submitted'
          AND eud.exam_date >= CURRENT_DATE
-       GROUP BY eu.id, u.first_name, u.last_name, u.email, pp.phone
-       ORDER BY MIN(eud.exam_date) ASC, UPPER(eu.course_code) ASC`,
+       GROUP BY eu.id, c.code, u.first_name, u.last_name, u.email, pp.phone
+       ORDER BY MIN(eud.exam_date) ASC, c.code ASC`,
     );
     res.json({ ok: true, uploads: result.rows });
   } catch (err) { next(err); }
@@ -283,7 +285,7 @@ router.get('/exams', async (req, res, next) => {
       req.tenantSchema,
       `SELECT
          eu.id AS upload_id,
-         eu.course_code, eu.exam_type_label, eu.version_label,
+         c.code AS course_code, eu.exam_type_label, eu.version_label,
          eu.delivery, eu.dropoff_confirmed_at, eu.submitted_at,
          eu.exam_duration_mins, eu.exam_format,
          eu.booklet_type, eu.scantron_needed,
@@ -311,12 +313,13 @@ router.get('/exams', async (req, res, next) => {
            ), '[]'
          ) AS extra_files
        FROM exam_upload eu
+       JOIN course c ON c.id = eu.course_id
        JOIN professor_profile pp ON pp.id = eu.professor_profile_id
        JOIN "user" u ON u.id = pp.user_id
        LEFT JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
        WHERE eu.status = 'submitted'
-       GROUP BY eu.id, u.first_name, u.last_name, u.email, pp.phone, pp.id
-       ORDER BY MAX(eud.exam_date) DESC NULLS LAST, UPPER(eu.course_code) ASC`,
+       GROUP BY eu.id, c.code, u.first_name, u.last_name, u.email, pp.phone, pp.id
+       ORDER BY MAX(eud.exam_date) DESC NULLS LAST, c.code ASC`,
     );
     res.json({ ok: true, uploads: result.rows });
   } catch (err) { next(err); }
@@ -377,19 +380,20 @@ async function fetchExamBookRooms(schema, date) {
   const r = await tenantQuery(
     schema,
     `SELECT
-       UPPER(ebr.course_code)                                      AS course_code,
+       c.code                                                      AS course_code,
        br.name                                                     AS room_name,
        ebr.exam_time::text                                         AS start_time,
        COUNT(*)::int                                               AS student_count
      FROM exam_booking_request ebr
+     JOIN course c ON c.id = ebr.course_id
      LEFT JOIN booking_assignment    ba  ON ba.exam_booking_request_id = ebr.id
      LEFT JOIN booking_schedule_room bsr ON bsr.id = ba.schedule_room_id
      LEFT JOIN booking_schedule      bs  ON bs.id  = bsr.schedule_id AND bs.date = $1
      LEFT JOIN booking_room          br  ON br.id  = bsr.booking_room_id
      WHERE ebr.exam_date = $1
        AND ebr.status IN ('confirmed', 'professor_approved')
-     GROUP BY UPPER(ebr.course_code), br.name, ebr.exam_time::text
-     ORDER BY UPPER(ebr.course_code), MIN(ebr.exam_time) NULLS LAST`,
+     GROUP BY c.code, br.name, ebr.exam_time::text
+     ORDER BY c.code, MIN(ebr.exam_time) NULLS LAST`,
     [date],
   );
   const roomMap = {};
@@ -405,7 +409,7 @@ async function fetchExamBookRooms(schema, date) {
 
 const EXAM_BOOK_QUERY = `SELECT
          eu.id AS upload_id,
-         eu.course_code, eu.exam_type_label, eu.version_label,
+         c.code AS course_code, eu.exam_type_label, eu.version_label,
          eu.delivery, eu.dropoff_confirmed_at, eu.file_path,
          eu.exam_duration_mins, eu.exam_format, eu.booklet_type,
          eu.scantron_needed, eu.calculator_type, eu.student_instructions,
@@ -416,16 +420,17 @@ const EXAM_BOOK_QUERY = `SELECT
          u.email AS prof_email, pp.phone AS prof_phone,
          (
            SELECT COUNT(*) FROM exam_booking_request ebr
-           WHERE UPPER(ebr.course_code) = UPPER(eu.course_code)
+           WHERE ebr.course_id = eu.course_id
              AND ebr.exam_date = $1
              AND ebr.status IN ('confirmed', 'professor_approved')
          ) AS student_count
        FROM exam_upload eu
+       JOIN course c ON c.id = eu.course_id
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id AND eud.exam_date = $1
        JOIN professor_profile pp ON pp.id = eu.professor_profile_id
        JOIN "user" u ON u.id = pp.user_id
        WHERE eu.status = 'submitted'
-       ORDER BY UPPER(eu.course_code) ASC, eud.time_slot ASC NULLS LAST`;
+       ORDER BY c.code ASC, eud.time_slot ASC NULLS LAST`;
 
 // ── GET /api/prep/exam-book ───────────────────────────────────────────────────
 // Submitted uploads for a specific date — full exam details for the Exam Book view.
@@ -476,7 +481,7 @@ router.get('/dropoffs', async (req, res, next) => {
       req.tenantSchema,
       `SELECT
          eu.id AS upload_id,
-         eu.course_code, eu.status, eu.created_at,
+         c.code AS course_code, eu.status, eu.created_at,
          eu.exam_type_label, eu.version_label, eu.exam_format,
          eu.exam_duration_mins, eu.calculator_type, eu.scantron_needed,
          eu.booklet_type, eu.exam_collection_method, eu.student_instructions,
@@ -487,18 +492,19 @@ router.get('/dropoffs', async (req, res, next) => {
          pp.phone AS prof_phone,
          (
            SELECT COUNT(*) FROM exam_booking_request ebr
-           WHERE UPPER(ebr.course_code) = UPPER(eu.course_code)
+           WHERE ebr.course_id = eu.course_id
              AND ebr.exam_date = eud.exam_date
              AND ebr.status = 'confirmed'
          ) AS student_count
        FROM exam_upload eu
+       JOIN course c ON c.id = eu.course_id
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
        JOIN professor_profile pp ON pp.id = eu.professor_profile_id
        JOIN "user" u ON u.id = pp.user_id
        WHERE eu.delivery = 'dropped'
          AND eu.dropoff_confirmed_at IS NULL
          AND eud.exam_date >= CURRENT_DATE
-       ORDER BY eud.exam_date ASC, eu.course_code ASC`,
+       ORDER BY eud.exam_date ASC, c.code ASC`,
     );
     res.json({ ok: true, dropoffs: result.rows });
   } catch (err) { next(err); }
@@ -585,7 +591,7 @@ router.get('/exam-returns', async (req, res, next) => {
       `SELECT
          eu.id              AS upload_id,
          eud.id             AS upload_date_id,
-         eu.course_code,
+         c.code AS course_code,
          eu.exam_type_label,
          eu.version_label,
          eu.exam_collection_method,
@@ -606,16 +612,17 @@ router.get('/exam-returns', async (req, res, next) => {
          COUNT(ebr.id) FILTER (WHERE ebr.status = 'confirmed')          AS confirmed_count,
          COUNT(ebr.id) FILTER (WHERE ebr.attendance_status = 'no_show') AS no_show_count
        FROM exam_upload eu
+       JOIN course c ON c.id = eu.course_id
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
        JOIN professor_profile pp ON pp.id = eu.professor_profile_id
        JOIN "user" u ON u.id = pp.user_id
        LEFT JOIN exam_booking_request ebr
-              ON UPPER(ebr.course_code) = UPPER(eu.course_code)
+              ON ebr.course_id = eu.course_id
              AND ebr.exam_date = eud.exam_date
              AND (eud.time_slot IS NULL OR ebr.exam_time = eud.time_slot)
        ${whereClause}
-       GROUP BY eu.id, eud.id, u.first_name, u.last_name, u.email
-       ORDER BY eud.exam_date DESC, UPPER(eu.course_code)`,
+       GROUP BY eu.id, c.code, eud.id, u.first_name, u.last_name, u.email
+       ORDER BY eud.exam_date DESC, c.code`,
     );
 
     const rows = result.rows;
@@ -648,9 +655,23 @@ router.get('/exam-returns', async (req, res, next) => {
     }
 
     // Fetch writers for ongoing sessions
+    // Fetch upload's course_id for ongoing sessions (c.code already in row as course_code)
+    const ongoingUploadIds = rows
+      .filter(r => r.session_stage === 'ongoing')
+      .map(r => r.upload_id);
+    const courseIdByUpload = {};
+    if (ongoingUploadIds.length) {
+      const cidResult = await tenantQuery(
+        req.tenantSchema,
+        `SELECT id AS upload_id, course_id FROM exam_upload WHERE id = ANY($1::uuid[])`,
+        [ongoingUploadIds],
+      );
+      for (const row of cidResult.rows) courseIdByUpload[row.upload_id] = row.course_id;
+    }
+
     const ongoingIds = rows
       .filter(r => r.session_stage === 'ongoing')
-      .map(r => ({ uploadDateId: r.upload_date_id, courseCode: r.course_code, examDate: r.exam_date, timeSlot: r.time_slot }));
+      .map(r => ({ uploadDateId: r.upload_date_id, courseId: courseIdByUpload[r.upload_id], examDate: r.exam_date, timeSlot: r.time_slot }));
 
     const writersMap = {};
     for (const session of ongoingIds) {
@@ -668,13 +689,13 @@ router.get('/exam-returns', async (req, res, next) => {
          LEFT JOIN booking_assignment ba ON ba.exam_booking_request_id = ebr.id
          LEFT JOIN booking_schedule_room bsr ON bsr.id = ba.schedule_room_id
          LEFT JOIN booking_room br ON br.id = bsr.booking_room_id
-         WHERE UPPER(ebr.course_code) = UPPER($1)
+         WHERE ebr.course_id = $1
            AND ebr.exam_date = $2
            AND ($3::time IS NULL OR ebr.exam_time = $3::time)
            AND ebr.status = 'confirmed'
            AND ebr.attendance_status IS DISTINCT FROM 'no_show'
          ORDER BY estimated_finish DESC NULLS LAST`,
-        [session.courseCode, session.examDate, session.timeSlot],
+        [session.courseId, session.examDate, session.timeSlot],
       );
       writersMap[session.uploadDateId] = wResult.rows.map(w => ({
         firstName:       w.first_name,

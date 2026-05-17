@@ -90,12 +90,14 @@ function CourseCombobox({ value, onChange, allCourses }) {
   const [open,      setOpen]      = useState(false);
   const closeTimer                = useRef(null);
 
+  const selectedCode = value ? (allCourses.find(c => c.id === value)?.code ?? value) : '';
+
   const filtered = query.trim()
     ? allCourses.filter(c => c.code.toUpperCase().includes(query.toUpperCase()))
     : allCourses;
 
-  function selectCourse(code) {
-    onChange(code);
+  function selectCourse(id) {
+    onChange(id);
     setQuery('');
     setOpen(false);
   }
@@ -113,7 +115,7 @@ function CourseCombobox({ value, onChange, allCourses }) {
     <div className="relative flex-1">
       <input
         autoFocus
-        value={value ? value : query}
+        value={value ? selectedCode : query}
         onChange={e => {
           const v = e.target.value.toUpperCase();
           if (value) onChange('');
@@ -134,7 +136,7 @@ function CourseCombobox({ value, onChange, allCourses }) {
               <button
                 type="button"
                 onMouseDown={e => e.preventDefault()}
-                onClick={() => selectCourse(c.code)}
+                onClick={() => selectCourse(c.id)}
                 className="w-full text-left px-3 py-2 hover:bg-brand-50 transition-colors
                            flex items-center gap-2"
               >
@@ -185,11 +187,10 @@ function StudentCourses({ student, onBack }) {
 
   async function handleAdd(e) {
     e.preventDefault();
-    const code = courseInput.trim().toUpperCase();
-    if (!code) { toast('Enter a course code', 'warning'); return; }
+    if (!courseInput) { toast('Select a course', 'warning'); return; }
     setSavingCourse(true);
     try {
-      await api.post(`/counsellor/students/${student.id}/courses`, { courseCode: code });
+      await api.post(`/counsellor/students/${student.id}/courses`, { courseId: courseInput });
       toast('Course added', 'success');
       setCourseInput('');
       setShowForm(false);
@@ -201,9 +202,9 @@ function StudentCourses({ student, onBack }) {
     }
   }
 
-  async function handleRemove(courseCode) {
+  async function handleRemove(courseId) {
     try {
-      await api.delete(`/counsellor/students/${student.id}/courses/${encodeURIComponent(courseCode)}`);
+      await api.delete(`/counsellor/students/${student.id}/courses/${courseId}`);
       toast('Course removed', 'success');
       loadCourses();
     } catch (err) {
@@ -304,7 +305,7 @@ function StudentCourses({ student, onBack }) {
                     )}
                   </div>
                   <button
-                    onClick={() => handleRemove(c.course_code)}
+                    onClick={() => handleRemove(c.course_id)}
                     className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1 shrink-0"
                   >
                     Remove

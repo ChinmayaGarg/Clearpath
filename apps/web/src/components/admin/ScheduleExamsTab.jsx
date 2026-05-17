@@ -31,7 +31,7 @@ export default function ScheduleExamsTab() {
 
   // Form state
   const [formData, setFormData] = useState({
-    courseCode: "",
+    courseId: "",
     courseProfessor: "",
     examDate: "",
     examTime: "",
@@ -85,7 +85,7 @@ export default function ScheduleExamsTab() {
   function handleSelectCourse(course) {
     setFormData((prev) => ({
       ...prev,
-      courseCode: course.course_code,
+      courseId: course.course_id,
       courseProfessor: `${course.first_name} ${course.last_name}`,
     }));
     setCourseSearch("");
@@ -113,7 +113,7 @@ export default function ScheduleExamsTab() {
   async function handleSubmit(e) {
     e.preventDefault();
 
-    if (!formData.courseCode || !formData.examDate) {
+    if (!formData.courseId || !formData.examDate) {
       toast("Course and exam date are required", "error");
       return;
     }
@@ -121,7 +121,7 @@ export default function ScheduleExamsTab() {
     setSubmitting(true);
     try {
       const payload = {
-        courseCode: formData.courseCode.toUpperCase(),
+        courseId: formData.courseId,
         examDate: formData.examDate,
         examTime: formData.examTime || null,
         examType: formData.examType,
@@ -137,7 +137,7 @@ export default function ScheduleExamsTab() {
       );
 
       setFormData({
-        courseCode: "",
+        courseId: "",
         courseProfessor: "",
         examDate: "",
         examTime: "",
@@ -211,7 +211,7 @@ export default function ScheduleExamsTab() {
                   <input
                     type="text"
                     name="courseSearch"
-                    value={courseSearch || formData.courseCode}
+                    value={courseSearch || (formData.courseId ? (courses.find(c => c.course_id === formData.courseId)?.course_code ?? "") : "")}
                     onChange={handleFormChange}
                     onFocus={() => setShowCourseDropdown(true)}
                     placeholder="Search course..."

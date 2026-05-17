@@ -200,24 +200,26 @@ export async function getStudentAccommodationsForPanel(schema, studentProfileId)
  */
 export async function getStudentCoursesForPanel(schema, studentProfileId) {
   const result = await tenantQuery(schema,
-    `SELECT DISTINCT ON (sc.course_code)
-            sc.course_code,
+    `SELECT DISTINCT ON (sc.course_id)
+            sc.course_id,
+            c.code AS course_code,
             pp.id        AS prof_id,
             u.first_name AS prof_first_name,
             u.last_name  AS prof_last_name,
             u.email      AS prof_email
      FROM student_course sc
+     JOIN course c ON c.id = sc.course_id
      LEFT JOIN (
-       SELECT DISTINCT ON (course_code)
-              course_code, professor_profile_id
+       SELECT DISTINCT ON (course_id)
+              course_id, professor_profile_id
        FROM exam_booking_request
        WHERE student_profile_id = $1
-       ORDER BY course_code, created_at DESC
-     ) latest ON latest.course_code = sc.course_code
+       ORDER BY course_id, created_at DESC
+     ) latest ON latest.course_id = sc.course_id
      LEFT JOIN professor_profile pp ON pp.id = latest.professor_profile_id
      LEFT JOIN "user" u ON u.id = pp.user_id
      WHERE sc.student_profile_id = $1
-     ORDER BY sc.course_code`,
+     ORDER BY sc.course_id, c.code`,
     [studentProfileId],
   );
   return result.rows;

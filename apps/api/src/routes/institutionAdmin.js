@@ -52,13 +52,15 @@ router.get("/bookings", async (req, res, next) => {
     const result = await tenantQuery(
       schema,
       `SELECT
-         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type,
+         ebr.id, ebr.course_id, c.code AS course_code,
+         ebr.exam_date, ebr.exam_time, ebr.exam_type,
          ebr.special_materials_note, ebr.status, ebr.confirmed_at, ebr.created_at,
          ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
          ebr.computed_duration_mins, ebr.student_duration_mins,
          u.first_name, u.last_name, u.email,
          sp.student_number, sp.id AS student_profile_id
        FROM exam_booking_request ebr
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        ${whereClause}
@@ -81,7 +83,7 @@ router.patch("/bookings/:id/confirm", async (req, res, next) => {
       `UPDATE exam_booking_request
        SET status = 'confirmed', confirmed_by = $2, confirmed_at = NOW(), updated_at = NOW()
        WHERE id = $1 AND status = 'professor_approved'
-       RETURNING id, course_code, exam_date, exam_time`,
+       RETURNING id, course_id, exam_date, exam_time`,
       [req.params.id, req.user.id],
     );
     if (!result.rows.length) {
@@ -91,10 +93,10 @@ router.patch("/bookings/:id/confirm", async (req, res, next) => {
     }
 
     // Notify professor to upload exam file (fire-and-forget — don't block response)
-    const { course_code, exam_date, exam_time } = result.rows[0];
+    const { course_id, exam_date, exam_time } = result.rows[0];
     notifyProfessorUploadNeeded(
       schema,
-      course_code,
+      course_id,
       exam_date,
       exam_time,
     ).catch(() => {});
@@ -113,7 +115,7 @@ router.patch("/bookings/:id/cancel", async (req, res, next) => {
       `UPDATE exam_booking_request
        SET status = 'cancelled', updated_at = NOW()
        WHERE id = $1 AND status = 'professor_approved'
-       RETURNING id, course_code, exam_date, exam_time, professor_profile_id,
+       RETURNING id, course_id, exam_date, exam_time, professor_profile_id,
                  (SELECT first_name || ' ' || last_name FROM "user" u
                   JOIN student_profile sp ON sp.user_id = u.id
                   WHERE sp.id = exam_booking_request.student_profile_id) AS student_name`,
@@ -129,10 +131,14 @@ router.patch("/bookings/:id/cancel", async (req, res, next) => {
     const {
       professor_profile_id,
       student_name,
-      course_code,
+      course_id,
       exam_date,
       exam_time,
     } = result.rows[0];
+    const cancelCourseRow = course_id
+      ? await tenantQuery(req.tenantSchema, `SELECT code FROM course WHERE id = $1`, [course_id])
+      : null;
+    const course_code = cancelCourseRow?.rows[0]?.code ?? course_id;
     if (professor_profile_id) {
       const dateStr = new Date(exam_date).toLocaleDateString("en-CA", {
         month: "short",
@@ -537,10 +543,11 @@ router.post("/schedule", async (req, res, next) => {
     const bookingsResult = await tenantQuery(
       schema,
       `SELECT
-         ebr.id, ebr.course_code, ebr.exam_time, ebr.computed_duration_mins,
+         ebr.id, c.code AS course_code, ebr.exam_time, ebr.computed_duration_mins,
          ebr.student_profile_id,
          u.first_name, u.last_name, sp.student_number
        FROM exam_booking_request ebr
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        WHERE ebr.exam_date = $1 AND ebr.status = 'confirmed'`,
@@ -773,7 +780,7 @@ router.get("/schedule", async (req, res, next) => {
       `SELECT
          bsr.id AS schedule_room_id,
          br.id AS room_id, br.name AS room_name, br.capacity,
-         ebr.id AS booking_id, ebr.course_code, ebr.exam_time,
+         ebr.id AS booking_id, c.code AS course_code, ebr.exam_time,
          ebr.computed_duration_mins, ebr.student_profile_id,
          u.first_name, u.last_name, sp.student_number,
          EXISTS (
@@ -790,6 +797,7 @@ router.get("/schedule", async (req, res, next) => {
        JOIN booking_room br ON br.id = bsr.booking_room_id
        JOIN booking_assignment ba ON ba.schedule_room_id = bsr.id
        JOIN exam_booking_request ebr ON ebr.id = ba.exam_booking_request_id
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        WHERE bsr.schedule_id = $1
@@ -856,13 +864,15 @@ router.get("/courses", async (req, res, next) => {
     const result = await tenantQuery(
       schema,
       `SELECT DISTINCT
-         cd.course_code,
+         cd.course_id,
+         c.code AS course_code,
          pp.id AS professor_id,
          u.first_name, u.last_name
        FROM course_dossier cd
+       JOIN course c ON c.id = cd.course_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
-       ORDER BY cd.course_code ASC`,
+       ORDER BY c.code ASC`,
       [],
     );
 
@@ -876,23 +886,24 @@ router.get("/courses", async (req, res, next) => {
 router.get("/exam-schedules", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
-    const { courseCode } = req.query;
+    const { courseId } = req.query;
 
     let whereClause = "";
     let params = [];
 
-    if (courseCode) {
-      whereClause = " WHERE UPPER(course_code) = UPPER($1)";
-      params = [courseCode];
+    if (courseId) {
+      whereClause = " WHERE es.course_id = $1";
+      params = [courseId];
     }
 
     const result = await tenantQuery(
       schema,
       `SELECT
-         es.id, es.course_code, es.exam_date, es.exam_time, es.exam_type,
+         es.id, es.course_id, c.code AS course_code, es.exam_date, es.exam_time, es.exam_type,
          es.base_duration_mins, es.auto_approve_enabled, es.created_by, es.created_at, es.updated_at,
          u.first_name, u.last_name
        FROM exam_schedule es
+       JOIN course c ON c.id = es.course_id
        LEFT JOIN "user" u ON u.id = es.created_by
        ${whereClause}
        ORDER BY es.exam_date DESC, es.exam_time ASC NULLS LAST`,
@@ -909,27 +920,27 @@ router.get("/exam-schedules", async (req, res, next) => {
 router.post("/exam-schedules", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
-    const { courseCode, examDate, examTime, examType, baseDurationMins } =
+    const { courseId, examDate, examTime, examType, baseDurationMins } =
       req.body;
 
     // Validate
-    if (!courseCode || !examDate) {
+    if (!courseId || !examDate) {
       return res
         .status(400)
-        .json({ ok: false, error: "courseCode and examDate required" });
+        .json({ ok: false, error: "courseId and examDate required" });
     }
 
     // Create exam schedule
     const schedResult = await tenantQuery(
       schema,
       `INSERT INTO exam_schedule
-       (course_code, exam_date, exam_time, exam_type, base_duration_mins, auto_approve_enabled, created_by, updated_at)
+       (course_id, exam_date, exam_time, exam_type, base_duration_mins, auto_approve_enabled, created_by, updated_at)
        VALUES ($1, $2, $3, $4, $5, true, $6, NOW())
-       ON CONFLICT (course_code, exam_date, exam_time) DO UPDATE
+       ON CONFLICT (course_id, exam_date, exam_time) DO UPDATE
        SET base_duration_mins = $5, updated_at = NOW()
-       RETURNING id, course_code, exam_date, exam_time, exam_type, base_duration_mins`,
+       RETURNING id, course_id, exam_date, exam_time, exam_type, base_duration_mins`,
       [
-        courseCode,
+        courseId,
         examDate,
         examTime || null,
         examType || "midterm",
@@ -939,18 +950,21 @@ router.post("/exam-schedules", async (req, res, next) => {
     );
 
     const sched = schedResult.rows[0];
+    // Resolve course_code for response
+    const courseRow = await tenantQuery(schema, `SELECT code FROM course WHERE id = $1`, [courseId]);
+    sched.course_code = courseRow.rows[0]?.code ?? null;
 
     // Auto-approve existing pending requests for this course+date+time
     const updateResult = await tenantQuery(
       schema,
       `UPDATE exam_booking_request
        SET status = 'professor_approved', updated_at = NOW()
-       WHERE UPPER(course_code) = UPPER($1)
+       WHERE course_id = $1
          AND exam_date = $2
          AND (exam_time = $3 OR $3 IS NULL)
          AND status = 'pending'
        RETURNING id`,
-      [courseCode, examDate, examTime || null],
+      [courseId, examDate, examTime || null],
     );
 
     // Then confirm them all
@@ -958,12 +972,12 @@ router.post("/exam-schedules", async (req, res, next) => {
       schema,
       `UPDATE exam_booking_request
        SET status = 'confirmed', confirmed_by = $1, confirmed_at = NOW(), updated_at = NOW()
-       WHERE UPPER(course_code) = UPPER($2)
+       WHERE course_id = $2
          AND exam_date = $3
          AND (exam_time = $4 OR $4 IS NULL)
          AND status = 'professor_approved'
        RETURNING id`,
-      [req.user.id, courseCode, examDate, examTime || null],
+      [req.user.id, courseId, examDate, examTime || null],
     );
 
     res.status(201).json({
@@ -1009,7 +1023,7 @@ router.patch("/exam-schedules/:id", async (req, res, next) => {
       `UPDATE exam_schedule
        SET ${updates.join(", ")}
        WHERE id = $1
-       RETURNING id, course_code, exam_date, exam_time, base_duration_mins, auto_approve_enabled`,
+       RETURNING id, course_id, exam_date, exam_time, base_duration_mins, auto_approve_enabled`,
       params,
     );
 
@@ -1019,7 +1033,10 @@ router.patch("/exam-schedules/:id", async (req, res, next) => {
         .json({ ok: false, error: "Exam schedule not found" });
     }
 
-    res.json({ ok: true, data: result.rows[0] });
+    const updated = result.rows[0];
+    const cRow = await tenantQuery(schema, `SELECT code FROM course WHERE id = $1`, [updated.course_id]);
+    updated.course_code = cRow.rows[0]?.code ?? null;
+    res.json({ ok: true, data: updated });
   } catch (err) {
     next(err);
   }
@@ -1051,28 +1068,30 @@ router.delete("/exam-schedules/:id", async (req, res, next) => {
 // ── Professor notification helper ─────────────────────────────────────────────
 async function notifyProfessorUploadNeeded(
   schema,
-  courseCode,
+  courseId,
   examDate,
   examTime,
 ) {
   // Look up professor for this course
   const profResult = await tenantQuery(
     schema,
-    `SELECT cd.professor_id
+    `SELECT cd.professor_id, c.code AS course_code
      FROM course_dossier cd
-     WHERE UPPER(cd.course_code) = UPPER($1)
+     JOIN course c ON c.id = cd.course_id
+     WHERE cd.course_id = $1
      LIMIT 1`,
-    [courseCode],
+    [courseId],
   );
   const professorProfileId = profResult.rows[0]?.professor_id;
+  const courseCode = profResult.rows[0]?.course_code ?? courseId;
   if (!professorProfileId) return;
 
   // Count total confirmed students for this course/date
   const countResult = await tenantQuery(
     schema,
     `SELECT COUNT(*) AS n FROM exam_booking_request
-     WHERE UPPER(course_code) = UPPER($1) AND exam_date = $2 AND status = 'confirmed'`,
-    [courseCode, examDate],
+     WHERE course_id = $1 AND exam_date = $2 AND status = 'confirmed'`,
+    [courseId, examDate],
   );
   const studentCount = parseInt(countResult.rows[0]?.n ?? "0", 10);
 
@@ -1109,11 +1128,12 @@ router.get("/cancellation-requests", async (req, res, next) => {
          cr.id, cr.exam_booking_request_id, cr.student_profile_id, cr.student_reason,
          cr.request_status, cr.admin_profile_id, cr.admin_reason, cr.reviewed_at,
          cr.created_at, cr.updated_at,
-         ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
+         c.code AS course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type, ebr.status AS exam_status,
          sp.student_number, u.first_name, u.last_name, u.email,
          admin_u.first_name AS admin_first_name, admin_u.last_name AS admin_last_name
        FROM cancellation_request cr
        JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = cr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        LEFT JOIN "user" admin_u ON admin_u.id = cr.admin_profile_id
@@ -1142,9 +1162,11 @@ router.patch("/cancellation-requests/:id/approve", async (req, res, next) => {
     // Get cancellation request
     const crResult = await tenantQuery(
       schema,
-      `SELECT cr.*, ebr.status, ebr.professor_profile_id, sp.user_id, u.email, u.first_name, u.last_name
+      `SELECT cr.*, ebr.status AS exam_status, ebr.professor_profile_id, ebr.exam_date,
+              c.code AS course_code, sp.user_id, u.email, u.first_name, u.last_name
        FROM cancellation_request cr
        JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = cr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        WHERE cr.id = $1 AND cr.request_status = 'pending'`,
@@ -1176,11 +1198,12 @@ router.patch("/cancellation-requests/:id/approve", async (req, res, next) => {
 
     // Notify professor if booking was approved or confirmed
     if (cr.professor_profile_id && ["professor_approved", "confirmed"].includes(cr.exam_status)) {
+      const dateStr = new Date(cr.exam_date).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" });
       await tenantQuery(
         schema,
         `INSERT INTO upload_notification (professor_profile_id, type, message)
          VALUES ($1, 'booking_cancelled', $2)`,
-        [cr.professor_profile_id, `${cr.first_name} ${cr.last_name} cancelled their booking for ${cr.course_code} on ${cr.exam_date}.`],
+        [cr.professor_profile_id, `${cr.first_name} ${cr.last_name}'s booking for ${cr.course_code} on ${dateStr} has been cancelled by admin.`],
       );
     }
 
@@ -1204,9 +1227,10 @@ router.patch("/cancellation-requests/:id/reject", async (req, res, next) => {
     // Get cancellation request
     const crResult = await tenantQuery(
       schema,
-      `SELECT cr.*, ebr.course_code, ebr.exam_date, sp.user_id, u.email, u.first_name, u.last_name
+      `SELECT cr.*, c.code AS course_code, ebr.exam_date, sp.user_id, u.email, u.first_name, u.last_name
        FROM cancellation_request cr
        JOIN exam_booking_request ebr ON ebr.id = cr.exam_booking_request_id
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = cr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        WHERE cr.id = $1 AND cr.request_status = 'pending'`,

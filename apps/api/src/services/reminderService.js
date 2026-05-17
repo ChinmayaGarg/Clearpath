@@ -56,7 +56,7 @@ async function remindSchema(schema, inst) {
     schema,
     `SELECT
        ebr.professor_profile_id,
-       ebr.course_code,
+       c.code AS course_code,
        ebr.exam_date,
        ebr.exam_time,
        (ebr.exam_date::date - CURRENT_DATE) AS days_until,
@@ -65,6 +65,7 @@ async function remindSchema(schema, inst) {
        u.email AS prof_email,
        eu_latest.delivery AS upload_delivery
      FROM exam_booking_request ebr
+     JOIN course c ON c.id = ebr.course_id
      JOIN professor_profile pp ON pp.id = ebr.professor_profile_id
      JOIN "user" u ON u.id = pp.user_id
      -- grab the most recent upload draft (any status) to know the delivery method
@@ -72,7 +73,7 @@ async function remindSchema(schema, inst) {
        SELECT eu.delivery
        FROM exam_upload eu
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
-       WHERE UPPER(eu.course_code) = UPPER(ebr.course_code)
+       WHERE eu.course_id = ebr.course_id
          AND eud.exam_date = ebr.exam_date
          AND eu.professor_profile_id = ebr.professor_profile_id
        ORDER BY eu.created_at DESC
@@ -85,7 +86,7 @@ async function remindSchema(schema, inst) {
        AND NOT EXISTS (
          SELECT 1 FROM exam_upload eu2
          JOIN exam_upload_date eud2 ON eud2.exam_upload_id = eu2.id
-         WHERE UPPER(eu2.course_code) = UPPER(ebr.course_code)
+         WHERE eu2.course_id = ebr.course_id
            AND eud2.exam_date = ebr.exam_date
            AND eu2.professor_profile_id = ebr.professor_profile_id
            AND (
@@ -94,7 +95,7 @@ async function remindSchema(schema, inst) {
              OR (eu2.delivery = 'dropped' AND eu2.dropoff_confirmed_at IS NOT NULL)
            )
        )
-     GROUP BY ebr.professor_profile_id, ebr.course_code, ebr.exam_date,
+     GROUP BY ebr.professor_profile_id, ebr.course_id, c.code, ebr.exam_date,
               ebr.exam_time, u.first_name, u.last_name, u.email, eu_latest.delivery`,
     [REMINDER_DAYS],
   );

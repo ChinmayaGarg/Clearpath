@@ -40,15 +40,15 @@ export default function ProfessorPortal() {
     loadMe();
   }
 
-  function handleUploadFromAlert({ courseCode, examType, examDate, examTime }) {
-    setPrefillData({ courseCode, examTypeLabel: examType, examDate, examTime });
+  function handleUploadFromAlert({ courseId, examType, examDate, examTime }) {
+    setPrefillData({ courseId, examTypeLabel: examType, examDate, examTime });
     setEditId(null);
     setIsWordDoc(false);
     setShowForm(true);
   }
 
-  function handleWordDocFromAlert({ courseCode, examType, examDate, examTime }) {
-    setPrefillData({ courseCode, examTypeLabel: examType, examDate, examTime });
+  function handleWordDocFromAlert({ courseId, examType, examDate, examTime }) {
+    setPrefillData({ courseId, examTypeLabel: examType, examDate, examTime });
     setEditId(null);
     setIsWordDoc(true);
     setShowForm(true);

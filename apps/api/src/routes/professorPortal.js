@@ -101,7 +101,7 @@ const EXAM_TYPES = [
 const DELIVERIES = ["pickup", "dropped", "delivery", "pending", "file_upload"];
 
 const createUploadSchemaBase = z.object({
-  courseCode:        z.string().min(1).max(50).trim().toUpperCase(),
+  courseId:          z.string().uuid(),
   examTypeLabel:     z.enum(EXAM_TYPES),
   versionLabel:      z.string().max(100).optional().nullable(),
   delivery:          z.enum(DELIVERIES).default("pending"),
@@ -182,16 +182,11 @@ async function getProfId(req, res) {
   return profId;
 }
 
-async function ensureCourseAllowed(schema, professorProfileId, courseCode) {
-  const allowed = await getAllowedCoursesForProfessor(
-    schema,
-    professorProfileId,
-  );
-  if (!allowed.includes(courseCode.toUpperCase())) {
+async function ensureCourseAllowed(schema, professorProfileId, courseId) {
+  const allowed = await getAllowedCoursesForProfessor(schema, professorProfileId);
+  if (!allowed.includes(courseId)) {
     throw Object.assign(
-      new Error(
-        `Course '${courseCode}' is not assigned to your profile. Contact your lead to assign it.`,
-      ),
+      new Error("This course is not assigned to your profile. Contact your lead to assign it."),
       { status: 400 },
     );
   }
@@ -218,7 +213,7 @@ router.get("/me", async (req, res, next) => {
         `SELECT
            COUNT(*) FILTER (WHERE status = 'submitted')  AS submitted,
            COUNT(*) FILTER (WHERE status = 'draft')      AS drafts,
-           COUNT(DISTINCT course_code)                   AS courses
+           COUNT(DISTINCT course_id)                     AS courses
          FROM exam_upload WHERE professor_profile_id = $1`,
         [profId],
       ),
@@ -239,7 +234,7 @@ router.get("/me", async (req, res, next) => {
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+               WHERE cd.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -250,8 +245,8 @@ router.get("/me", async (req, res, next) => {
         req.tenantSchema,
         `SELECT COUNT(*) AS missing_uploads
          FROM (
-           SELECT UPPER(ebr.course_code) AS course_code,
-                  ebr.exam_date::text    AS exam_date,
+           SELECT ebr.course_id,
+                  ebr.exam_date::text AS exam_date,
                   ebr.exam_type
            FROM exam_booking_request ebr
            WHERE ebr.status IN ('professor_approved', 'confirmed')
@@ -260,25 +255,25 @@ router.get("/me", async (req, res, next) => {
                ebr.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+                 WHERE cd.course_id = ebr.course_id
                    AND cd.professor_id = $1
                )
              )
-           GROUP BY UPPER(ebr.course_code), ebr.exam_date::text, ebr.exam_type
+           GROUP BY ebr.course_id, ebr.exam_date::text, ebr.exam_type
          ) bookings
          WHERE NOT EXISTS (
            SELECT 1 FROM exam_upload eu
            JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
            WHERE eu.status = 'submitted'
              AND eu.is_word_doc = FALSE
-             AND UPPER(eu.course_code) = bookings.course_code
+             AND eu.course_id = bookings.course_id
              AND eud.exam_date::text = bookings.exam_date
              AND eu.exam_type_label::text = bookings.exam_type
              AND (
                eu.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE UPPER(cd.course_code) = UPPER(eu.course_code)
+                 WHERE cd.course_id = eu.course_id
                    AND cd.professor_id = $1
                )
              )
@@ -308,7 +303,7 @@ router.get("/me", async (req, res, next) => {
              eu.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE UPPER(cd.course_code) = UPPER(eu.course_code)
+               WHERE cd.course_id = eu.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -335,7 +330,7 @@ router.get("/me", async (req, res, next) => {
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+               WHERE cd.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -355,7 +350,7 @@ router.get("/me", async (req, res, next) => {
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+               WHERE cd.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -365,7 +360,7 @@ router.get("/me", async (req, res, next) => {
       tenantQuery(
         req.tenantSchema,
         `SELECT
-           UPPER(ebr.course_code)                    AS course_code,
+           c.code                                    AS course_code,
            ebr.exam_date::text                       AS exam_date,
            ebr.exam_time::text                       AS exam_time,
            ebr.exam_type                             AS exam_type,
@@ -374,14 +369,14 @@ router.get("/me", async (req, res, next) => {
              SELECT 1 FROM exam_upload eu2
              JOIN exam_upload_date eud2 ON eud2.exam_upload_id = eu2.id
              WHERE eu2.status = 'submitted'
-               AND UPPER(eu2.course_code) = UPPER(ebr.course_code)
+               AND eu2.course_id = ebr.course_id
                AND eud2.exam_date::text  = ebr.exam_date::text
                AND eu2.exam_type_label::text = ebr.exam_type
                AND (
                  eu2.professor_profile_id = $1
                  OR EXISTS (
                    SELECT 1 FROM course_dossier cd
-                   WHERE UPPER(cd.course_code) = UPPER(eu2.course_code)
+                   WHERE cd.course_id = eu2.course_id
                      AND cd.professor_id = $1
                  )
                )
@@ -404,30 +399,31 @@ router.get("/me", async (req, res, next) => {
                      AND euf3.file_original_name ILIKE '%.doc%'
                  )
                )
-               AND UPPER(eu3.course_code) = UPPER(ebr.course_code)
+               AND eu3.course_id = ebr.course_id
                AND eud3.exam_date::text = ebr.exam_date::text
                AND eu3.exam_type_label::text = ebr.exam_type
                AND (
                  eu3.professor_profile_id = $1
                  OR EXISTS (
                    SELECT 1 FROM course_dossier cd
-                   WHERE UPPER(cd.course_code) = UPPER(eu3.course_code)
+                   WHERE cd.course_id = eu3.course_id
                      AND cd.professor_id = $1
                  )
                )
            ) AS word_doc_uploaded
          FROM exam_booking_request ebr
+         JOIN course c ON c.id = ebr.course_id
          WHERE ebr.status IN ('confirmed', 'professor_approved')
            AND ebr.exam_date >= CURRENT_DATE
            AND (
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+               WHERE cd.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )
-         GROUP BY UPPER(ebr.course_code), ebr.exam_date::text, ebr.exam_time::text, ebr.exam_type
+         GROUP BY ebr.course_id, c.code, ebr.exam_date, ebr.exam_time, ebr.exam_type
          ORDER BY ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST
          LIMIT 5`,
         [profId],
@@ -437,8 +433,8 @@ router.get("/me", async (req, res, next) => {
         req.tenantSchema,
         `SELECT COUNT(*) AS missing_word_docs
          FROM (
-           SELECT UPPER(ebr.course_code) AS course_code,
-                  ebr.exam_date::text    AS exam_date,
+           SELECT ebr.course_id,
+                  ebr.exam_date::text AS exam_date,
                   ebr.exam_type
            FROM exam_booking_request ebr
            WHERE ebr.status IN ('professor_approved', 'confirmed')
@@ -447,7 +443,7 @@ router.get("/me", async (req, res, next) => {
                ebr.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+                 WHERE cd.course_id = ebr.course_id
                    AND cd.professor_id = $1
                )
              )
@@ -457,7 +453,7 @@ router.get("/me", async (req, res, next) => {
                WHERE sa.student_profile_id = ebr.student_profile_id
                  AND ac.triggers_rwg_flag = TRUE
              )
-           GROUP BY UPPER(ebr.course_code), ebr.exam_date::text, ebr.exam_type
+           GROUP BY ebr.course_id, ebr.exam_date::text, ebr.exam_type
          ) rwg_groups
          WHERE NOT EXISTS (
            SELECT 1 FROM exam_upload eu
@@ -471,14 +467,14 @@ router.get("/me", async (req, res, next) => {
                    AND euf.file_original_name ILIKE '%.doc%'
                )
              )
-             AND UPPER(eu.course_code) = rwg_groups.course_code
+             AND eu.course_id = rwg_groups.course_id
              AND eud.exam_date::text = rwg_groups.exam_date
              AND eu.exam_type_label::text = rwg_groups.exam_type
              AND (
                eu.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE UPPER(cd.course_code) = UPPER(eu.course_code)
+                 WHERE cd.course_id = eu.course_id
                    AND cd.professor_id = $1
                )
              )
@@ -524,11 +520,16 @@ router.get("/courses", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
-    const courses = await getAllowedCoursesForProfessor(
+    const result = await tenantQuery(
       req.tenantSchema,
-      profId,
+      `SELECT DISTINCT cd.course_id AS id, c.code
+       FROM course_dossier cd
+       JOIN course c ON c.id = cd.course_id
+       WHERE cd.professor_id = $1
+       ORDER BY c.code`,
+      [profId],
     );
-    res.json({ ok: true, courses });
+    res.json({ ok: true, courses: result.rows });
   } catch (err) {
     next(err);
   }
@@ -541,15 +542,16 @@ router.get("/my-dossiers", async (req, res, next) => {
     const result = await tenantQuery(
       req.tenantSchema,
       `SELECT
-         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
+         cd.id, c.code AS course_code, cd.term, cd.preferred_delivery,
          cd.typical_materials, cd.password_reminder, cd.notes,
          cd.updated_at,
          u.first_name || ' ' || u.last_name AS last_updated_by_name
        FROM course_dossier cd
+       JOIN course c ON c.id = cd.course_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        LEFT JOIN "user" u ON u.id = cd.last_updated_by
        WHERE pp.user_id = $1
-       ORDER BY cd.term DESC, UPPER(cd.course_code)`,
+       ORDER BY cd.term DESC, UPPER(c.code)`,
       [req.user.id],
     );
     res.json({ ok: true, dossiers: result.rows });
@@ -579,11 +581,11 @@ router.post("/uploads", async (req, res, next) => {
 
     const data = createUploadSchema.parse(req.body);
     if (!data.isWordDoc) {
-      await ensureCourseAllowed(req.tenantSchema, profId, data.courseCode);
+      await ensureCourseAllowed(req.tenantSchema, profId, data.courseId);
     }
     const uploadId = await createUpload(req.tenantSchema, {
       professorProfileId:  profId,
-      courseCode:          data.courseCode,
+      courseId:            data.courseId,
       examTypeLabel:       data.examTypeLabel,
       versionLabel:        data.versionLabel,
       delivery:            data.delivery,
@@ -659,9 +661,9 @@ router.put("/uploads/:id", async (req, res, next) => {
 
     const data = createUploadSchemaBase.partial().parse(req.body);
     const dbFields = {};
-    if (data.courseCode !== undefined) {
-      await ensureCourseAllowed(req.tenantSchema, profId, data.courseCode);
-      dbFields.course_code = data.courseCode;
+    if (data.courseId !== undefined) {
+      await ensureCourseAllowed(req.tenantSchema, profId, data.courseId);
+      dbFields.course_id = data.courseId;
     }
     if (data.examTypeLabel !== undefined)
       dbFields.exam_type_label = data.examTypeLabel;
@@ -754,7 +756,7 @@ router.post("/uploads/:id/submit", async (req, res, next) => {
                 array_agg(DISTINCT eud.exam_date::text ORDER BY eud.exam_date::text) AS conflicting_dates
          FROM exam_upload eu
          JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
-         WHERE eu.course_code = (SELECT course_code FROM exam_upload WHERE id = $1)
+         WHERE eu.course_id = (SELECT course_id FROM exam_upload WHERE id = $1)
            AND eu.status = 'submitted'
            AND eu.id != $1
            AND eud.exam_date IN (SELECT exam_date FROM exam_upload_date WHERE exam_upload_id = $1)
@@ -1041,7 +1043,7 @@ router.get("/my-students", async (req, res, next) => {
       req.tenantSchema,
       `SELECT
          ebr.id AS booking_id,
-         ebr.course_code, ebr.exam_type,
+         ebr.course_id, c.code AS course_code, ebr.exam_type,
          ebr.exam_date::text AS exam_date, ebr.exam_time::text AS exam_time, ebr.status,
          ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
          ebr.student_duration_mins,
@@ -1054,18 +1056,19 @@ router.get("/my-students", async (req, res, next) => {
              AND ac.triggers_rwg_flag = TRUE
          ) AS has_rwg
        FROM exam_booking_request ebr
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        WHERE (
            ebr.professor_profile_id = $1
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+             WHERE cd.course_id = ebr.course_id
                AND cd.professor_id = $1
            )
          )
          AND ebr.status IN ('professor_approved', 'confirmed')
-       ORDER BY ebr.course_code ASC, ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST, u.last_name ASC`,
+       ORDER BY c.code ASC, ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST, u.last_name ASC`,
       [profId],
     );
 
@@ -1073,7 +1076,7 @@ router.get("/my-students", async (req, res, next) => {
     // submitted upload. A null time_slot on the upload means "all time slots that day".
     const uploadResult = await tenantQuery(
       req.tenantSchema,
-      `SELECT UPPER(eu.course_code) AS course_code,
+      `SELECT UPPER(c.code) AS course_code,
               eud.exam_date::text    AS exam_date,
               eu.exam_type_label,
               eud.time_slot::text    AS time_slot,
@@ -1084,13 +1087,14 @@ router.get("/my-students", async (req, res, next) => {
                   AND euf.file_original_name ILIKE '%.doc%'
               ) AS has_docx_file
        FROM exam_upload eu
+       JOIN course c ON c.id = eu.course_id
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
        WHERE eu.status = 'submitted'
          AND (
            eu.professor_profile_id = $1
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE UPPER(cd.course_code) = UPPER(eu.course_code)
+             WHERE cd.course_id = eu.course_id
                AND cd.professor_id = $1
            )
          )`,
@@ -1116,7 +1120,7 @@ router.get("/my-students", async (req, res, next) => {
       }
     }
 
-    // Group: courseCode → { examDate, examTime, examUploaded, students[] }
+    // Group: courseCode → { courseId, examDate, examTime, examUploaded, students[] }
     const grouped = {};
     for (const row of result.rows) {
       const courseKey = row.course_code;
@@ -1128,7 +1132,7 @@ router.get("/my-students", async (req, res, next) => {
       const wordDocUploaded = wordDocAllDay.has(base) ||
                               (timeStr ? wordDocExact.has(`${base}__${timeStr}`) : false);
 
-      if (!grouped[courseKey]) grouped[courseKey] = { courseCode: courseKey, dates: {} };
+      if (!grouped[courseKey]) grouped[courseKey] = { courseId: row.course_id, courseCode: courseKey, dates: {} };
 
       if (!grouped[courseKey].dates[dateKey]) {
         grouped[courseKey].dates[dateKey] = {
@@ -1159,6 +1163,7 @@ router.get("/my-students", async (req, res, next) => {
 
     // Flatten to array
     const courses = Object.values(grouped).map(c => ({
+      courseId:   c.courseId,
       courseCode: c.courseCode,
       dates: Object.values(c.dates),
     }));
@@ -1205,7 +1210,7 @@ router.get("/exam-requests", async (req, res, next) => {
     const result = await tenantQuery(
       req.tenantSchema,
       `SELECT
-         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time,
+         ebr.id, c.code AS course_code, ebr.exam_date, ebr.exam_time,
          ebr.exam_type, ebr.special_materials_note, ebr.status, ebr.created_at,
          ebr.student_duration_mins, ebr.rejection_reason,
          u.first_name, u.last_name, u.email,
@@ -1220,6 +1225,7 @@ router.get("/exam-requests", async (req, res, next) => {
              AND ac.is_active = TRUE
          ) AS has_rwg
        FROM exam_booking_request ebr
+       JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
        LEFT JOIN "user" ru ON ru.id = ebr.rejected_by
@@ -1230,7 +1236,7 @@ router.get("/exam-requests", async (req, res, next) => {
          ebr.professor_profile_id = $1
          OR EXISTS (
            SELECT 1 FROM course_dossier cd
-           WHERE UPPER(cd.course_code) = UPPER(ebr.course_code)
+           WHERE cd.course_id = ebr.course_id
              AND cd.professor_id = $1
          )
        )
@@ -1262,9 +1268,7 @@ router.patch("/exam-requests/:id/approve", async (req, res, next) => {
            professor_profile_id = $2
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE UPPER(cd.course_code) = UPPER(
-               (SELECT course_code FROM exam_booking_request WHERE id = $1)
-             )
+             WHERE cd.course_id = (SELECT course_id FROM exam_booking_request WHERE id = $1)
                AND cd.professor_id = $2
            )
          )
@@ -1306,9 +1310,7 @@ router.patch("/exam-requests/:id/reject", async (req, res, next) => {
            professor_profile_id = $2
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE UPPER(cd.course_code) = UPPER(
-               (SELECT course_code FROM exam_booking_request WHERE id = $1)
-             )
+             WHERE cd.course_id = (SELECT course_id FROM exam_booking_request WHERE id = $1)
                AND cd.professor_id = $2
            )
          )
@@ -1334,11 +1336,16 @@ router.get(
   requireRole("lead", "institution_admin"),
   async (req, res, next) => {
     try {
-      const courses = await getAllowedCoursesForProfessor(
+      const result = await tenantQuery(
         req.tenantSchema,
-        req.params.profId,
+        `SELECT DISTINCT cd.course_id AS id, c.code
+         FROM course_dossier cd
+         JOIN course c ON c.id = cd.course_id
+         WHERE cd.professor_id = $1
+         ORDER BY c.code`,
+        [req.params.profId],
       );
-      res.json({ ok: true, courses });
+      res.json({ ok: true, courses: result.rows });
     } catch (err) {
       next(err);
     }
@@ -1371,7 +1378,7 @@ router.post(
       const data = createUploadSchema.parse(req.body);
       const uploadId = await createUpload(req.tenantSchema, {
         professorProfileId:   req.params.profId,
-        courseCode:           data.courseCode,
+        courseId:             data.courseId,
         examTypeLabel:        data.examTypeLabel,
         versionLabel:         data.versionLabel,
         delivery:             data.delivery,
@@ -1406,7 +1413,7 @@ router.put(
     try {
       const data = createUploadSchemaBase.partial().parse(req.body);
       const dbFields = {};
-      if (data.courseCode !== undefined)           dbFields.course_code             = data.courseCode;
+      if (data.courseId !== undefined)             dbFields.course_id               = data.courseId;
       if (data.examTypeLabel !== undefined)        dbFields.exam_type_label         = data.examTypeLabel;
       if (data.versionLabel !== undefined)         dbFields.version_label           = data.versionLabel;
       if (data.delivery !== undefined)             dbFields.delivery                = data.delivery;
@@ -1448,7 +1455,7 @@ router.post(
                   array_agg(DISTINCT eud.exam_date::text ORDER BY eud.exam_date::text) AS conflicting_dates
            FROM exam_upload eu
            JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
-           WHERE eu.course_code = (SELECT course_code FROM exam_upload WHERE id = $1)
+           WHERE eu.course_id = (SELECT course_id FROM exam_upload WHERE id = $1)
              AND eu.status = 'submitted'
              AND eu.id != $1
              AND eud.exam_date IN (SELECT exam_date FROM exam_upload_date WHERE exam_upload_id = $1)
@@ -1586,7 +1593,8 @@ router.get(
         req.tenantSchema,
         `SELECT
            eu.id           AS upload_id,
-           eu.course_code,
+           eu.course_id,
+           c.code          AS course_code,
            eu.exam_type_label,
            eu.version_label,
            eu.submitted_at,
@@ -1597,19 +1605,21 @@ router.get(
            u.email                            AS professor_email
          FROM exam_upload_date eud
          JOIN exam_upload      eu ON eu.id  = eud.exam_upload_id
+         JOIN course           c  ON c.id   = eu.course_id
          JOIN professor_profile pp ON pp.id = eu.professor_profile_id
          JOIN "user"            u  ON u.id  = pp.user_id
          WHERE eud.match_status = 'conflict'
-         ORDER BY eud.exam_date, eu.course_code`,
+         ORDER BY eud.exam_date, c.code`,
         [],
       );
 
-      // Group by course_code + exam_date
+      // Group by course_id + exam_date
       const map = new Map();
       for (const row of result.rows) {
-        const key = `${row.course_code}__${String(row.exam_date).slice(0, 10)}`;
+        const key = `${row.course_id}__${String(row.exam_date).slice(0, 10)}`;
         if (!map.has(key)) {
           map.set(key, {
+            courseId:   row.course_id,
             courseCode: row.course_code,
             examDate:   String(row.exam_date).slice(0, 10),
             uploads:    [],
@@ -1641,9 +1651,9 @@ router.post(
   requireRole("lead", "institution_admin"),
   async (req, res, next) => {
     try {
-      const { courseCode, examDate, winnerUploadId } = req.body;
-      if (!courseCode || !examDate || !winnerUploadId) {
-        return res.status(400).json({ ok: false, error: "courseCode, examDate, and winnerUploadId are required" });
+      const { courseId, examDate, winnerUploadId } = req.body;
+      if (!courseId || !examDate || !winnerUploadId) {
+        return res.status(400).json({ ok: false, error: "courseId, examDate, and winnerUploadId are required" });
       }
 
       // Find all conflict rows for this course+date
@@ -1651,26 +1661,14 @@ router.post(
         req.tenantSchema,
         `SELECT eud.id AS date_id, eud.exam_upload_id
          FROM exam_upload_date eud
-         JOIN exam_upload eu ON eu.id = eud.exam_upload_id AND eu.course_code = $1
+         JOIN exam_upload eu ON eu.id = eud.exam_upload_id AND eu.course_id = $1
          WHERE eud.exam_date = $2 AND eud.match_status = 'conflict'`,
-        [courseCode, examDate],
+        [courseId, examDate],
       );
 
       if (!conflictRows.rows.length) {
         return res.status(404).json({ ok: false, error: "No conflicts found for this course and date" });
       }
-
-      // Find the exam record for this course+date so we can link the winner
-      const examRow = await tenantQuery(
-        req.tenantSchema,
-        `SELECT e.id FROM exam e
-         JOIN exam_day ed ON ed.id = e.exam_day_id AND ed.date = $2
-         WHERE e.course_code = $1
-           AND e.status NOT IN ('cancelled', 'dropped')
-         LIMIT 1`,
-        [courseCode, examDate],
-      );
-      const examId = examRow.rows[0]?.id ?? null;
 
       const winnerDateId = conflictRows.rows.find(r => r.exam_upload_id === winnerUploadId)?.date_id;
       const loserDateIds = conflictRows.rows
@@ -1681,10 +1679,8 @@ router.post(
       if (winnerDateId) {
         await tenantQuery(
           req.tenantSchema,
-          `UPDATE exam_upload_date
-           SET match_status = 'matched', matched_exam_id = $2
-           WHERE id = $1`,
-          [winnerDateId, examId],
+          `UPDATE exam_upload_date SET match_status = 'matched' WHERE id = $1`,
+          [winnerDateId],
         );
       }
 
@@ -1692,19 +1688,8 @@ router.post(
       if (loserDateIds.length) {
         await tenantQuery(
           req.tenantSchema,
-          `UPDATE exam_upload_date
-           SET match_status = 'unmatched', matched_exam_id = NULL
-           WHERE id = ANY($1::uuid[])`,
+          `UPDATE exam_upload_date SET match_status = 'unmatched' WHERE id = ANY($1::uuid[])`,
           [loserDateIds],
-        );
-      }
-
-      // Link the exam to the winning upload
-      if (examId) {
-        await tenantQuery(
-          req.tenantSchema,
-          `UPDATE exam SET exam_upload_id = $1 WHERE id = $2`,
-          [winnerUploadId, examId],
         );
       }
 

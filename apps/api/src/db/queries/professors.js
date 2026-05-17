@@ -14,14 +14,10 @@ export async function listProfessors(schema) {
        u.first_name, u.last_name, u.email,
        pp.department, pp.phone, pp.office,
        u.is_active,
-       COUNT(DISTINCT cd.course_code)  AS dossier_count,
-       COUNT(DISTINCT e.id)            AS exam_count,
-       MAX(ed.date)                    AS last_exam_date
+       COUNT(DISTINCT cd.course_id) AS dossier_count
      FROM professor_profile pp
      JOIN "user" u ON u.id = pp.user_id
      LEFT JOIN course_dossier cd ON cd.professor_id = pp.id
-     LEFT JOIN exam           e  ON e.professor_id  = pp.id
-     LEFT JOIN exam_day       ed ON ed.id = e.exam_day_id
      WHERE u.is_active = TRUE
        OR u.email NOT LIKE '%@student.placeholder%'
      GROUP BY pp.id, u.first_name, u.last_name,
@@ -60,22 +56,24 @@ export async function searchProfessors(schema, query) {
 
 export async function listCourseProfessorEmails(schema, term = null) {
   const query = term
-    ? `SELECT UPPER(cd.course_code) AS course_code,
+    ? `SELECT c.code AS course_code,
               cd.term,
               u.email AS professor_email
        FROM course_dossier cd
+       JOIN course c ON c.id = cd.course_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
        WHERE u.is_active = TRUE AND cd.term = $1
-       ORDER BY cd.term DESC, UPPER(cd.course_code), u.email`
-    : `SELECT UPPER(cd.course_code) AS course_code,
+       ORDER BY cd.term DESC, c.code, u.email`
+    : `SELECT c.code AS course_code,
               cd.term,
               u.email AS professor_email
        FROM course_dossier cd
+       JOIN course c ON c.id = cd.course_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
        WHERE u.is_active = TRUE
-       ORDER BY cd.term DESC, UPPER(cd.course_code), u.email`;
+       ORDER BY cd.term DESC, c.code, u.email`;
 
   const result = await tenantQuery(schema, query, term ? [term] : []);
   return result.rows;
@@ -86,7 +84,7 @@ export async function listCourseProfessorEmails(schema, term = null) {
  * profile, dossiers, and recent exam history.
  */
 export async function getProfessor(schema, professorId) {
-  const [profResult, dossiersResult, examsResult] = await Promise.all([
+  const [profResult, dossiersResult] = await Promise.all([
     tenantQuery(
       schema,
       `SELECT
@@ -100,26 +98,17 @@ export async function getProfessor(schema, professorId) {
     tenantQuery(
       schema,
       `SELECT
-         cd.id, cd.course_code, cd.term, cd.preferred_delivery,
-         cd.typical_materials, cd.password_reminder, cd.notes,
+         cd.id, cd.course_id, cd.term,
+         c.code AS course_code,
+         cd.preferred_delivery, cd.typical_materials,
+         cd.password_reminder, cd.notes,
          cd.updated_at,
          u.first_name || ' ' || u.last_name AS last_updated_by_name
        FROM course_dossier cd
+       JOIN course c ON c.id = cd.course_id
        LEFT JOIN "user" u ON u.id = cd.last_updated_by
        WHERE cd.professor_id = $1
-       ORDER BY cd.term DESC, UPPER(cd.course_code)`,
-      [professorId],
-    ),
-    tenantQuery(
-      schema,
-      `SELECT
-         e.id, e.course_code, e.status, e.delivery,
-         e.materials, e.exam_type, ed.date
-       FROM exam e
-       JOIN exam_day ed ON ed.id = e.exam_day_id
-       WHERE e.professor_id = $1
-       ORDER BY ed.date DESC
-       LIMIT 20`,
+       ORDER BY cd.term DESC, c.code`,
       [professorId],
     ),
   ]);
@@ -129,7 +118,7 @@ export async function getProfessor(schema, professorId) {
   return {
     ...profResult.rows[0],
     dossiers: dossiersResult.rows,
-    recentExams: examsResult.rows,
+    recentExams: [],
   };
 }
 
@@ -319,26 +308,26 @@ export async function getOrCreateProfessorByEmail(
 export async function linkCourseToProfessor(
   schema,
   professorId,
-  courseCode,
+  courseId,
   term = "current",
   updatedBy = null,
 ) {
   const result = await tenantQuery(
     schema,
-    `INSERT INTO course_dossier (professor_id, course_code, term, last_updated_by)
+    `INSERT INTO course_dossier (professor_id, course_id, term, last_updated_by)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (professor_id, course_code, term)
+     ON CONFLICT (professor_id, course_id, term)
      DO UPDATE SET
        updated_at = NOW(),
        last_updated_by = EXCLUDED.last_updated_by
      RETURNING id, created_at, updated_at, (created_at = updated_at) AS is_new`,
-    [professorId, courseCode.toUpperCase(), term, updatedBy],
+    [professorId, courseId, term, updatedBy],
   );
 
   const row = result.rows[0];
   return {
     dossierId: row.id,
-    courseCode: courseCode.toUpperCase(),
+    courseId,
     term,
     dossierCreated: row.is_new,
   };
@@ -352,7 +341,8 @@ export async function getProfessorExamRequestsForPanel(schema, profId) {
     schema,
     `SELECT
        ebr.id, ebr.student_profile_id,
-       ebr.course_code, ebr.exam_date, ebr.exam_time,
+       ebr.course_id, c.code AS course_code,
+       ebr.exam_date, ebr.exam_time,
        ebr.exam_type, ebr.status, ebr.rejection_reason,
        ebr.base_duration_mins, ebr.student_duration_mins,
        br.name AS room_name,
@@ -363,13 +353,14 @@ export async function getProfessorExamRequestsForPanel(schema, profId) {
          SELECT eu.id
          FROM exam_upload eu
          JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
-         WHERE UPPER(eu.course_code) = UPPER(ebr.course_code)
+         WHERE eu.course_id = ebr.course_id
            AND eud.exam_date = ebr.exam_date
            AND eu.status = 'submitted'
          ORDER BY eu.submitted_at DESC
          LIMIT 1
        ) AS upload_id
      FROM exam_booking_request ebr
+     JOIN course                 c   ON c.id   = ebr.course_id
      LEFT JOIN booking_assignment    ba  ON ba.exam_booking_request_id = ebr.id
      LEFT JOIN booking_schedule_room bsr ON bsr.id = ba.schedule_room_id
      LEFT JOIN booking_room          br  ON br.id  = bsr.booking_room_id

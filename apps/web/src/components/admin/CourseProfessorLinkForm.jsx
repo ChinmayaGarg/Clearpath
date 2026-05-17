@@ -1,14 +1,12 @@
 import { useState, useEffect } from "react";
 import { api } from "../../lib/api.js";
 
-const COURSE_CODE_REGEX = /^[A-Z]{2,4}\s\d{4}$/;
-
 export default function CourseProfessorLinkForm() {
   const [activeTab, setActiveTab] = useState("form");
   const [availableTerms, setAvailableTerms] = useState([]);
   const [availableCourses, setAvailableCourses] = useState([]);
   const [formData, setFormData] = useState({
-    courseCode: "",
+    courseId: "",
     professorEmail: "",
     term: "current",
   });
@@ -54,16 +52,15 @@ export default function CourseProfessorLinkForm() {
     setError("");
     setSuccess("");
 
-    // Only validate format when using free-text fallback (no master courses loaded)
-    if (availableCourses.length === 0 && !COURSE_CODE_REGEX.test(formData.courseCode.toUpperCase())) {
-      setError("Course code must be in format: ABCD 1234");
+    if (!formData.courseId) {
+      setError("Please select a course");
       return;
     }
 
     setIsLoading(true);
     try {
       const response = await api.post("/professors/link-courses", {
-        courseCode: formData.courseCode.trim().toUpperCase(),
+        courseId: formData.courseId,
         professorEmail: formData.professorEmail.trim().toLowerCase(),
       });
 
@@ -78,7 +75,7 @@ export default function CourseProfessorLinkForm() {
           setResults(response.result);
         }
 
-        setFormData({ courseCode: "", professorEmail: "" });
+        setFormData({ courseId: "", professorEmail: "", term: "current" });
       } else {
         setError(response.error ?? "Failed to link course");
       }
@@ -178,34 +175,23 @@ export default function CourseProfessorLinkForm() {
               </label>
               {availableCourses.length > 0 ? (
                 <select
-                  name="courseCode"
-                  value={formData.courseCode}
+                  name="courseId"
+                  value={formData.courseId}
                   onChange={handleFormChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 >
                   <option value="" disabled>Select a course</option>
                   {availableCourses.map(c => (
-                    <option key={c.id} value={c.code}>
+                    <option key={c.id} value={c.id}>
                       {c.code}{c.name ? ` — ${c.name}` : ''}
                     </option>
                   ))}
                 </select>
               ) : (
-                <>
-                  <input
-                    type="text"
-                    name="courseCode"
-                    placeholder="e.g., ABCD 1234"
-                    value={formData.courseCode}
-                    onChange={handleFormChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    No courses in master list yet. Add courses under the Courses tab first.
-                  </p>
-                </>
+                <p className="text-sm text-gray-500 py-2">
+                  No courses in master list. Add courses under the <strong>Courses</strong> tab first.
+                </p>
               )}
             </div>
 
@@ -257,10 +243,10 @@ export default function CourseProfessorLinkForm() {
             </button>
           </form>
 
-          {results && results.courseCode && (
+          {results && results.courseId && (
             <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-sm font-medium text-green-900">
-                ✓ {results.courseCode} ({results.term}) linked to{" "}
+                ✓ {availableCourses.find(c => c.id === results.courseId)?.code ?? results.courseId} ({results.term}) linked to{" "}
                 {results.professorEmail}
               </p>
               {results.magicLink && (

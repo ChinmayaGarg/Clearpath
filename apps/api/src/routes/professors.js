@@ -55,18 +55,8 @@ const updateProfSchema = z.object({
   office: z.string().max(100).optional().nullable(),
 });
 
-// Course code format: 2-4 uppercase letters, space, 4 digits (e.g., ABCD 1234)
-const COURSE_CODE_REGEX = /^[A-Z]{2,4}\s\d{4}$/;
-
 const linkCourseSchema = z.object({
-  courseCode: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .refine(
-      (code) => COURSE_CODE_REGEX.test(code),
-      "Course code must be in format: ABCD 1234 (2-4 letters, space, 4 digits)",
-    ),
+  courseId: z.string().uuid(),
   professorEmail: z.string().email().toLowerCase().trim(),
   term: z.string().min(1).max(100).trim().default("current"),
   preferredDelivery: z
@@ -247,7 +237,7 @@ router.post(
   async (req, res, next) => {
     try {
       const {
-        courseCode,
+        courseId,
         professorEmail,
         term,
         preferredDelivery,
@@ -266,7 +256,7 @@ router.post(
       // Upsert the dossier entry with details, defaulting term to current.
       const dossier = await upsertDossier(req.tenantSchema, {
         professorId: prof.professorId,
-        courseCode,
+        courseId,
         preferredDelivery,
         typicalMaterials,
         passwordReminder,
@@ -308,14 +298,14 @@ router.post(
         entityType: "course_dossier",
         entityId: dossier.id,
         action: prof.isNewUser ? "created_with_invite" : "created",
-        newValue: `${courseCode}/${term}/${professorEmail}`,
+        newValue: `${courseId}/${term}/${professorEmail}`,
         changedBy: req.user.id,
       });
 
       res.status(201).json({
         ok: true,
         result: {
-          courseCode,
+          courseId,
           term,
           professorEmail,
           isNewProfessor: prof.isNewUser,
@@ -364,6 +354,15 @@ router.post(
       const emailIdx = headers.indexOf("professor_email");
       const termIdx = headers.indexOf("term");
 
+      // Build course code → id lookup from master list
+      const courseListResult = await tenantQuery(
+        req.tenantSchema,
+        `SELECT id, UPPER(code) AS code FROM course WHERE is_active = TRUE`,
+      );
+      const courseCodeToId = Object.fromEntries(
+        courseListResult.rows.map((r) => [r.code, r.id]),
+      );
+
       const results = {
         created: [],
         linkedExisting: [],
@@ -384,7 +383,7 @@ router.post(
 
         try {
           const cols = line.split(",").map((c) => c.trim());
-          const courseCode = cols[courseCodeIdx];
+          const courseCode = cols[courseCodeIdx]?.toUpperCase();
           const email = cols[emailIdx];
           const term =
             termIdx >= 0 && cols[termIdx] ? cols[termIdx] : "current";
@@ -394,14 +393,16 @@ router.post(
             throw new Error("Missing course code or email");
           }
 
-          if (!COURSE_CODE_REGEX.test(courseCode)) {
-            throw new Error(
-              `Invalid course code: ${courseCode} (expected format: ABCD 1234)`,
-            );
-          }
-
           if (!z.string().email().safeParse(email).success) {
             throw new Error(`Invalid email: ${email}`);
+          }
+
+          // Resolve course code to course_id
+          const courseId = courseCodeToId[courseCode];
+          if (!courseId) {
+            throw new Error(
+              `Course "${courseCode}" not found in master course list`,
+            );
           }
 
           // Get or create professor
@@ -415,7 +416,7 @@ router.post(
           await linkCourseToProfessor(
             req.tenantSchema,
             prof.professorId,
-            courseCode.toUpperCase(),
+            courseId,
             term,
             req.user.id,
           );

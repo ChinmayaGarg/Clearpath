@@ -11,7 +11,6 @@ import {
   getStatusHistory, getExamsNeedingAttention,
 } from '../db/queries/exams.js';
 import { logAction }           from '../db/queries/audit.js';
-import { autoLearnFromExam }   from './dossierService.js';
 import { logger }    from '../utils/logger.js';
 
 // ── ExamDay (Book) ────────────────────────────────────────────────────────────
@@ -176,11 +175,6 @@ export async function changeExamStatus(schema, examId, { toStatus, changedBy, no
   });
 
   logger.info('Exam status changed', { examId, ...result, schema });
-
-  // Auto-learn from completed exams — best effort, non-blocking
-  if (toStatus === 'picked_up') {
-    autoLearnFromExam(schema, examId, changedBy).catch(() => {});
-  }
 
   return result;
 }
