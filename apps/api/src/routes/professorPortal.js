@@ -234,7 +234,8 @@ router.get("/me", async (req, res, next) => {
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE cd.course_id = ebr.course_id
+               JOIN course_offering co ON co.id = cd.course_offering_id
+               WHERE co.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -255,7 +256,8 @@ router.get("/me", async (req, res, next) => {
                ebr.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE cd.course_id = ebr.course_id
+                 JOIN course_offering co ON co.id = cd.course_offering_id
+                 WHERE co.course_id = ebr.course_id
                    AND cd.professor_id = $1
                )
              )
@@ -273,7 +275,8 @@ router.get("/me", async (req, res, next) => {
                eu.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE cd.course_id = eu.course_id
+                 JOIN course_offering co ON co.id = cd.course_offering_id
+                 WHERE co.course_id = eu.course_id
                    AND cd.professor_id = $1
                )
              )
@@ -303,7 +306,8 @@ router.get("/me", async (req, res, next) => {
              eu.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE cd.course_id = eu.course_id
+               JOIN course_offering co ON co.id = cd.course_offering_id
+               WHERE co.course_id = eu.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -330,7 +334,8 @@ router.get("/me", async (req, res, next) => {
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE cd.course_id = ebr.course_id
+               JOIN course_offering co ON co.id = cd.course_offering_id
+               WHERE co.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -350,7 +355,8 @@ router.get("/me", async (req, res, next) => {
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE cd.course_id = ebr.course_id
+               JOIN course_offering co ON co.id = cd.course_offering_id
+               WHERE co.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )`,
@@ -376,7 +382,8 @@ router.get("/me", async (req, res, next) => {
                  eu2.professor_profile_id = $1
                  OR EXISTS (
                    SELECT 1 FROM course_dossier cd
-                   WHERE cd.course_id = eu2.course_id
+                   JOIN course_offering co ON co.id = cd.course_offering_id
+                   WHERE co.course_id = eu2.course_id
                      AND cd.professor_id = $1
                  )
                )
@@ -406,7 +413,8 @@ router.get("/me", async (req, res, next) => {
                  eu3.professor_profile_id = $1
                  OR EXISTS (
                    SELECT 1 FROM course_dossier cd
-                   WHERE cd.course_id = eu3.course_id
+                   JOIN course_offering co ON co.id = cd.course_offering_id
+                   WHERE co.course_id = eu3.course_id
                      AND cd.professor_id = $1
                  )
                )
@@ -419,7 +427,8 @@ router.get("/me", async (req, res, next) => {
              ebr.professor_profile_id = $1
              OR EXISTS (
                SELECT 1 FROM course_dossier cd
-               WHERE cd.course_id = ebr.course_id
+               JOIN course_offering co ON co.id = cd.course_offering_id
+               WHERE co.course_id = ebr.course_id
                  AND cd.professor_id = $1
              )
            )
@@ -443,7 +452,8 @@ router.get("/me", async (req, res, next) => {
                ebr.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE cd.course_id = ebr.course_id
+                 JOIN course_offering co ON co.id = cd.course_offering_id
+                 WHERE co.course_id = ebr.course_id
                    AND cd.professor_id = $1
                )
              )
@@ -474,7 +484,8 @@ router.get("/me", async (req, res, next) => {
                eu.professor_profile_id = $1
                OR EXISTS (
                  SELECT 1 FROM course_dossier cd
-                 WHERE cd.course_id = eu.course_id
+                 JOIN course_offering co ON co.id = cd.course_offering_id
+                 WHERE co.course_id = eu.course_id
                    AND cd.professor_id = $1
                )
              )
@@ -522,9 +533,10 @@ router.get("/courses", async (req, res, next) => {
 
     const result = await tenantQuery(
       req.tenantSchema,
-      `SELECT DISTINCT cd.course_id AS id, c.code
+      `SELECT DISTINCT co.course_id AS id, c.code
        FROM course_dossier cd
-       JOIN course c ON c.id = cd.course_id
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       JOIN course c ON c.id = co.course_id
        WHERE cd.professor_id = $1
        ORDER BY c.code`,
       [profId],
@@ -542,16 +554,18 @@ router.get("/my-dossiers", async (req, res, next) => {
     const result = await tenantQuery(
       req.tenantSchema,
       `SELECT
-         cd.id, c.code AS course_code, cd.term, cd.preferred_delivery,
+         cd.id, c.code AS course_code, t.label AS term, cd.preferred_delivery,
          cd.typical_materials, cd.password_reminder, cd.notes,
          cd.updated_at,
          u.first_name || ' ' || u.last_name AS last_updated_by_name
        FROM course_dossier cd
-       JOIN course c ON c.id = cd.course_id
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       JOIN term t ON t.id = co.term_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        LEFT JOIN "user" u ON u.id = cd.last_updated_by
        WHERE pp.user_id = $1
-       ORDER BY cd.term DESC, UPPER(c.code)`,
+       ORDER BY t.start_date DESC NULLS LAST, UPPER(c.code)`,
       [req.user.id],
     );
     res.json({ ok: true, dossiers: result.rows });
@@ -1063,7 +1077,8 @@ router.get("/my-students", async (req, res, next) => {
            ebr.professor_profile_id = $1
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE cd.course_id = ebr.course_id
+             JOIN course_offering co ON co.id = cd.course_offering_id
+             WHERE co.course_id = ebr.course_id
                AND cd.professor_id = $1
            )
          )
@@ -1094,7 +1109,8 @@ router.get("/my-students", async (req, res, next) => {
            eu.professor_profile_id = $1
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE cd.course_id = eu.course_id
+             JOIN course_offering co ON co.id = cd.course_offering_id
+             WHERE co.course_id = eu.course_id
                AND cd.professor_id = $1
            )
          )`,
@@ -1236,7 +1252,8 @@ router.get("/exam-requests", async (req, res, next) => {
          ebr.professor_profile_id = $1
          OR EXISTS (
            SELECT 1 FROM course_dossier cd
-           WHERE cd.course_id = ebr.course_id
+           JOIN course_offering co ON co.id = cd.course_offering_id
+           WHERE co.course_id = ebr.course_id
              AND cd.professor_id = $1
          )
        )
@@ -1268,7 +1285,8 @@ router.patch("/exam-requests/:id/approve", async (req, res, next) => {
            professor_profile_id = $2
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE cd.course_id = (SELECT course_id FROM exam_booking_request WHERE id = $1)
+             JOIN course_offering co ON co.id = cd.course_offering_id
+             WHERE co.course_id = (SELECT course_id FROM exam_booking_request WHERE id = $1)
                AND cd.professor_id = $2
            )
          )
@@ -1310,7 +1328,8 @@ router.patch("/exam-requests/:id/reject", async (req, res, next) => {
            professor_profile_id = $2
            OR EXISTS (
              SELECT 1 FROM course_dossier cd
-             WHERE cd.course_id = (SELECT course_id FROM exam_booking_request WHERE id = $1)
+             JOIN course_offering co ON co.id = cd.course_offering_id
+             WHERE co.course_id = (SELECT course_id FROM exam_booking_request WHERE id = $1)
                AND cd.professor_id = $2
            )
          )
@@ -1338,9 +1357,10 @@ router.get(
     try {
       const result = await tenantQuery(
         req.tenantSchema,
-        `SELECT DISTINCT cd.course_id AS id, c.code
+        `SELECT DISTINCT co.course_id AS id, c.code
          FROM course_dossier cd
-         JOIN course c ON c.id = cd.course_id
+         JOIN course_offering co ON co.id = cd.course_offering_id
+         JOIN course c ON c.id = co.course_id
          WHERE cd.professor_id = $1
          ORDER BY c.code`,
         [req.params.profId],

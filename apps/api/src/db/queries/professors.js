@@ -14,7 +14,7 @@ export async function listProfessors(schema) {
        u.first_name, u.last_name, u.email,
        pp.department, pp.phone, pp.office,
        u.is_active,
-       COUNT(DISTINCT cd.course_id) AS dossier_count
+       COUNT(DISTINCT cd.course_offering_id) AS dossier_count
      FROM professor_profile pp
      JOIN "user" u ON u.id = pp.user_id
      LEFT JOIN course_dossier cd ON cd.professor_id = pp.id

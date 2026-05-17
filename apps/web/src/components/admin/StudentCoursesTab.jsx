@@ -85,76 +85,33 @@ function StudentSearch({ onSelect }) {
   );
 }
 
-function CourseCombobox({ value, onChange, allCourses }) {
-  const [query,     setQuery]     = useState('');
-  const [open,      setOpen]      = useState(false);
-  const closeTimer                = useRef(null);
-
-  const selectedCode = value ? (allCourses.find(c => c.id === value)?.code ?? value) : '';
-
-  const filtered = query.trim()
-    ? allCourses.filter(c => c.code.toUpperCase().includes(query.toUpperCase()))
-    : allCourses;
-
-  function selectCourse(id) {
-    onChange(id);
-    setQuery('');
-    setOpen(false);
-  }
-
-  function handleBlur() {
-    closeTimer.current = setTimeout(() => setOpen(false), 150);
-  }
-
-  function handleFocus() {
-    clearTimeout(closeTimer.current);
-    setOpen(true);
-  }
-
+function OfferingPicker({ termId, offeringId, onTermChange, onOfferingChange, terms, offerings }) {
   return (
-    <div className="relative flex-1">
-      <input
-        autoFocus
-        value={value ? selectedCode : query}
-        onChange={e => {
-          const v = e.target.value.toUpperCase();
-          if (value) onChange('');
-          setQuery(v);
-          setOpen(true);
-        }}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        placeholder="Search course code…"
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+    <div className="flex gap-2 flex-1">
+      <select
+        value={termId}
+        onChange={e => onTermChange(e.target.value)}
+        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm
                    focus:outline-none focus:ring-2 focus:ring-brand-600"
-      />
-      {open && filtered.length > 0 && (
-        <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200
-                       rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {filtered.map(c => (
-            <li key={c.id}>
-              <button
-                type="button"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => selectCourse(c.id)}
-                className="w-full text-left px-3 py-2 hover:bg-brand-50 transition-colors
-                           flex items-center gap-2"
-              >
-                <span className="text-sm font-mono font-medium text-gray-900">{c.code}</span>
-                {c.name && (
-                  <span className="text-xs text-gray-400">· {c.name}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {open && query.trim() && filtered.length === 0 && (
-        <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200
-                        rounded-lg shadow-lg px-3 py-2 text-sm text-gray-400">
-          No matching courses
-        </div>
-      )}
+      >
+        <option value="">Select term…</option>
+        {terms.map(t => (
+          <option key={t.id} value={t.id}>{t.label}</option>
+        ))}
+      </select>
+      <select
+        value={offeringId}
+        onChange={e => onOfferingChange(e.target.value)}
+        disabled={!termId || offerings.length === 0}
+        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm
+                   focus:outline-none focus:ring-2 focus:ring-brand-600
+                   disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <option value="">Select course…</option>
+        {offerings.map(o => (
+          <option key={o.id} value={o.id}>{o.code}</option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -163,9 +120,11 @@ function StudentCourses({ student, onBack }) {
   const [courses,        setCourses]        = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [showForm,       setShowForm]       = useState(false);
-  const [courseInput,    setCourseInput]    = useState('');
+  const [selectedTermId, setSelectedTermId] = useState('');
+  const [offeringId,     setOfferingId]     = useState('');
   const [savingCourse,   setSavingCourse]   = useState(false);
-  const [allCourses,     setAllCourses]     = useState([]);
+  const [terms,          setTerms]          = useState([]);
+  const [offerings,      setOfferings]      = useState([]);
 
   const name = [student.first_name, student.last_name].filter(Boolean).join(' ');
 
@@ -182,17 +141,26 @@ function StudentCourses({ student, onBack }) {
 
   useEffect(() => {
     loadCourses();
-    api.get('/institution/course-list').then(d => setAllCourses(d.courses ?? [])).catch(() => {});
+    api.get('/institution/terms').then(d => setTerms((d.terms ?? []).filter(t => t.is_active))).catch(() => {});
   }, [student.id]); // eslint-disable-line
+
+  useEffect(() => {
+    if (!selectedTermId) { setOfferings([]); setOfferingId(''); return; }
+    api.get(`/institution/course-offerings?termId=${selectedTermId}`)
+      .then(d => setOfferings(d.offerings ?? []))
+      .catch(() => {});
+    setOfferingId('');
+  }, [selectedTermId]);
 
   async function handleAdd(e) {
     e.preventDefault();
-    if (!courseInput) { toast('Select a course', 'warning'); return; }
+    if (!offeringId) { toast('Select a course offering', 'warning'); return; }
     setSavingCourse(true);
     try {
-      await api.post(`/counsellor/students/${student.id}/courses`, { courseId: courseInput });
+      await api.post(`/counsellor/students/${student.id}/courses`, { courseOfferingId: offeringId });
       toast('Course added', 'success');
-      setCourseInput('');
+      setOfferingId('');
+      setSelectedTermId('');
       setShowForm(false);
       loadCourses();
     } catch (err) {
@@ -202,9 +170,9 @@ function StudentCourses({ student, onBack }) {
     }
   }
 
-  async function handleRemove(courseId) {
+  async function handleRemove(courseOfferingId) {
     try {
-      await api.delete(`/counsellor/students/${student.id}/courses/${courseId}`);
+      await api.delete(`/counsellor/students/${student.id}/courses/${courseOfferingId}`);
       toast('Course removed', 'success');
       loadCourses();
     } catch (err) {
@@ -247,14 +215,17 @@ function StudentCourses({ student, onBack }) {
 
         {showForm && (
           <form onSubmit={handleAdd} className="flex gap-2 mb-3">
-            <CourseCombobox
-              value={courseInput}
-              onChange={setCourseInput}
-              allCourses={allCourses}
+            <OfferingPicker
+              termId={selectedTermId}
+              offeringId={offeringId}
+              onTermChange={setSelectedTermId}
+              onOfferingChange={setOfferingId}
+              terms={terms}
+              offerings={offerings}
             />
             <button
               type="button"
-              onClick={() => { setShowForm(false); setCourseInput(''); }}
+              onClick={() => { setShowForm(false); setOfferingId(''); setSelectedTermId(''); }}
               className="px-3 py-2 border border-gray-300 text-gray-700 text-sm
                          rounded-lg hover:bg-gray-50 transition-colors"
             >
@@ -291,6 +262,9 @@ function StudentCourses({ student, onBack }) {
                     <span className="text-sm font-medium font-mono text-gray-800">
                       {c.course_code}
                     </span>
+                    {c.term_label && (
+                      <span className="text-xs text-gray-400">({c.term_label})</span>
+                    )}
                     {profName && (
                       c.professor_id ? (
                         <Link
@@ -305,7 +279,7 @@ function StudentCourses({ student, onBack }) {
                     )}
                   </div>
                   <button
-                    onClick={() => handleRemove(c.course_id)}
+                    onClick={() => handleRemove(c.course_offering_id)}
                     className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1 shrink-0"
                   >
                     Remove

@@ -864,12 +864,13 @@ router.get("/courses", async (req, res, next) => {
     const result = await tenantQuery(
       schema,
       `SELECT DISTINCT
-         cd.course_id,
+         co.course_id,
          c.code AS course_code,
          pp.id AS professor_id,
          u.first_name, u.last_name
        FROM course_dossier cd
-       JOIN course c ON c.id = cd.course_id
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       JOIN course c ON c.id = co.course_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
        ORDER BY c.code ASC`,
@@ -1077,8 +1078,9 @@ async function notifyProfessorUploadNeeded(
     schema,
     `SELECT cd.professor_id, c.code AS course_code
      FROM course_dossier cd
-     JOIN course c ON c.id = cd.course_id
-     WHERE cd.course_id = $1
+     JOIN course_offering co ON co.id = cd.course_offering_id
+     JOIN course c ON c.id = co.course_id
+     WHERE co.course_id = $1
      LIMIT 1`,
     [courseId],
   );
