@@ -6,6 +6,7 @@ const COURSE_CODE_REGEX = /^[A-Z]{2,4}\s\d{4}$/;
 export default function CourseProfessorLinkForm() {
   const [activeTab, setActiveTab] = useState("form");
   const [availableTerms, setAvailableTerms] = useState([]);
+  const [availableCourses, setAvailableCourses] = useState([]);
   const [formData, setFormData] = useState({
     courseCode: "",
     professorEmail: "",
@@ -17,19 +18,26 @@ export default function CourseProfessorLinkForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Load available terms on mount
   useEffect(() => {
     loadTerms();
+    loadCourses();
   }, []);
 
   const loadTerms = async () => {
     try {
       const response = await api.get("/professors/terms");
-      if (response.ok) {
-        setAvailableTerms(response.terms);
-      }
+      if (response.ok) setAvailableTerms(response.terms);
     } catch (err) {
       console.error("Failed to load terms:", err);
+    }
+  };
+
+  const loadCourses = async () => {
+    try {
+      const response = await api.get("/institution/course-list");
+      if (response.ok) setAvailableCourses(response.courses ?? []);
+    } catch (err) {
+      console.error("Failed to load courses:", err);
     }
   };
 
@@ -46,8 +54,8 @@ export default function CourseProfessorLinkForm() {
     setError("");
     setSuccess("");
 
-    // Validate course code format
-    if (!COURSE_CODE_REGEX.test(formData.courseCode.toUpperCase())) {
+    // Only validate format when using free-text fallback (no master courses loaded)
+    if (availableCourses.length === 0 && !COURSE_CODE_REGEX.test(formData.courseCode.toUpperCase())) {
       setError("Course code must be in format: ABCD 1234");
       return;
     }
@@ -168,18 +176,37 @@ export default function CourseProfessorLinkForm() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Course Code <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                name="courseCode"
-                placeholder="e.g., ABCD 1234"
-                value={formData.courseCode}
-                onChange={handleFormChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Format: 2-4 letters, space, 4 digits
-              </p>
+              {availableCourses.length > 0 ? (
+                <select
+                  name="courseCode"
+                  value={formData.courseCode}
+                  onChange={handleFormChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="" disabled>Select a course</option>
+                  {availableCourses.map(c => (
+                    <option key={c.id} value={c.code}>
+                      {c.code}{c.name ? ` — ${c.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    name="courseCode"
+                    placeholder="e.g., ABCD 1234"
+                    value={formData.courseCode}
+                    onChange={handleFormChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    No courses in master list yet. Add courses under the Courses tab first.
+                  </p>
+                </>
+              )}
             </div>
 
             <div>

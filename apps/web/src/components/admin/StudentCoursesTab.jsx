@@ -91,7 +91,7 @@ function CourseCombobox({ value, onChange, allCourses }) {
   const closeTimer                = useRef(null);
 
   const filtered = query.trim()
-    ? allCourses.filter(c => c.course_code.toUpperCase().includes(query.toUpperCase()))
+    ? allCourses.filter(c => c.code.toUpperCase().includes(query.toUpperCase()))
     : allCourses;
 
   function selectCourse(code) {
@@ -130,19 +130,17 @@ function CourseCombobox({ value, onChange, allCourses }) {
         <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200
                        rounded-lg shadow-lg max-h-52 overflow-y-auto">
           {filtered.map(c => (
-            <li key={c.course_code + (c.professor_id || '')}>
+            <li key={c.id}>
               <button
                 type="button"
                 onMouseDown={e => e.preventDefault()}
-                onClick={() => selectCourse(c.course_code)}
+                onClick={() => selectCourse(c.code)}
                 className="w-full text-left px-3 py-2 hover:bg-brand-50 transition-colors
                            flex items-center gap-2"
               >
-                <span className="text-sm font-mono font-medium text-gray-900">{c.course_code}</span>
-                {(c.first_name || c.last_name) && (
-                  <span className="text-xs text-gray-400">
-                    · {[c.first_name, c.last_name].filter(Boolean).join(' ')}
-                  </span>
+                <span className="text-sm font-mono font-medium text-gray-900">{c.code}</span>
+                {c.name && (
+                  <span className="text-xs text-gray-400">· {c.name}</span>
                 )}
               </button>
             </li>
@@ -182,7 +180,7 @@ function StudentCourses({ student, onBack }) {
 
   useEffect(() => {
     loadCourses();
-    api.get('/institution/courses').then(d => setAllCourses(d.data ?? [])).catch(() => {});
+    api.get('/institution/course-list').then(d => setAllCourses(d.courses ?? [])).catch(() => {});
   }, [student.id]); // eslint-disable-line
 
   async function handleAdd(e) {

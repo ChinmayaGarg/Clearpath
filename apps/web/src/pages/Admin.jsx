@@ -5,6 +5,7 @@ import UserTable from "../components/admin/UserTable.jsx";
 import InviteModal from "../components/admin/InviteModal.jsx";
 import StatusBoardSettings from "../components/admin/StatusBoardSettings.jsx";
 import CourseProfessorLinkForm from "../components/admin/CourseProfessorLinkForm.jsx";
+import CoursesTab from "../components/admin/CoursesTab.jsx";
 import BookingsTab from "../components/admin/BookingsTab.jsx";
 import RoomsTab from "../components/admin/RoomsTab.jsx";
 import ScheduleTab from "../components/admin/ScheduleTab.jsx";
@@ -13,7 +14,7 @@ import CancellationRequestsTab from "../components/admin/CancellationRequestsTab
 import AccommodationsTab from "../components/admin/AccommodationsTab.jsx";
 import StudentCoursesTab from "../components/admin/StudentCoursesTab.jsx";
 
-const ADMIN_TABS = ["Users", "Link Courses to Prof", "Link Student to Courses", "Exam Booking Requests", "Room Setup", "Accommodations", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests"];
+const ADMIN_TABS = ["Users", "Courses", "Link Courses to Prof", "Link Student to Courses", "Exam Booking Requests", "Room Setup", "Accommodations", "Assign Rooms", "Auto-Approve Exams", "Exam Cancellation Requests"];
 
 export default function Admin() {
   const [searchParams] = useSearchParams();
@@ -82,6 +83,8 @@ export default function Admin() {
               )}
             </>
           )}
+
+          {tab === "Courses" && <CoursesTab />}
 
           {tab === "Link Courses to Prof" && (
             <div className="bg-white rounded-lg border border-gray-200 p-6">

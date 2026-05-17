@@ -1,6 +1,11 @@
 /**
  * Institution admin portal routes — requires auth + institution_admin role.
  *
+ * GET    /api/institution/course-list            — list master courses
+ * POST   /api/institution/course-list            — create master course
+ * PATCH  /api/institution/course-list/:id        — update master course
+ * DELETE /api/institution/course-list/:id        — soft-delete master course
+ *
  * GET    /api/institution/courses                — list all courses linked to professors
  *
  * GET    /api/institution/bookings           — all professor-approved booking requests
@@ -1227,6 +1232,89 @@ router.patch("/cancellation-requests/:id/reject", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ── Course master table CRUD ──────────────────────────────────────────────────
+
+const courseSchema = z.object({
+  code:       z.string().min(1).max(20).transform(s => s.trim().toUpperCase()),
+  name:       z.string().max(100).optional().nullable(),
+  department: z.string().max(100).optional().nullable(),
+  term:       z.string().max(100).optional().nullable(),
+});
+
+const courseUpdateSchema = z.object({
+  name:       z.string().max(100).optional().nullable(),
+  department: z.string().max(100).optional().nullable(),
+  term:       z.string().max(100).optional().nullable(),
+  is_active:  z.boolean().optional(),
+});
+
+// GET /api/institution/course-list
+router.get('/course-list', async (req, res, next) => {
+  try {
+    const includeInactive = req.query.all === 'true';
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT id, code, name, department, term, is_active, created_at
+       FROM course
+       ${includeInactive ? '' : "WHERE is_active = TRUE"}
+       ORDER BY code ASC`,
+      [],
+    );
+    res.json({ ok: true, courses: result.rows });
+  } catch (err) { next(err); }
+});
+
+// POST /api/institution/course-list
+router.post('/course-list', async (req, res, next) => {
+  try {
+    const data = courseSchema.parse(req.body);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO course (code, name, department, term, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, code, name, department, term, is_active, created_at`,
+      [data.code, data.name ?? null, data.department ?? null, data.term ?? null, req.user.id],
+    );
+    res.status(201).json({ ok: true, course: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/institution/course-list/:id
+router.patch('/course-list/:id', async (req, res, next) => {
+  try {
+    const data = courseUpdateSchema.parse(req.body);
+    const sets = [];
+    const vals = [];
+    if (data.name       !== undefined) { sets.push(`name = $${sets.length + 1}`);       vals.push(data.name); }
+    if (data.department !== undefined) { sets.push(`department = $${sets.length + 1}`); vals.push(data.department); }
+    if (data.term       !== undefined) { sets.push(`term = $${sets.length + 1}`);       vals.push(data.term); }
+    if (data.is_active  !== undefined) { sets.push(`is_active = $${sets.length + 1}`);  vals.push(data.is_active); }
+    if (!sets.length) return res.json({ ok: true });
+    sets.push(`updated_at = NOW()`);
+    vals.push(req.params.id);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE course SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`,
+      vals,
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Course not found' });
+    res.json({ ok: true, course: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/institution/course-list/:id  (soft delete)
+router.delete('/course-list/:id', async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE course SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id`,
+      [req.params.id],
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Course not found' });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
 });
 
 export default router;
