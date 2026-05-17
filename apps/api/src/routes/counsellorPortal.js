@@ -129,7 +129,7 @@ router.get("/students/:id/courses", async (req, res, next) => {
 
 // ── POST /api/counsellor/students/:id/courses — admin only ────────────────────
 const addCourseSchema = z.object({
-  courseId: z.string().uuid(),
+  courseOfferingId: z.string().uuid(),
 });
 
 router.post(
@@ -142,33 +142,33 @@ router.post(
         return res.status(400).json({ error: parsed.error.issues[0].message });
       }
       const row = await addStudentCourse(req.tenantSchema, {
-        studentProfileId: req.params.id,
-        courseId:         parsed.data.courseId,
-        addedBy:          req.user.id,
+        studentProfileId:  req.params.id,
+        courseOfferingId:  parsed.data.courseOfferingId,
+        addedBy:           req.user.id,
       });
       res.status(201).json({ course: row });
     } catch (err) {
       if (err.code === "23505") {
-        return res.status(409).json({ error: "This course is already assigned to this student" });
+        return res.status(409).json({ error: "This student is already enrolled in this course offering" });
       }
       next(err);
     }
   },
 );
 
-// ── DELETE /api/counsellor/students/:id/courses/:courseId — admin only ────────
+// ── DELETE /api/counsellor/students/:id/courses/:courseOfferingId — admin only ─
 router.delete(
-  "/students/:id/courses/:courseId",
+  "/students/:id/courses/:courseOfferingId",
   requireRole("institution_admin"),
   async (req, res, next) => {
     try {
       const deleted = await removeStudentCourse(
         req.tenantSchema,
         req.params.id,
-        req.params.courseId,
+        req.params.courseOfferingId,
       );
       if (!deleted) {
-        return res.status(404).json({ error: "Course not found for this student" });
+        return res.status(404).json({ error: "Course enrollment not found for this student" });
       }
       res.json({ ok: true });
     } catch (err) {
@@ -180,7 +180,7 @@ router.delete(
 // ── POST /api/counsellor/students/:id/accommodations ─────────────────────────
 const addAccSchema = z.object({
   accommodationCodeId: z.string().uuid(),
-  term: z.string().min(1).max(100),
+  termId: z.string().uuid(),
   notes: z.string().max(1000).optional().nullable(),
 });
 
@@ -196,7 +196,7 @@ router.post(
           .json({ error: parsed.error.issues[0].message });
       }
 
-      const { accommodationCodeId, term, notes } = parsed.data;
+      const { accommodationCodeId, termId, notes } = parsed.data;
       const counsellorProfileId = await getCounsellorProfileId(
         req.tenantSchema,
         req.user.id,
@@ -206,7 +206,7 @@ router.post(
         studentProfileId: req.params.id,
         counsellorProfileId,
         accommodationCodeId,
-        term,
+        termId,
         notes,
       });
 
@@ -274,7 +274,7 @@ router.post("/registrations/:id/start-review", async (req, res, next) => {
 
 // ── POST /api/counsellor/registrations/:id/approve ───────────────────────────
 const ApproveSchema = z.object({
-  term: z.string().min(1).max(100),
+  termId: z.string().uuid(),
   grantedCodes: z.array(z.object({
     accommodationCodeId: z.string().uuid(),
     notes:     z.string().max(1000).optional().nullable(),
@@ -284,9 +284,9 @@ const ApproveSchema = z.object({
 
 router.post("/registrations/:id/approve", async (req, res, next) => {
   try {
-    const { term, grantedCodes } = ApproveSchema.parse(req.body);
-    // Attach the selected term to each granted code
-    const codesWithTerm = grantedCodes.map(g => ({ ...g, term }));
+    const { termId, grantedCodes } = ApproveSchema.parse(req.body);
+    // Attach the selected termId to each granted code
+    const codesWithTerm = grantedCodes.map(g => ({ ...g, termId }));
     await approveRegistration(req.tenantSchema, req.params.id, {
       reviewedBy:  req.user.id,
       grantedCodes: codesWithTerm,
@@ -332,14 +332,16 @@ router.get("/courses/:courseId/professor", async (req, res, next) => {
       `SELECT
          pp.id, pp.department, pp.phone, pp.office,
          u.first_name, u.last_name, u.email,
-         cd.term, cd.preferred_delivery, cd.typical_materials,
+         t.label AS term, cd.preferred_delivery, cd.typical_materials,
          cd.notes, c.code AS course_code
        FROM course_dossier cd
-       JOIN course c ON c.id = cd.course_id
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       JOIN term t ON t.id = co.term_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
-       WHERE cd.course_id = $1
-       ORDER BY cd.term DESC
+       WHERE co.course_id = $1
+       ORDER BY t.start_date DESC NULLS LAST
        LIMIT 1`,
       [req.params.courseId],
     );

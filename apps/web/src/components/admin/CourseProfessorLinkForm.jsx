@@ -3,12 +3,12 @@ import { api } from "../../lib/api.js";
 
 export default function CourseProfessorLinkForm() {
   const [activeTab, setActiveTab] = useState("form");
-  const [availableTerms, setAvailableTerms] = useState([]);
-  const [availableCourses, setAvailableCourses] = useState([]);
+  const [terms, setTerms] = useState([]);
+  const [offerings, setOfferings] = useState([]);
   const [formData, setFormData] = useState({
-    courseId: "",
+    termId: "",
+    courseOfferingId: "",
     professorEmail: "",
-    term: "current",
   });
   const [csvText, setCsvText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -16,35 +16,38 @@ export default function CourseProfessorLinkForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  useEffect(() => {
-    loadTerms();
-    loadCourses();
-  }, []);
+  useEffect(() => { loadTerms(); }, []);
 
-  const loadTerms = async () => {
+  useEffect(() => {
+    if (!formData.termId) {
+      setOfferings([]);
+      setFormData(prev => ({ ...prev, courseOfferingId: "" }));
+      return;
+    }
+    loadOfferings(formData.termId);
+  }, [formData.termId]); // eslint-disable-line
+
+  async function loadTerms() {
     try {
-      const response = await api.get("/professors/terms");
-      if (response.ok) setAvailableTerms(response.terms);
+      const res = await api.get("/institution/terms");
+      setTerms(res.terms ?? []);
     } catch (err) {
       console.error("Failed to load terms:", err);
     }
-  };
+  }
 
-  const loadCourses = async () => {
+  async function loadOfferings(termId) {
     try {
-      const response = await api.get("/institution/course-list");
-      if (response.ok) setAvailableCourses(response.courses ?? []);
+      const res = await api.get(`/institution/course-offerings?termId=${termId}`);
+      setOfferings(res.offerings ?? []);
     } catch (err) {
-      console.error("Failed to load courses:", err);
+      console.error("Failed to load offerings:", err);
     }
-  };
+  }
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value.trim(),
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleFormSubmit = async (e) => {
@@ -52,15 +55,15 @@ export default function CourseProfessorLinkForm() {
     setError("");
     setSuccess("");
 
-    if (!formData.courseId) {
-      setError("Please select a course");
+    if (!formData.courseOfferingId) {
+      setError("Please select a course offering");
       return;
     }
 
     setIsLoading(true);
     try {
       const response = await api.post("/professors/link-courses", {
-        courseId: formData.courseId,
+        courseOfferingId: formData.courseOfferingId,
         professorEmail: formData.professorEmail.trim().toLowerCase(),
       });
 
@@ -75,7 +78,7 @@ export default function CourseProfessorLinkForm() {
           setResults(response.result);
         }
 
-        setFormData({ courseId: "", professorEmail: "", term: "current" });
+        setFormData({ termId: formData.termId, courseOfferingId: "", professorEmail: "" });
       } else {
         setError(response.error ?? "Failed to link course");
       }
@@ -117,6 +120,8 @@ export default function CourseProfessorLinkForm() {
       setIsLoading(false);
     }
   };
+
+  const selectedOffering = offerings.find(o => o.id === formData.courseOfferingId);
 
   return (
     <div className="space-y-6">
@@ -171,52 +176,54 @@ export default function CourseProfessorLinkForm() {
           <form onSubmit={handleFormSubmit} className="space-y-4 max-w-md">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Course Code <span className="text-red-500">*</span>
+                Term <span className="text-red-500">*</span>
               </label>
-              {availableCourses.length > 0 ? (
+              {terms.length > 0 ? (
                 <select
-                  name="courseId"
-                  value={formData.courseId}
+                  name="termId"
+                  value={formData.termId}
                   onChange={handleFormChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 >
-                  <option value="" disabled>Select a course</option>
-                  {availableCourses.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.code}{c.name ? ` — ${c.name}` : ''}
-                    </option>
+                  <option value="">Select a term…</option>
+                  {terms.filter(t => t.is_active).map(t => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
               ) : (
                 <p className="text-sm text-gray-500 py-2">
-                  No courses in master list. Add courses under the <strong>Courses</strong> tab first.
+                  No terms found. Create terms under the <strong>Terms</strong> tab first.
                 </p>
               )}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Academic Term <span className="text-red-500">*</span>
+                Course <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                name="term"
-                placeholder="e.g., Fall 2025, Winter 2026"
-                value={formData.term}
-                onChange={handleFormChange}
-                list="terms-list"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-              <datalist id="terms-list">
-                {availableTerms.map((term) => (
-                  <option key={term} value={term} />
-                ))}
-              </datalist>
-              <p className="text-xs text-gray-500 mt-1">
-                e.g., "Fall 2025", "Winter 2026", "current"
-              </p>
+              {!formData.termId ? (
+                <p className="text-sm text-gray-400 py-2">Select a term first.</p>
+              ) : offerings.length > 0 ? (
+                <select
+                  name="courseOfferingId"
+                  value={formData.courseOfferingId}
+                  onChange={handleFormChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">Select a course…</option>
+                  {offerings.map(o => (
+                    <option key={o.id} value={o.id}>
+                      {o.code}{o.name ? ` — ${o.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-gray-500 py-2">
+                  No course offerings for this term. Add offerings under the <strong>Terms</strong> tab first.
+                </p>
+              )}
             </div>
 
             <div>
@@ -243,10 +250,10 @@ export default function CourseProfessorLinkForm() {
             </button>
           </form>
 
-          {results && results.courseId && (
+          {results && results.courseOfferingId && (
             <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-sm font-medium text-green-900">
-                ✓ {availableCourses.find(c => c.id === results.courseId)?.code ?? results.courseId} ({results.term}) linked to{" "}
+                ✓ {selectedOffering?.code ?? results.courseOfferingId} linked to{" "}
                 {results.professorEmail}
               </p>
               {results.magicLink && (
@@ -283,19 +290,17 @@ export default function CourseProfessorLinkForm() {
               CSV Data <span className="text-red-500">*</span>
             </label>
             <p className="text-xs text-gray-500 mb-2">
-              Required columns: "course_code", "professor_email". Optional:
-              "term" (defaults to "current")
+              Required columns: "course_code", "professor_email", "term" (must match an existing term label exactly)
             </p>
             <pre className="text-xs bg-gray-100 p-2 rounded mb-2 overflow-x-auto text-gray-700">
               {`course_code,professor_email,term
 ABCD 1234,professor1@university.edu,Fall 2025
-EFGH 5678,professor2@university.edu,Winter 2026
-IJKL 9012,professor3@university.edu`}
+EFGH 5678,professor2@university.edu,Winter 2026`}
             </pre>
             <textarea
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
-              placeholder={`course_code,professor_email,term\nABCD 1234,professor@university.edu,Fall 2025\nEFGH 5678,another@university.edu,Winter 2026`}
+              placeholder={`course_code,professor_email,term\nABCD 1234,professor@university.edu,Fall 2025`}
               rows={8}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
             />

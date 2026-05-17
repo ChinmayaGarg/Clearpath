@@ -1,9 +1,5 @@
 /**
  * CourseDossier service — business logic for professor preference management.
- *
- * The CourseDossier is Clearpath's institutional memory.
- * Every time a lead edits an exam or a professor email is replied to,
- * the dossier can be updated so the next lead starts with context.
  */
 import {
   getDossiersForProfessor,
@@ -39,14 +35,13 @@ export async function getProfessorDossiers(schema, professorId) {
 }
 
 /**
- * Save or update a dossier entry.
- * Called when a lead manually edits the dossier for a course.
+ * Save or update a dossier entry for a specific course offering.
  */
 export async function saveDossier(
   schema,
   {
     professorId,
-    courseId,
+    courseOfferingId,
     preferredDelivery,
     typicalMaterials,
     passwordReminder,
@@ -56,7 +51,7 @@ export async function saveDossier(
 ) {
   const result = await upsertDossier(schema, {
     professorId,
-    courseId,
+    courseOfferingId,
     preferredDelivery,
     typicalMaterials,
     passwordReminder,
@@ -68,14 +63,19 @@ export async function saveDossier(
     entityType: "course_dossier",
     entityId: result.id,
     action: "updated",
-    newValue: courseId,
+    newValue: courseOfferingId,
     changedBy: savedBy,
   });
 
-  logger.info("Dossier saved", { professorId, courseId, schema });
+  logger.info("Dossier saved", { professorId, courseOfferingId, schema });
   return result;
 }
 
+/**
+ * Persist dossier preferences captured from a professor's exam upload.
+ * Finds the professor's most recent active course_offering for this course
+ * and updates its dossier with the delivery/materials preferences.
+ */
 export async function persistUploadDossier(schema, uploadId, savedBy = null) {
   const uploadResult = await tenantQuery(
     schema,
@@ -94,9 +94,25 @@ export async function persistUploadDossier(schema, uploadId, savedBy = null) {
 
   if (!preferredDelivery && !upload.materials && !passwordReminder) return null;
 
+  // Find the most recent course_offering this professor is linked to for this course
+  const offeringResult = await tenantQuery(
+    schema,
+    `SELECT cd.course_offering_id
+     FROM course_dossier cd
+     JOIN course_offering co ON co.id = cd.course_offering_id
+     JOIN term t ON t.id = co.term_id
+     WHERE cd.professor_id = $1 AND co.course_id = $2
+     ORDER BY t.start_date DESC NULLS LAST
+     LIMIT 1`,
+    [upload.professor_profile_id, upload.course_id],
+  );
+
+  if (!offeringResult.rows.length) return null;
+  const { course_offering_id: courseOfferingId } = offeringResult.rows[0];
+
   return saveDossier(schema, {
     professorId: upload.professor_profile_id,
-    courseId: upload.course_id,
+    courseOfferingId,
     preferredDelivery,
     typicalMaterials: upload.materials ?? null,
     passwordReminder,

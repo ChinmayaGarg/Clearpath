@@ -65,8 +65,9 @@ export async function getAllowedCoursesForProfessor(
 ) {
   const result = await tenantQuery(
     schema,
-    `SELECT DISTINCT cd.course_id
+    `SELECT DISTINCT co.course_id
      FROM course_dossier cd
+     JOIN course_offering co ON co.id = cd.course_offering_id
      WHERE cd.professor_id = $1`,
     [professorProfileId],
   );

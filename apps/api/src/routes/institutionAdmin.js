@@ -1264,13 +1264,11 @@ const courseSchema = z.object({
   code:       z.string().min(1).max(20).transform(s => s.trim().toUpperCase()),
   name:       z.string().max(100).optional().nullable(),
   department: z.string().max(100).optional().nullable(),
-  term:       z.string().max(100).optional().nullable(),
 });
 
 const courseUpdateSchema = z.object({
   name:       z.string().max(100).optional().nullable(),
   department: z.string().max(100).optional().nullable(),
-  term:       z.string().max(100).optional().nullable(),
   is_active:  z.boolean().optional(),
 });
 
@@ -1280,7 +1278,7 @@ router.get('/course-list', async (req, res, next) => {
     const includeInactive = req.query.all === 'true';
     const result = await tenantQuery(
       req.tenantSchema,
-      `SELECT id, code, name, department, term, is_active, created_at
+      `SELECT id, code, name, department, is_active, created_at
        FROM course
        ${includeInactive ? '' : "WHERE is_active = TRUE"}
        ORDER BY code ASC`,
@@ -1296,10 +1294,10 @@ router.post('/course-list', async (req, res, next) => {
     const data = courseSchema.parse(req.body);
     const result = await tenantQuery(
       req.tenantSchema,
-      `INSERT INTO course (code, name, department, term, created_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, code, name, department, term, is_active, created_at`,
-      [data.code, data.name ?? null, data.department ?? null, data.term ?? null, req.user.id],
+      `INSERT INTO course (code, name, department, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, code, name, department, is_active, created_at`,
+      [data.code, data.name ?? null, data.department ?? null, req.user.id],
     );
     res.status(201).json({ ok: true, course: result.rows[0] });
   } catch (err) { next(err); }
@@ -1313,7 +1311,6 @@ router.patch('/course-list/:id', async (req, res, next) => {
     const vals = [];
     if (data.name       !== undefined) { sets.push(`name = $${sets.length + 1}`);       vals.push(data.name); }
     if (data.department !== undefined) { sets.push(`department = $${sets.length + 1}`); vals.push(data.department); }
-    if (data.term       !== undefined) { sets.push(`term = $${sets.length + 1}`);       vals.push(data.term); }
     if (data.is_active  !== undefined) { sets.push(`is_active = $${sets.length + 1}`);  vals.push(data.is_active); }
     if (!sets.length) return res.json({ ok: true });
     sets.push(`updated_at = NOW()`);
@@ -1337,6 +1334,163 @@ router.delete('/course-list/:id', async (req, res, next) => {
       [req.params.id],
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Course not found' });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── Term CRUD ─────────────────────────────────────────────────────────────────
+
+const termSchema = z.object({
+  label:      z.string().min(1).max(100).trim(),
+  start_date: z.string().date().optional().nullable(),
+  end_date:   z.string().date().optional().nullable(),
+});
+
+const termUpdateSchema = z.object({
+  label:      z.string().min(1).max(100).trim().optional(),
+  start_date: z.string().date().optional().nullable(),
+  end_date:   z.string().date().optional().nullable(),
+  is_active:  z.boolean().optional(),
+});
+
+// GET /api/institution/terms
+router.get('/terms', async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT t.id, t.label, t.start_date, t.end_date, t.is_active, t.created_at,
+              COUNT(co.id)::int AS offering_count
+       FROM term t
+       LEFT JOIN course_offering co ON co.term_id = t.id
+       GROUP BY t.id
+       ORDER BY t.start_date DESC NULLS LAST, t.label DESC`,
+    );
+    res.json({ ok: true, terms: result.rows });
+  } catch (err) { next(err); }
+});
+
+// POST /api/institution/terms
+router.post('/terms', async (req, res, next) => {
+  try {
+    const data = termSchema.parse(req.body);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO term (label, start_date, end_date, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, label, start_date, end_date, is_active, created_at`,
+      [data.label, data.start_date ?? null, data.end_date ?? null, req.user.id],
+    );
+    res.status(201).json({ ok: true, term: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/institution/terms/:id
+router.patch('/terms/:id', async (req, res, next) => {
+  try {
+    const data = termUpdateSchema.parse(req.body);
+    const sets = [];
+    const vals = [];
+    if (data.label      !== undefined) { sets.push(`label = $${sets.length + 1}`);      vals.push(data.label); }
+    if (data.start_date !== undefined) { sets.push(`start_date = $${sets.length + 1}`); vals.push(data.start_date); }
+    if (data.end_date   !== undefined) { sets.push(`end_date = $${sets.length + 1}`);   vals.push(data.end_date); }
+    if (data.is_active  !== undefined) { sets.push(`is_active = $${sets.length + 1}`);  vals.push(data.is_active); }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE term SET ${sets.join(', ')} WHERE id = $${vals.length}
+       RETURNING id, label, start_date, end_date, is_active, created_at`,
+      vals,
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Term not found' });
+    res.json({ ok: true, term: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/institution/terms/:id
+router.delete('/terms/:id', async (req, res, next) => {
+  try {
+    const ref = await tenantQuery(
+      req.tenantSchema,
+      `SELECT 1 FROM course_offering WHERE term_id = $1 LIMIT 1`,
+      [req.params.id],
+    );
+    if (ref.rows.length) {
+      return res.status(409).json({ ok: false, error: 'Cannot delete a term that has course offerings. Remove all offerings first.' });
+    }
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `DELETE FROM term WHERE id = $1 RETURNING id`,
+      [req.params.id],
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Term not found' });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── Course Offering CRUD ──────────────────────────────────────────────────────
+
+// GET /api/institution/course-offerings?termId=<uuid>
+router.get('/course-offerings', async (req, res, next) => {
+  try {
+    const { termId } = req.query;
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT co.id, co.course_id, c.code, c.name, co.term_id, t.label AS term_label, co.created_at
+       FROM course_offering co
+       JOIN course c ON c.id = co.course_id
+       JOIN term t ON t.id = co.term_id
+       ${termId ? 'WHERE co.term_id = $1' : ''}
+       ORDER BY t.start_date DESC NULLS LAST, c.code ASC`,
+      termId ? [termId] : [],
+    );
+    res.json({ ok: true, offerings: result.rows });
+  } catch (err) { next(err); }
+});
+
+// POST /api/institution/course-offerings
+router.post('/course-offerings', async (req, res, next) => {
+  try {
+    const { courseId, termId } = z.object({
+      courseId: z.string().uuid(),
+      termId:   z.string().uuid(),
+    }).parse(req.body);
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO course_offering (course_id, term_id)
+       VALUES ($1, $2)
+       RETURNING id, course_id, term_id, created_at`,
+      [courseId, termId],
+    );
+    res.status(201).json({ ok: true, offering: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/institution/course-offerings/:id
+router.delete('/course-offerings/:id', async (req, res, next) => {
+  try {
+    const dosRef = await tenantQuery(
+      req.tenantSchema,
+      `SELECT 1 FROM course_dossier WHERE course_offering_id = $1 LIMIT 1`,
+      [req.params.id],
+    );
+    if (dosRef.rows.length) {
+      return res.status(409).json({ ok: false, error: 'Cannot remove offering: professors are linked to it. Unlink them first.' });
+    }
+    const scRef = await tenantQuery(
+      req.tenantSchema,
+      `SELECT 1 FROM student_course WHERE course_offering_id = $1 LIMIT 1`,
+      [req.params.id],
+    );
+    if (scRef.rows.length) {
+      return res.status(409).json({ ok: false, error: 'Cannot remove offering: students are enrolled in it. Remove enrollments first.' });
+    }
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `DELETE FROM course_offering WHERE id = $1 RETURNING id`,
+      [req.params.id],
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Course offering not found' });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

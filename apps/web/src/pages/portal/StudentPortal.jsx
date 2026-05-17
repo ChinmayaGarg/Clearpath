@@ -803,8 +803,8 @@ function BookingForm({ onSuccess, onCancel }) {
               >
                 <option value="">Select course…</option>
                 {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code}
+                  <option key={c.course_offering_id ?? c.id} value={c.id}>
+                    {c.code}{c.term_label ? ` (${c.term_label})` : ''}
                   </option>
                 ))}
               </select>

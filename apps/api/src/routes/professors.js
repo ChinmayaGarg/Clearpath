@@ -56,9 +56,8 @@ const updateProfSchema = z.object({
 });
 
 const linkCourseSchema = z.object({
-  courseId: z.string().uuid(),
+  courseOfferingId: z.string().uuid(),
   professorEmail: z.string().email().toLowerCase().trim(),
-  term: z.string().min(1).max(100).trim().default("current"),
   preferredDelivery: z
     .enum(["pickup", "dropped", "delivery", "pending"])
     .optional(),
@@ -103,16 +102,42 @@ router.get(
   },
 );
 
+// ── GET /api/professors/course-offerings ──────────────────────────────────────
+// Returns all course offerings (optionally filtered by termId) for the link form
+router.get(
+  "/course-offerings",
+  requireRole("lead", "institution_admin"),
+  async (req, res, next) => {
+    try {
+      const { termId } = req.query;
+      const result = await tenantQuery(
+        req.tenantSchema,
+        `SELECT co.id, co.course_id, c.code, c.name, co.term_id, t.label AS term_label
+         FROM course_offering co
+         JOIN course c ON c.id = co.course_id
+         JOIN term t ON t.id = co.term_id
+         WHERE t.is_active = TRUE
+         ${termId ? 'AND co.term_id = $1' : ''}
+         ORDER BY t.start_date DESC NULLS LAST, c.code ASC`,
+        termId ? [termId] : [],
+      );
+      res.json({ ok: true, offerings: result.rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ── GET /api/professors/course-emails ─────────────────────────────────────────
 router.get(
   "/course-emails",
   requireRole("lead", "institution_admin"),
   async (req, res, next) => {
     try {
-      const term = req.query.term ?? null;
+      const termId = req.query.termId ?? null;
       const courseProfessorEmails = await listCourseProfessorEmails(
         req.tenantSchema,
-        term,
+        termId,
       );
       res.json({ ok: true, courseProfessorEmails });
     } catch (err) {
@@ -237,9 +262,8 @@ router.post(
   async (req, res, next) => {
     try {
       const {
-        courseId,
+        courseOfferingId,
         professorEmail,
-        term,
         preferredDelivery,
         typicalMaterials,
         passwordReminder,
@@ -253,16 +277,15 @@ router.post(
         req.user.id,
       );
 
-      // Upsert the dossier entry with details, defaulting term to current.
+      // Upsert the dossier entry linked to the course offering
       const dossier = await upsertDossier(req.tenantSchema, {
         professorId: prof.professorId,
-        courseId,
+        courseOfferingId,
         preferredDelivery,
         typicalMaterials,
         passwordReminder,
         notes,
         updatedBy: req.user.id,
-        term,
       });
 
       // If new user, generate magic link token
@@ -298,15 +321,14 @@ router.post(
         entityType: "course_dossier",
         entityId: dossier.id,
         action: prof.isNewUser ? "created_with_invite" : "created",
-        newValue: `${courseId}/${term}/${professorEmail}`,
+        newValue: `${courseOfferingId}/${professorEmail}`,
         changedBy: req.user.id,
       });
 
       res.status(201).json({
         ok: true,
         result: {
-          courseId,
-          term,
+          courseOfferingId,
           professorEmail,
           isNewProfessor: prof.isNewUser,
           magicLink: prof.isNewUser ? magicLink : null,
@@ -332,7 +354,8 @@ router.post(
         })
         .parse(req.body);
 
-      // Parse CSV: expect headers "course_code,professor_email" and optional "term"
+      // Parse CSV: headers "course_code,professor_email,term"
+      // term must match an existing active term label exactly (case-insensitive).
       const lines = csv.trim().split("\n");
       const headers = lines[0]
         .toLowerCase()
@@ -341,26 +364,45 @@ router.post(
 
       if (
         !headers.includes("course_code") ||
-        !headers.includes("professor_email")
+        !headers.includes("professor_email") ||
+        !headers.includes("term")
       ) {
         return res.status(400).json({
           ok: false,
           error:
-            'CSV must have headers: "course_code" and "professor_email". Optional: "term" (defaults to "current")',
+            'CSV must have headers: "course_code", "professor_email", and "term". The term value must match an existing active term label.',
         });
       }
 
       const courseCodeIdx = headers.indexOf("course_code");
-      const emailIdx = headers.indexOf("professor_email");
-      const termIdx = headers.indexOf("term");
+      const emailIdx      = headers.indexOf("professor_email");
+      const termIdx       = headers.indexOf("term");
 
-      // Build course code → id lookup from master list
+      // Build lookup maps
       const courseListResult = await tenantQuery(
         req.tenantSchema,
         `SELECT id, UPPER(code) AS code FROM course WHERE is_active = TRUE`,
       );
       const courseCodeToId = Object.fromEntries(
         courseListResult.rows.map((r) => [r.code, r.id]),
+      );
+
+      const termListResult = await tenantQuery(
+        req.tenantSchema,
+        `SELECT id, UPPER(label) AS label FROM term WHERE is_active = TRUE`,
+      );
+      const termLabelToId = Object.fromEntries(
+        termListResult.rows.map((r) => [r.label, r.id]),
+      );
+
+      // Build course_offering lookup: "COURSE_ID__TERM_ID" → offering_id
+      const offeringResult = await tenantQuery(
+        req.tenantSchema,
+        `SELECT id, course_id, term_id FROM course_offering`,
+      );
+      const offeringKey = (courseId, termId) => `${courseId}__${termId}`;
+      const offeringMap = Object.fromEntries(
+        offeringResult.rows.map((r) => [offeringKey(r.course_id, r.term_id), r.id]),
       );
 
       const results = {
@@ -377,32 +419,37 @@ router.post(
       // Process each row
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (!line) continue; // Skip empty lines
+        if (!line) continue;
 
         results.summary.total++;
 
         try {
-          const cols = line.split(",").map((c) => c.trim());
+          const cols       = line.split(",").map((c) => c.trim());
           const courseCode = cols[courseCodeIdx]?.toUpperCase();
-          const email = cols[emailIdx];
-          const term =
-            termIdx >= 0 && cols[termIdx] ? cols[termIdx] : "current";
+          const email      = cols[emailIdx];
+          const termLabel  = cols[termIdx]?.toUpperCase();
 
-          // Validate
-          if (!courseCode || !email) {
-            throw new Error("Missing course code or email");
+          if (!courseCode || !email || !termLabel) {
+            throw new Error("Missing course code, email, or term");
           }
 
           if (!z.string().email().safeParse(email).success) {
             throw new Error(`Invalid email: ${email}`);
           }
 
-          // Resolve course code to course_id
           const courseId = courseCodeToId[courseCode];
           if (!courseId) {
-            throw new Error(
-              `Course "${courseCode}" not found in master course list`,
-            );
+            throw new Error(`Course "${courseCode}" not found in master course list`);
+          }
+
+          const termId = termLabelToId[termLabel];
+          if (!termId) {
+            throw new Error(`Term "${cols[termIdx]}" not found or not active`);
+          }
+
+          const courseOfferingId = offeringMap[offeringKey(courseId, termId)];
+          if (!courseOfferingId) {
+            throw new Error(`No course offering exists for "${courseCode}" in "${cols[termIdx]}". Create it in the Terms tab first.`);
           }
 
           // Get or create professor
@@ -412,12 +459,11 @@ router.post(
             req.user.id,
           );
 
-          // Link course with term
+          // Link professor to course offering via dossier
           await linkCourseToProfessor(
             req.tenantSchema,
             prof.professorId,
-            courseId,
-            term,
+            courseOfferingId,
             req.user.id,
           );
 
@@ -434,8 +480,8 @@ router.post(
             );
 
             results.created.push({
-              courseCode: courseCode.toUpperCase(),
-              term,
+              courseCode: cols[courseCodeIdx].toUpperCase(),
+              term: cols[termIdx],
               professorEmail: email.toLowerCase(),
               magicLink: `${process.env.APP_URL ?? "http://localhost:5173"}/claim/${token}`,
             });
@@ -447,8 +493,8 @@ router.post(
             }
           } else {
             results.linkedExisting.push({
-              courseCode: courseCode.toUpperCase(),
-              term,
+              courseCode: cols[courseCodeIdx].toUpperCase(),
+              term: cols[termIdx],
               professorEmail: email.toLowerCase(),
             });
           }

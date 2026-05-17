@@ -3,7 +3,7 @@ import { api }   from '../../lib/api.js';
 import { toast } from '../ui/Toast.jsx';
 import Spinner   from '../ui/Spinner.jsx';
 
-const EMPTY_FORM = { code: '', name: '', department: '', term: '' };
+const EMPTY_FORM = { code: '', name: '', department: '' };
 
 export default function CoursesTab() {
   const [courses, setCourses] = useState([]);
@@ -36,7 +36,6 @@ export default function CoursesTab() {
         code:       form.code.trim().toUpperCase(),
         name:       form.name.trim()       || null,
         department: form.department.trim() || null,
-        term:       form.term.trim()       || null,
       });
       setCourses(prev => [...prev, res.course].sort((a, b) => a.code.localeCompare(b.code)));
       setForm(EMPTY_FORM);
@@ -55,7 +54,6 @@ export default function CoursesTab() {
       code:       course.code,
       name:       course.name       ?? '',
       department: course.department ?? '',
-      term:       course.term       ?? '',
     });
     setAdding(false);
   }
@@ -71,7 +69,6 @@ export default function CoursesTab() {
       const res = await api.patch(`/institution/course-list/${id}`, {
         name:       editForm.name.trim()       || null,
         department: editForm.department.trim() || null,
-        term:       editForm.term.trim()       || null,
       });
       setCourses(prev => prev.map(c => c.id === id ? res.course : c));
       setEditId(null);
@@ -151,16 +148,6 @@ export default function CoursesTab() {
                            focus:outline-none focus:ring-2 focus:ring-brand-600"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Term</label>
-              <input
-                value={form.term}
-                onChange={e => setForm(f => ({ ...f, term: e.target.value }))}
-                placeholder="e.g. Fall/Winter"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-600"
-              />
-            </div>
           </div>
           <div className="flex gap-2 pt-1">
             <button
@@ -196,7 +183,6 @@ export default function CoursesTab() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Code</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Name</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Department</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Term</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -226,14 +212,6 @@ export default function CoursesTab() {
                                      focus:outline-none focus:ring-2 focus:ring-brand-600"
                         />
                       </td>
-                      <td className="px-4 py-2">
-                        <input
-                          value={editForm.term}
-                          onChange={e => setEditForm(f => ({ ...f, term: e.target.value }))}
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm
-                                     focus:outline-none focus:ring-2 focus:ring-brand-600"
-                        />
-                      </td>
                       <td className="px-4 py-2 text-right whitespace-nowrap">
                         <div className="flex justify-end gap-3">
                           <button onClick={cancelEdit}
@@ -257,9 +235,6 @@ export default function CoursesTab() {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
                         {course.department ?? <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {course.term ?? <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="flex justify-end gap-3">

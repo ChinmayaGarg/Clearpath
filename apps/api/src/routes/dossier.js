@@ -20,7 +20,7 @@ router.use(requireAuth);
 
 const saveDossierSchema = z.object({
   professorId:       z.string().uuid(),
-  courseId:          z.string().uuid(),
+  courseOfferingId:  z.string().uuid(),
   preferredDelivery: z.enum(['pickup','dropped','delivery','pending']).optional().nullable(),
   typicalMaterials:  z.string().max(500).optional().nullable(),
   passwordReminder:  z.boolean().optional(),

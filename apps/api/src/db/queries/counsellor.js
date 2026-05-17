@@ -78,7 +78,7 @@ export async function getStudentDetail(schema, studentProfileId) {
     tenantQuery(
       schema,
       `SELECT
-         sa.id, sa.source, sa.term, sa.notes, sa.created_at, sa.expires_at,
+         sa.id, sa.source, sa.term_id, t.label AS term, sa.notes, sa.created_at, sa.expires_at,
          ac.code, ac.label, ac.triggers_rwg_flag,
          sa.counsellor_profile_id,
          CASE
@@ -86,13 +86,14 @@ export async function getStudentDetail(schema, studentProfileId) {
            WHEN sa.source = 'granted' THEN ug.first_name || ' ' || ug.last_name
          END AS added_by_name
        FROM student_accommodation sa
+       JOIN term t ON t.id = sa.term_id
        JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
        LEFT JOIN counsellor_profile cp ON cp.id = sa.counsellor_profile_id
        LEFT JOIN "user" uc ON uc.id = cp.user_id
        LEFT JOIN "user" ug ON ug.id = sa.granted_by
        WHERE sa.student_profile_id = $1
          AND sa.is_active = TRUE
-       ORDER BY sa.source DESC, sa.term DESC NULLS FIRST, ac.code`,
+       ORDER BY sa.source DESC, t.start_date DESC NULLS FIRST, ac.code`,
       [studentProfileId],
     ),
   ]);
@@ -121,34 +122,35 @@ export async function getAppointmentAccommodations() {
 }
 
 /**
- * List all accommodations for a student, optionally filtered by term.
+ * List all accommodations for a student, optionally filtered by term_id.
  */
 export async function listStudentAccommodations(
   schema,
   studentProfileId,
-  term = null,
+  termId = null,
 ) {
   const params = [studentProfileId];
   let termClause = "";
-  if (term) {
-    params.push(term);
-    termClause = `AND sa.term = $2`;
+  if (termId) {
+    params.push(termId);
+    termClause = `AND sa.term_id = $2`;
   }
 
   const result = await tenantQuery(
     schema,
     `SELECT
-       sa.id, sa.term, sa.notes, sa.created_at,
+       sa.id, sa.term_id, t.label AS term_label, sa.notes, sa.created_at,
        ac.code, ac.label, ac.triggers_rwg_flag,
        sa.counsellor_profile_id,
        u.first_name || ' ' || u.last_name AS added_by_name
      FROM student_accommodation sa
+     JOIN term t ON t.id = sa.term_id
      JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
      LEFT JOIN counsellor_profile cp ON cp.id = sa.counsellor_profile_id
      LEFT JOIN "user" u ON u.id = cp.user_id
      WHERE sa.student_profile_id = $1
      ${termClause}
-     ORDER BY sa.term DESC, ac.code`,
+     ORDER BY t.start_date DESC NULLS LAST, ac.code`,
     params,
   );
   return result.rows;
@@ -156,27 +158,27 @@ export async function listStudentAccommodations(
 
 /**
  * Add (or upsert) an accommodation for a student.
- * Conflicts on (student_profile_id, accommodation_code_id, term) — updates notes.
+ * Conflicts on (student_profile_id, accommodation_code_id, term_id) — updates notes.
  */
 export async function addStudentAccommodation(
   schema,
-  { studentProfileId, counsellorProfileId, accommodationCodeId, term, notes },
+  { studentProfileId, counsellorProfileId, accommodationCodeId, termId, notes },
 ) {
   const result = await tenantQuery(
     schema,
     `INSERT INTO student_accommodation
-       (student_profile_id, counsellor_profile_id, accommodation_code_id, source, term, notes)
+       (student_profile_id, counsellor_profile_id, accommodation_code_id, source, term_id, notes)
      VALUES ($1, $2, $3, 'manual', $4, $5)
-     ON CONFLICT (student_profile_id, accommodation_code_id, term)
+     ON CONFLICT (student_profile_id, accommodation_code_id, term_id)
      DO UPDATE SET
        notes      = EXCLUDED.notes,
        updated_at = NOW()
-     RETURNING id, term, notes, created_at`,
+     RETURNING id, term_id, notes, created_at`,
     [
       studentProfileId,
       counsellorProfileId ?? null,
       accommodationCodeId,
-      term,
+      termId,
       notes ?? null,
     ],
   );
@@ -203,59 +205,63 @@ export async function removeStudentAccommodation(
 }
 
 /**
- * List manually-added course codes for a student (admin-assigned).
+ * List course offerings a student is enrolled in.
  */
 export async function listStudentCourses(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
-    `SELECT sc.id, sc.course_id, c.code AS course_code, sc.created_at,
+    `SELECT sc.id, sc.course_offering_id, co.course_id,
+            c.code AS course_code, t.label AS term_label,
+            t.id AS term_id, sc.created_at,
             pp.id   AS professor_id,
             u.first_name AS prof_first_name,
             u.last_name  AS prof_last_name
      FROM student_course sc
-     JOIN course c ON c.id = sc.course_id
+     JOIN course_offering co ON co.id = sc.course_offering_id
+     JOIN course c ON c.id = co.course_id
+     JOIN term t ON t.id = co.term_id
      LEFT JOIN LATERAL (
        SELECT cd.professor_id
        FROM course_dossier cd
-       WHERE cd.course_id = sc.course_id
+       WHERE cd.course_offering_id = sc.course_offering_id
        ORDER BY cd.updated_at DESC
        LIMIT 1
      ) latest_cd ON TRUE
      LEFT JOIN professor_profile pp ON pp.id = latest_cd.professor_id
      LEFT JOIN "user" u ON u.id = pp.user_id
      WHERE sc.student_profile_id = $1
-     ORDER BY c.code`,
+     ORDER BY t.start_date DESC NULLS LAST, c.code`,
     [studentProfileId],
   );
   return result.rows;
 }
 
 /**
- * Manually assign a course to a student (admin only).
+ * Manually assign a student to a course offering.
  * Throws pg error 23505 on duplicate.
  */
-export async function addStudentCourse(schema, { studentProfileId, courseId, addedBy }) {
+export async function addStudentCourse(schema, { studentProfileId, courseOfferingId, addedBy }) {
   const result = await tenantQuery(
     schema,
-    `INSERT INTO student_course (student_profile_id, course_id, added_by)
+    `INSERT INTO student_course (student_profile_id, course_offering_id, added_by)
      VALUES ($1, $2, $3)
-     RETURNING id, course_id, created_at`,
-    [studentProfileId, courseId, addedBy],
+     RETURNING id, course_offering_id, created_at`,
+    [studentProfileId, courseOfferingId, addedBy],
   );
   return result.rows[0];
 }
 
 /**
- * Remove a manually-assigned course from a student.
+ * Remove a student from a course offering.
  * Returns the deleted id, or null if not found.
  */
-export async function removeStudentCourse(schema, studentProfileId, courseId) {
+export async function removeStudentCourse(schema, studentProfileId, courseOfferingId) {
   const result = await tenantQuery(
     schema,
     `DELETE FROM student_course
-     WHERE student_profile_id = $1 AND course_id = $2
+     WHERE student_profile_id = $1 AND course_offering_id = $2
      RETURNING id`,
-    [studentProfileId, courseId],
+    [studentProfileId, courseOfferingId],
   );
   return result.rows[0]?.id ?? null;
 }

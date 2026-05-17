@@ -54,28 +54,32 @@ export async function searchProfessors(schema, query) {
   return result.rows;
 }
 
-export async function listCourseProfessorEmails(schema, term = null) {
-  const query = term
+export async function listCourseProfessorEmails(schema, termId = null) {
+  const query = termId
     ? `SELECT c.code AS course_code,
-              cd.term,
+              t.label AS term,
               u.email AS professor_email
        FROM course_dossier cd
-       JOIN course c ON c.id = cd.course_id
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       JOIN term t ON t.id = co.term_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
-       WHERE u.is_active = TRUE AND cd.term = $1
-       ORDER BY cd.term DESC, c.code, u.email`
+       WHERE u.is_active = TRUE AND co.term_id = $1
+       ORDER BY t.start_date DESC NULLS LAST, c.code, u.email`
     : `SELECT c.code AS course_code,
-              cd.term,
+              t.label AS term,
               u.email AS professor_email
        FROM course_dossier cd
-       JOIN course c ON c.id = cd.course_id
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       JOIN term t ON t.id = co.term_id
        JOIN professor_profile pp ON pp.id = cd.professor_id
        JOIN "user" u ON u.id = pp.user_id
        WHERE u.is_active = TRUE
-       ORDER BY cd.term DESC, c.code, u.email`;
+       ORDER BY t.start_date DESC NULLS LAST, c.code, u.email`;
 
-  const result = await tenantQuery(schema, query, term ? [term] : []);
+  const result = await tenantQuery(schema, query, termId ? [termId] : []);
   return result.rows;
 }
 
@@ -98,17 +102,19 @@ export async function getProfessor(schema, professorId) {
     tenantQuery(
       schema,
       `SELECT
-         cd.id, cd.course_id, cd.term,
+         cd.id, co.course_id, t.label AS term,
          c.code AS course_code,
          cd.preferred_delivery, cd.typical_materials,
          cd.password_reminder, cd.notes,
          cd.updated_at,
          u.first_name || ' ' || u.last_name AS last_updated_by_name
        FROM course_dossier cd
-       JOIN course c ON c.id = cd.course_id
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       JOIN term t ON t.id = co.term_id
        LEFT JOIN "user" u ON u.id = cd.last_updated_by
        WHERE cd.professor_id = $1
-       ORDER BY cd.term DESC, c.code`,
+       ORDER BY t.start_date DESC NULLS LAST, c.code`,
       [professorId],
     ),
   ]);
@@ -302,33 +308,31 @@ export async function getOrCreateProfessorByEmail(
 }
 
 /**
- * Link a course to a professor (create/update course_dossier entry).
- * Returns { dossierId, courseCode, term, dossierCreated }
+ * Link a professor to a course offering (create/update course_dossier entry).
+ * Returns { dossierId, courseOfferingId, dossierCreated }
  */
 export async function linkCourseToProfessor(
   schema,
   professorId,
-  courseId,
-  term = "current",
+  courseOfferingId,
   updatedBy = null,
 ) {
   const result = await tenantQuery(
     schema,
-    `INSERT INTO course_dossier (professor_id, course_id, term, last_updated_by)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (professor_id, course_id, term)
+    `INSERT INTO course_dossier (professor_id, course_offering_id, last_updated_by)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (professor_id, course_offering_id)
      DO UPDATE SET
        updated_at = NOW(),
        last_updated_by = EXCLUDED.last_updated_by
      RETURNING id, created_at, updated_at, (created_at = updated_at) AS is_new`,
-    [professorId, courseId, term, updatedBy],
+    [professorId, courseOfferingId, updatedBy],
   );
 
   const row = result.rows[0];
   return {
     dossierId: row.id,
-    courseId,
-    term,
+    courseOfferingId,
     dossierCreated: row.is_new,
   };
 }
@@ -374,12 +378,12 @@ export async function getProfessorExamRequestsForPanel(schema, profId) {
 }
 
 /**
- * Get list of available terms that have course-dossier entries.
+ * Get list of active terms from the term master table.
  */
 export async function listAvailableTerms(schema) {
   const result = await tenantQuery(
     schema,
-    `SELECT DISTINCT term FROM course_dossier ORDER BY term DESC`,
+    `SELECT id, label FROM term WHERE is_active = TRUE ORDER BY start_date DESC NULLS LAST, label DESC`,
   );
-  return result.rows.map((r) => r.term);
+  return result.rows;
 }

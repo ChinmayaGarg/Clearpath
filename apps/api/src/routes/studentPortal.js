@@ -71,11 +71,13 @@ router.get("/courses", async (req, res, next) => {
 
     const result = await tenantQuery(
       schema,
-      `SELECT DISTINCT c.id, c.code
+      `SELECT co.course_id AS id, c.code, t.label AS term_label, co.id AS course_offering_id
        FROM student_course sc
-       JOIN course c ON c.id = sc.course_id
+       JOIN course_offering co ON co.id = sc.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       JOIN term t ON t.id = co.term_id
        WHERE sc.student_profile_id = $1
-       ORDER BY c.code`,
+       ORDER BY t.start_date DESC NULLS LAST, c.code`,
       [studentProfileId],
     );
 
@@ -202,6 +204,27 @@ router.post("/exam-requests", async (req, res, next) => {
     }
 
     const body = BookingSchema.parse(req.body);
+
+    // Validate term is still open for bookings
+    const termCheck = await tenantQuery(
+      schema,
+      `SELECT t.end_date, t.label
+       FROM student_course sc
+       JOIN course_offering co ON co.id = sc.course_offering_id
+       JOIN term t ON t.id = co.term_id
+       WHERE sc.student_profile_id = $1 AND co.course_id = $2
+       LIMIT 1`,
+      [studentProfileId, body.courseId],
+    );
+    if (termCheck.rows.length > 0) {
+      const { end_date, label } = termCheck.rows[0];
+      if (end_date && new Date(end_date) < new Date()) {
+        return res.status(400).json({
+          ok: false,
+          error: `Exam bookings for ${label} are closed (term ended ${end_date}).`,
+        });
+      }
+    }
 
     // Validate date is at least 9 days from today
     const earliest = new Date();

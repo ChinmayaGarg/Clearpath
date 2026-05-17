@@ -154,13 +154,13 @@ export async function approveRegistration(schema, requestId, { reviewedBy, grant
       [requestId, reviewedBy],
     );
 
-    // Upsert accommodation grants (source='granted', term required)
+    // Upsert accommodation grants (source='granted', term_id required)
     for (const grant of grantedCodes ?? []) {
       await client.query(
         `INSERT INTO student_accommodation
-           (student_profile_id, accommodation_code_id, source, term, notes, is_active, expires_at, granted_by)
+           (student_profile_id, accommodation_code_id, source, term_id, notes, is_active, expires_at, granted_by)
          VALUES ($1, $2, 'granted', $3, $4, TRUE, $5, $6)
-         ON CONFLICT (student_profile_id, accommodation_code_id, term)
+         ON CONFLICT (student_profile_id, accommodation_code_id, term_id)
          DO UPDATE SET
            source     = 'granted',
            is_active  = TRUE,
@@ -171,7 +171,7 @@ export async function approveRegistration(schema, requestId, { reviewedBy, grant
         [
           studentProfileId,
           grant.accommodationCodeId,
-          grant.term,
+          grant.termId,
           grant.notes ?? null,
           grant.expiresAt ?? null,
           reviewedBy,

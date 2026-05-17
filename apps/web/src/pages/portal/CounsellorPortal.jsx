@@ -7,32 +7,6 @@ import Spinner                        from '../../components/ui/Spinner.jsx';
 
 const PORTAL_TABS = ['Students', 'Registrations'];
 
-// Generate academic terms: Winter / Summer / Fall for current year ±2
-// Returns strings like "Winter 2025", sorted chronologically
-function generateTermOptions() {
-  const now   = new Date();
-  const year  = now.getFullYear();
-  const month = now.getMonth() + 1; // 1-indexed
-
-  // Current term
-  const currentTerm =
-    month <= 4 ? 'Winter' :
-    month <= 8 ? 'Summer' : 'Fall';
-
-  const seasons = ['Winter', 'Summer', 'Fall'];
-  const terms   = [];
-
-  for (let y = year - 2; y <= year + 2; y++) {
-    for (const s of seasons) {
-      terms.push(`${s} ${y}`);
-    }
-  }
-
-  return { terms, currentTerm: `${currentTerm} ${year}` };
-}
-
-const { terms: TERM_OPTIONS, currentTerm: CURRENT_TERM } = generateTermOptions();
-
 export default function CounsellorPortal() {
   const { user, logout }         = useAuth();
   const navigate                 = useNavigate();
@@ -245,23 +219,28 @@ function StudentDetail({ student: initialStudent, onBack }) {
   const [student,        setStudent]       = useState(null);
   const [loading,        setLoading]       = useState(true);
   const [codes,          setCodes]         = useState([]);
+  const [terms,          setTerms]         = useState([]);
   const [exams,          setExams]         = useState([]);
   const [showForm,       setShowForm]      = useState(false);
-  const [form,           setForm]          = useState({ accommodationCodeId: '', term: CURRENT_TERM, notes: '' });
+  const [form,           setForm]          = useState({ accommodationCodeId: '', termId: '', notes: '' });
   const [saving,         setSaving]        = useState(false);
-  const [examRequests,      setExamRequests]     = useState([]);
+  const [examRequests,   setExamRequests]  = useState([]);
 
   async function load() {
     setLoading(true);
     try {
-      const [studentData, codesData, examsData, examReqData] = await Promise.all([
+      const [studentData, codesData, termsData, examsData, examReqData] = await Promise.all([
         api.get(`/counsellor/students/${initialStudent.id}`),
         api.get('/counsellor/accommodation-codes'),
+        api.get('/institution/terms'),
         api.get(`/counsellor/students/${initialStudent.id}/exams`),
         api.get(`/counsellor/students/${initialStudent.id}/exam-requests`),
       ]);
       setStudent(studentData.student);
       setCodes(codesData.codes ?? []);
+      const termList = (termsData.terms ?? []).filter(t => t.is_active);
+      setTerms(termList);
+      setForm(f => ({ ...f, termId: termList[0]?.id ?? '' }));
       setExams(examsData.exams ?? []);
       setExamRequests(examReqData.examRequests ?? []);
     } catch (err) {
@@ -275,25 +254,27 @@ function StudentDetail({ student: initialStudent, onBack }) {
 
   async function handleAddAccommodation(e) {
     e.preventDefault();
-    if (!form.accommodationCodeId || !form.term.trim()) {
-      toast('Please select a code and enter a term', 'warning');
+    if (!form.accommodationCodeId || !form.termId) {
+      toast('Please select a code and a term', 'warning');
       return;
     }
 
     // Prevent duplicate extra-time or STB rates for the same term
     const selectedCode = codes.find(c => c.id === form.accommodationCodeId)?.code ?? '';
-    const existingForTerm = (student?.accommodations ?? []).filter(a => a.term === form.term);
+    const existingForTerm = (student?.accommodations ?? []).filter(a => a.term_id === form.termId);
     if (/^\d+MIN\/HR$/.test(selectedCode)) {
       const conflict = existingForTerm.find(a => /^\d+MIN\/HR$/.test(a.code) && a.code !== selectedCode);
       if (conflict) {
-        toast(`Student already has ${conflict.code} extra time for ${form.term}. Remove it first.`, 'error');
+        const termLabel = terms.find(t => t.id === form.termId)?.label ?? form.termId;
+        toast(`Student already has ${conflict.code} extra time for ${termLabel}. Remove it first.`, 'error');
         return;
       }
     }
     if (/^\d+MIN\/HR STB$/.test(selectedCode)) {
       const conflict = existingForTerm.find(a => /^\d+MIN\/HR STB$/.test(a.code) && a.code !== selectedCode);
       if (conflict) {
-        toast(`Student already has ${conflict.code} STB for ${form.term}. Remove it first.`, 'error');
+        const termLabel = terms.find(t => t.id === form.termId)?.label ?? form.termId;
+        toast(`Student already has ${conflict.code} STB for ${termLabel}. Remove it first.`, 'error');
         return;
       }
     }
@@ -302,12 +283,12 @@ function StudentDetail({ student: initialStudent, onBack }) {
     try {
       await api.post(`/counsellor/students/${initialStudent.id}/accommodations`, {
         accommodationCodeId: form.accommodationCodeId,
-        term: form.term.trim(),
+        termId: form.termId,
         notes: form.notes || undefined,
       });
       toast('Accommodation added', 'success');
       setShowForm(false);
-      setForm({ accommodationCodeId: '', term: CURRENT_TERM, notes: '' });
+      setForm({ accommodationCodeId: '', termId: terms[0]?.id ?? '', notes: '' });
       load();
     } catch (err) {
       toast(err.message, 'error');
@@ -333,12 +314,13 @@ function StudentDetail({ student: initialStudent, onBack }) {
 
   const canEdit = isCounsellor || isAdmin;
 
-  // Group all accommodations by term (both 'manual' and 'granted' sources)
+  // Group all accommodations by term label (both 'manual' and 'granted' sources)
   const byTerm = (student?.accommodations ?? []).reduce((acc, row) => {
-    (acc[row.term] = acc[row.term] ?? []).push(row);
+    const key = row.term ?? row.term_label ?? '';
+    (acc[key] = acc[key] ?? []).push(row);
     return acc;
   }, {});
-  const terms = Object.keys(byTerm).sort((a, b) => b.localeCompare(a));
+  const termGroups = Object.keys(byTerm).sort((a, b) => b.localeCompare(a));
 
   return (
     <div>
@@ -405,13 +387,14 @@ function StudentDetail({ student: initialStudent, onBack }) {
                 <label className="block text-xs font-medium text-gray-700 mb-1">Term</label>
                 <select
                   required
-                  value={form.term}
-                  onChange={e => setForm(prev => ({ ...prev, term: e.target.value }))}
+                  value={form.termId}
+                  onChange={e => setForm(prev => ({ ...prev, termId: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
                              focus:outline-none focus:ring-2 focus:ring-brand-600"
                 >
-                  {TERM_OPTIONS.map(t => (
-                    <option key={t} value={t}>{t}</option>
+                  <option value="" disabled>Select term…</option>
+                  {terms.map(t => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
               </div>
@@ -428,7 +411,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
                 >
                   <option value="" disabled>Select accommodation…</option>
                   {codes.map(c => {
-                    const existingForTerm = (student?.accommodations ?? []).filter(a => a.term === form.term);
+                    const existingForTerm = (student?.accommodations ?? []).filter(a => a.term_id === form.termId);
                     const blocked =
                       (/^\d+MIN\/HR$/.test(c.code) && existingForTerm.some(a => /^\d+MIN\/HR$/.test(a.code) && a.code !== c.code)) ||
                       (/^\d+MIN\/HR STB$/.test(c.code) && existingForTerm.some(a => /^\d+MIN\/HR STB$/.test(a.code) && a.code !== c.code));
@@ -457,7 +440,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => { setShowForm(false); setForm({ accommodationCodeId: '', term: CURRENT_TERM, notes: '' }); }}
+                onClick={() => { setShowForm(false); setForm({ accommodationCodeId: '', termId: terms[0]?.id ?? '', notes: '' }); }}
                 className="flex-1 py-2 border border-gray-300 text-gray-700 text-sm
                            font-medium rounded-lg hover:bg-gray-50 transition-colors"
               >
@@ -476,13 +459,13 @@ function StudentDetail({ student: initialStudent, onBack }) {
         )}
 
         {/* Accommodations grouped by term */}
-        {terms.length === 0 ? (
+        {termGroups.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-4">
             No accommodations recorded for this student
           </p>
         ) : (
           <div className="space-y-4">
-            {terms.map(term => (
+            {termGroups.map(term => (
               <div key={term}>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                   {term}
@@ -790,6 +773,7 @@ function RegistrationsTab({ onSelect }) {
 function RegistrationDetail({ reg: initialReg, onBack }) {
   const [reg,         setReg]         = useState(null);
   const [codes,       setCodes]       = useState([]);
+  const [regTerms,    setRegTerms]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [submitting,  setSubmitting]  = useState(false);
   // per-requested-accommodation decisions: { [index]: { decision: 'pending'|'accept'|'reject', codeId, notes } }
@@ -797,19 +781,23 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
   // counsellor-added grants not in the student's request: [{ codeId, notes }]
   const [additionalGrants,   setAdditionalGrants]   = useState([]);
   const [rejectReason,  setRejectReason]  = useState('');
-  const [approveTerm,   setApproveTerm]   = useState(CURRENT_TERM);
+  const [approveTerm,   setApproveTerm]   = useState('');
   const [action,        setAction]        = useState(null); // 'approve' | 'reject' | null
 
   async function load() {
     setLoading(true);
     try {
-      const [regData, codesData] = await Promise.all([
+      const [regData, codesData, termsData] = await Promise.all([
         api.get(`/counsellor/registrations/${initialReg.id}`),
         api.get('/counsellor/accommodation-codes'),
+        api.get('/institution/terms'),
       ]);
       setReg(regData.registration);
       const codeList = codesData.codes ?? [];
       setCodes(codeList);
+      const termList = (termsData.terms ?? []).filter(t => t.is_active);
+      setRegTerms(termList);
+      if (termList.length > 0) setApproveTerm(termList[0].id);
       // Initialise one decision per requested accommodation.
       // If the stored value matches a known code (new format), pre-select it.
       const reqAccs = regData.registration?.requested_accommodations ?? [];
@@ -874,7 +862,7 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
 
     setSubmitting(true);
     try {
-      await api.post(`/counsellor/registrations/${initialReg.id}/approve`, { term: approveTerm, grantedCodes });
+      await api.post(`/counsellor/registrations/${initialReg.id}/approve`, { termId: approveTerm, grantedCodes });
       toast('Registration approved');
       onBack();
     } catch (err) {
@@ -1154,8 +1142,9 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
                   className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs
                              focus:outline-none focus:ring-2 focus:ring-brand-600 bg-white"
                 >
-                  {TERM_OPTIONS.map(t => (
-                    <option key={t} value={t}>{t}</option>
+                  <option value="" disabled>Select term…</option>
+                  {regTerms.map(t => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
               </div>

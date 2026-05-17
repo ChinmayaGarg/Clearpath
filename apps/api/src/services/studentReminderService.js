@@ -44,7 +44,7 @@ async function remindStudentsInSchema(schema, inst) {
     schema,
     `SELECT
        ebr.id,
-       ebr.course_code,
+       c.code       AS course_code,
        ebr.exam_date,
        ebr.exam_time,
        ebr.exam_type,
@@ -54,6 +54,7 @@ async function remindStudentsInSchema(schema, inst) {
        u.last_name  AS student_last,
        u.email      AS student_email
      FROM exam_booking_request ebr
+     JOIN course c ON c.id = ebr.course_id
      JOIN student_profile sp ON sp.id = ebr.student_profile_id
      JOIN "user" u ON u.id = sp.user_id
      WHERE ebr.status = 'confirmed'
