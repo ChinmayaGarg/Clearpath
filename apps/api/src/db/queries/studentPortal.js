@@ -56,14 +56,16 @@ export async function getStudentAccommodations(schema, studentProfileId) {
   const result = await tenantQuery(
     schema,
     `SELECT
-       sa.id, sa.source, sa.term, sa.notes, sa.created_at,
+       sa.id, sa.source, sa.notes, sa.created_at,
+       t.label AS term, t.start_date AS term_start,
        ac.code, ac.label, ac.triggers_rwg_flag
      FROM student_accommodation sa
+     JOIN term t ON t.id = sa.term_id
      JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
      WHERE sa.student_profile_id = $1
        AND sa.is_active = TRUE
        AND ac.is_active = TRUE
-     ORDER BY sa.term DESC, ac.code`,
+     ORDER BY t.start_date DESC NULLS LAST, ac.code`,
     [studentProfileId],
   );
 
@@ -73,7 +75,6 @@ export async function getStudentAccommodations(schema, studentProfileId) {
   }
 
   return Object.entries(byTerm)
-    .sort(([a], [b]) => b.localeCompare(a))
     .map(([term, items]) => ({ term, items }));
 }
 

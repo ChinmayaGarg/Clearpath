@@ -1292,8 +1292,9 @@ router.get('/course-list', async (req, res, next) => {
 
 // POST /api/institution/course-list
 router.post('/course-list', async (req, res, next) => {
+  let data;
   try {
-    const data = courseSchema.parse(req.body);
+    data = courseSchema.parse(req.body);
     const result = await tenantQuery(
       req.tenantSchema,
       `INSERT INTO course (code, name, department, created_by)
@@ -1302,7 +1303,22 @@ router.post('/course-list', async (req, res, next) => {
       [data.code, data.name ?? null, data.department ?? null, req.user.id],
     );
     res.status(201).json({ ok: true, course: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === '23505' && data) {
+      const existing = await tenantQuery(
+        req.tenantSchema,
+        `SELECT is_active FROM course WHERE code = $1`,
+        [data.code],
+      ).catch(() => null);
+      const isDeactivated = existing?.rows[0] && !existing.rows[0].is_active;
+      return res.status(409).json({
+        error: isDeactivated
+          ? `Course "${data.code}" exists but is deactivated — activate it from the course list instead.`
+          : `A course with this code already exists.`,
+      });
+    }
+    next(err);
+  }
 });
 
 // PATCH /api/institution/course-list/:id

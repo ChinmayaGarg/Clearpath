@@ -6,20 +6,21 @@ import Spinner   from '../ui/Spinner.jsx';
 const EMPTY_FORM = { code: '', name: '', department: '' };
 
 export default function CoursesTab() {
-  const [courses, setCourses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [adding,  setAdding]  = useState(false);
-  const [editId,  setEditId]  = useState(null);
-  const [saving,  setSaving]  = useState(false);
-  const [form,    setForm]    = useState(EMPTY_FORM);
-  const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const [courses,      setCourses]      = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [adding,       setAdding]       = useState(false);
+  const [editId,       setEditId]       = useState(null);
+  const [saving,       setSaving]       = useState(false);
+  const [form,         setForm]         = useState(EMPTY_FORM);
+  const [editForm,     setEditForm]     = useState(EMPTY_FORM);
+  const [hideInactive, setHideInactive] = useState(false);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await api.get('/institution/course-list');
+      const res = await api.get('/institution/course-list?all=true');
       setCourses(res.courses ?? []);
     } catch (err) {
       toast(err.message, 'error');
@@ -84,12 +85,24 @@ export default function CoursesTab() {
     if (!confirm(`Deactivate ${code}? It will no longer appear in dropdowns.`)) return;
     try {
       await api.delete(`/institution/course-list/${id}`);
-      setCourses(prev => prev.filter(c => c.id !== id));
+      setCourses(prev => prev.map(c => c.id === id ? { ...c, is_active: false } : c));
       toast('Course deactivated', 'success');
     } catch (err) {
       toast(err.message, 'error');
     }
   }
+
+  async function handleActivate(id) {
+    try {
+      const res = await api.patch(`/institution/course-list/${id}`, { is_active: true });
+      setCourses(prev => prev.map(c => c.id === id ? res.course : c));
+      toast('Course activated', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  const visible = hideInactive ? courses.filter(c => c.is_active) : courses;
 
   return (
     <div className="space-y-6">
@@ -176,85 +189,121 @@ export default function CoursesTab() {
           No courses yet — add one to get started
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Code</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Name</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Department</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {courses.map(course => (
-                <tr key={course.id} className="border-b border-gray-100 last:border-0">
-                  {editId === course.id ? (
-                    <>
-                      <td className="px-4 py-2">
-                        <span className="text-sm font-mono font-medium text-gray-900">
-                          {course.code}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          value={editForm.name}
-                          onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm
-                                     focus:outline-none focus:ring-2 focus:ring-brand-600"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          value={editForm.department}
-                          onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))}
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm
-                                     focus:outline-none focus:ring-2 focus:ring-brand-600"
-                        />
-                      </td>
-                      <td className="px-4 py-2 text-right whitespace-nowrap">
-                        <div className="flex justify-end gap-3">
-                          <button onClick={cancelEdit}
-                            className="text-xs text-gray-400 hover:text-gray-600">
-                            Cancel
-                          </button>
-                          <button onClick={() => handleSaveEdit(course.id)} disabled={saving}
-                            className="text-xs text-brand-600 hover:text-brand-800 font-medium disabled:opacity-50">
-                            {saving ? 'Saving…' : 'Save'}
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="px-4 py-3 text-sm font-mono font-medium text-gray-900">
-                        {course.code}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {course.name ?? <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {course.department ?? <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <div className="flex justify-end gap-3">
-                          <button onClick={() => startEdit(course)}
-                            className="text-xs text-brand-600 hover:text-brand-800 font-medium">
-                            Edit
-                          </button>
-                          <button onClick={() => handleDeactivate(course.id, course.code)}
-                            className="text-xs text-gray-400 hover:text-red-600">
-                            Deactivate
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  )}
+        <>
+          {/* Filter toggle */}
+          <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none w-fit">
+            <input
+              type="checkbox"
+              checked={hideInactive}
+              onChange={e => setHideInactive(e.target.checked)}
+              className="rounded border-gray-300 text-brand-600 focus:ring-brand-600"
+            />
+            Hide inactive courses
+          </label>
+
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Code</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Department</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Status</th>
+                  <th className="px-4 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {visible.map(course => (
+                  <tr
+                    key={course.id}
+                    className={`border-b border-gray-100 last:border-0 ${!course.is_active ? 'opacity-60' : ''}`}
+                  >
+                    {editId === course.id ? (
+                      <>
+                        <td className="px-4 py-2">
+                          <span className="text-sm font-mono font-medium text-gray-900">
+                            {course.code}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">
+                          <input
+                            value={editForm.name}
+                            onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm
+                                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+                          />
+                        </td>
+                        <td className="px-4 py-2">
+                          <input
+                            value={editForm.department}
+                            onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm
+                                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+                          />
+                        </td>
+                        <td className="px-4 py-2" />
+                        <td className="px-4 py-2 text-right whitespace-nowrap">
+                          <div className="flex justify-end gap-3">
+                            <button onClick={cancelEdit}
+                              className="text-xs text-gray-400 hover:text-gray-600">
+                              Cancel
+                            </button>
+                            <button onClick={() => handleSaveEdit(course.id)} disabled={saving}
+                              className="text-xs text-brand-600 hover:text-brand-800 font-medium disabled:opacity-50">
+                              {saving ? 'Saving…' : 'Save'}
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-4 py-3 text-sm font-mono font-medium text-gray-900">
+                          {course.code}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {course.name ?? <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500">
+                          {course.department ?? <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {course.is_active ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-50 text-green-700">
+                              Active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
+                              Inactive
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <div className="flex justify-end gap-3">
+                            <button onClick={() => startEdit(course)}
+                              className="text-xs text-brand-600 hover:text-brand-800 font-medium">
+                              Edit
+                            </button>
+                            {course.is_active ? (
+                              <button onClick={() => handleDeactivate(course.id, course.code)}
+                                className="text-xs text-gray-400 hover:text-red-600">
+                                Deactivate
+                              </button>
+                            ) : (
+                              <button onClick={() => handleActivate(course.id)}
+                                className="text-xs text-green-600 hover:text-green-800 font-medium">
+                                Activate
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
