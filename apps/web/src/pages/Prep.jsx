@@ -603,7 +603,6 @@ function DropoffsTab() {
 
 function ExamDayTab() {
   const [date,       setDate]       = useState(today());
-  const [labelsDate, setLabelsDate] = useState('');
   const [students,   setStudents]   = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [acting,     setActing]     = useState(null);
@@ -670,23 +669,13 @@ function ExamDayTab() {
             >
               Print EDEs
             </button>
-            <div className="flex items-center gap-1">
-              <input
-                type="date"
-                value={labelsDate || date}
-                onChange={e => setLabelsDate(e.target.value)}
-                className="px-2 py-1.5 text-xs border border-gray-300 rounded-lg
-                           focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
-                title="Labels date (defaults to selected exam day)"
-              />
-              <button
-                onClick={() => window.open(`/api/prep/labels?date=${labelsDate || date}`, '_blank', 'noopener')}
-                className="px-4 py-1.5 text-sm font-medium text-brand-700 border border-brand-300
-                           hover:bg-brand-50 rounded-lg transition-colors"
-              >
-                Print Labels
-              </button>
-            </div>
+            <button
+              onClick={() => window.open(`/api/prep/labels?date=${date}`, '_blank', 'noopener')}
+              className="px-4 py-1.5 text-sm font-medium text-brand-700 border border-brand-300
+                         hover:bg-brand-50 rounded-lg transition-colors"
+            >
+              Print Labels
+            </button>
           </div>
         )}
       </div>
