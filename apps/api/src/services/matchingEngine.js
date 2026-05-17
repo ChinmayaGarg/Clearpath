@@ -128,6 +128,7 @@ export async function matchUpload(
       [dateRow.exam_date, dateRow.course_code],
     );
 
+    let dateMatched = false;
     for (const exam of examResult.rows) {
       const matches = timeSlotMatches(
         exam.rooms.map((r) => r.start_time),
@@ -153,9 +154,36 @@ export async function matchUpload(
 
       await applyUploadToExam(schema, exam.id, uploadId);
       matched++;
+      dateMatched = true;
 
       // Notify leads that upload was received
       await createUploadReceivedNotification(schema, exam.id, uploadId);
+    }
+
+    // Fallback: no SARS exam record — check Clearpath-native exam_booking_request
+    if (!dateMatched) {
+      const bookingResult = await tenantQuery(
+        schema,
+        `SELECT 1 FROM exam_booking_request
+         WHERE UPPER(course_code) = UPPER($1)
+           AND exam_date = $2
+           AND (
+             $3::time IS NULL
+             OR exam_time IS NULL
+             OR exam_time = $3::time
+           )
+           AND status IN ('professor_approved', 'confirmed')
+         LIMIT 1`,
+        [dateRow.course_code, dateRow.exam_date, dateRow.time_slot],
+      );
+      if (bookingResult.rows.length > 0) {
+        await tenantQuery(
+          schema,
+          `UPDATE exam_upload_date SET match_status = 'matched' WHERE id = $1`,
+          [dateRow.id],
+        );
+        matched++;
+      }
     }
   }
 
