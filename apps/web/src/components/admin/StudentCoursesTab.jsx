@@ -202,7 +202,7 @@ function StudentCourses({ student, onBack }) {
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-900">Courses</h3>
-          {!showForm && (
+          {!showForm && !['submitted', 'under_review'].includes(student.registration_status) && (
             <button
               onClick={() => setShowForm(true)}
               className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white
@@ -212,6 +212,17 @@ function StudentCourses({ student, onBack }) {
             </button>
           )}
         </div>
+
+        {/* Registration pending — block adding courses */}
+        {['submitted', 'under_review'].includes(student.registration_status) && (
+          <div className="flex items-center gap-2 px-3 py-2.5 mb-3 rounded-lg
+                          bg-amber-50 border border-amber-200">
+            <span className="text-amber-500 text-base">⏳</span>
+            <p className="text-xs font-medium text-amber-800">
+              Pending Approval — Meet Counsellor
+            </p>
+          </div>
+        )}
 
         {showForm && (
           <form onSubmit={handleAdd} className="flex gap-2 mb-3">

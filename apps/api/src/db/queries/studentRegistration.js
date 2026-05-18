@@ -95,20 +95,36 @@ export async function createProviderFormRequest(schema, {
  * Get a single registration request by id (full detail).
  */
 export async function getRegistrationRequest(schema, id) {
-  const result = await tenantQuery(
-    schema,
-    `SELECT srr.*,
-            pfr.id              AS provider_form_id,
-            pfr.status          AS provider_form_status,
-            pfr.sent_at         AS provider_form_sent_at,
-            pfr.received_at     AS provider_form_received_at
-     FROM student_registration_request srr
-     LEFT JOIN provider_form_request pfr
-       ON pfr.student_registration_request_id = srr.id
-     WHERE srr.id = $1`,
-    [id],
-  );
-  return result.rows[0] ?? null;
+  const [regResult, attachResult] = await Promise.all([
+    tenantQuery(
+      schema,
+      `SELECT srr.*,
+              pfr.id              AS provider_form_id,
+              pfr.status          AS provider_form_status,
+              pfr.sent_at         AS provider_form_sent_at,
+              pfr.received_at     AS provider_form_received_at
+       FROM student_registration_request srr
+       LEFT JOIN provider_form_request pfr
+         ON pfr.student_registration_request_id = srr.id
+       WHERE srr.id = $1`,
+      [id],
+    ),
+    tenantQuery(
+      schema,
+      `SELECT ra.id, ra.file_path, ra.original_name, ra.file_size, ra.mime_type, ra.created_at,
+              u.first_name || ' ' || u.last_name AS uploaded_by_name
+       FROM registration_attachment ra
+       LEFT JOIN "user" u ON u.id = ra.uploaded_by
+       WHERE ra.registration_id = $1
+       ORDER BY ra.created_at ASC`,
+      [id],
+    ),
+  ]);
+
+  const reg = regResult.rows[0] ?? null;
+  if (!reg) return null;
+  reg.attachments = attachResult.rows;
+  return reg;
 }
 
 /**

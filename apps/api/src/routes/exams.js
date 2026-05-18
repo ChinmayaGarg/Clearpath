@@ -341,9 +341,9 @@ router.post('/:id/uploads/:uploadId/link',
       // Mark upload date as matched
       await tenantQuery(req.tenantSchema,
         `UPDATE exam_upload_date
-         SET match_status = 'matched', matched_exam_id = $1
-         WHERE exam_upload_id = $2`,
-        [req.params.id, req.params.uploadId]
+         SET match_status = 'matched'
+         WHERE exam_upload_id = $1`,
+        [req.params.uploadId]
       );
 
       res.json({ ok: true, message: 'Upload linked to exam' });

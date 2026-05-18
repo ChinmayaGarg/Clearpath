@@ -129,7 +129,7 @@ export async function getUpload(schema, uploadId, professorProfileId) {
     ),
     tenantQuery(
       schema,
-      `SELECT id, exam_date, time_slot, match_status, matched_exam_id
+      `SELECT id, exam_date, time_slot, match_status
        FROM exam_upload_date
        WHERE exam_upload_id = $1
        ORDER BY exam_date`,

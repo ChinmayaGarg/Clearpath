@@ -153,6 +153,9 @@ function AccommodationsTab({ me }) {
   const activeTerm = terms[0] ?? null; // most recent term
   const pastTerms = terms.slice(1); // all older terms
 
+  // Set of accommodation codes actually granted (from student_accommodation records)
+  const grantedCodes = new Set(terms.flatMap(t => t.items.map(i => i.code)));
+
   return (
     <div className="space-y-6">
       {/* Requested accommodations — always shown once registered */}
@@ -162,25 +165,27 @@ function AccommodationsTab({ me }) {
             Requested
           </h2>
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            {requested.map((acc, i) => (
-              <div
-                key={i}
-                className="px-4 py-2.5 flex items-center justify-between gap-4"
-              >
-                <span className="text-sm text-gray-700">{acc}</span>
-                {regStatus === "rejected" ? (
-                  <span className="text-xs text-red-500">Not approved</span>
-                ) : regStatus === "approved" ? (
-                  <span className="text-xs text-green-600 font-medium">
-                    Approved
-                  </span>
-                ) : (
-                  <span className="text-xs text-yellow-600">
-                    Pending review
-                  </span>
-                )}
-              </div>
-            ))}
+            {requested.map((acc, i) => {
+              let badge;
+              if (regStatus === "rejected") {
+                badge = <span className="text-xs text-red-500">Not approved</span>;
+              } else if (regStatus === "approved") {
+                badge = grantedCodes.has(acc)
+                  ? <span className="text-xs text-green-600 font-medium">Approved</span>
+                  : <span className="text-xs text-gray-400">Not granted</span>;
+              } else {
+                badge = <span className="text-xs text-yellow-600">Pending review</span>;
+              }
+              return (
+                <div
+                  key={i}
+                  className="px-4 py-2.5 flex items-center justify-between gap-4"
+                >
+                  <span className="text-sm text-gray-700">{acc}</span>
+                  {badge}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -14,9 +14,13 @@
  * POST   /api/counsellor/registrations/:id/approve
  * POST   /api/counsellor/registrations/:id/reject
  * PATCH  /api/counsellor/registrations/:id/provider-form
+ * PATCH  /api/counsellor/registrations/:id/notes
+ * POST   /api/counsellor/registrations/:id/attachments
+ * DELETE /api/counsellor/registrations/:id/attachments/:attachmentId
  */
 import { Router } from "express";
 import { z } from "zod";
+import multer from "multer";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/role.js";
 import { tenantQuery } from "../db/tenantPool.js";
@@ -41,6 +45,26 @@ import {
   rejectRegistration,
   updateProviderFormStatus,
 } from "../db/queries/studentRegistration.js";
+import { saveFile, deleteFile, generateFilePath, getFileUrl } from "../services/fileStorage.js";
+
+const ATTACHMENT_MIME_ALLOWLIST = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/jpeg",
+  "image/png",
+]);
+
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!ATTACHMENT_MIME_ALLOWLIST.has(file.mimetype)) {
+      return cb(Object.assign(new Error("Only PDF, Word, JPEG, or PNG files are allowed"), { status: 400 }));
+    }
+    cb(null, true);
+  },
+});
 
 const router = Router();
 router.use(requireAuth);
@@ -455,6 +479,74 @@ router.patch("/exam-requests/:id/cancel", async (req, res, next) => {
     }
 
     res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/counsellor/registrations/:id/notes — save/update counsellor internal notes
+router.patch('/registrations/:id/notes', async (req, res, next) => {
+  try {
+    const { notes } = req.body;
+    await tenantQuery(
+      req.tenantSchema,
+      `UPDATE student_registration_request
+       SET counsellor_notes = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [notes ?? null, req.params.id],
+    );
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// POST /api/counsellor/registrations/:id/attachments — upload a supporting document
+router.post('/registrations/:id/attachments', attachmentUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+    const storagePath = generateFilePath(req.tenantSchema, req.params.id, req.file.originalname)
+      .replace(/^[^/]+\//, `${req.tenantSchema}/registrations/`);
+    await saveFile(req.file.buffer, storagePath);
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO registration_attachment
+         (registration_id, file_path, original_name, file_size, mime_type, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, file_path, original_name, file_size, mime_type, created_at`,
+      [req.params.id, storagePath, req.file.originalname, req.file.size, req.file.mimetype, req.user.id],
+    );
+
+    const att = result.rows[0];
+    res.status(201).json({ ok: true, attachment: { ...att, url: getFileUrl(att.file_path) } });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/counsellor/registrations/:id/attachments/:attachmentId
+router.delete('/registrations/:id/attachments/:attachmentId', async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `DELETE FROM registration_attachment
+       WHERE id = $1 AND registration_id = $2
+       RETURNING file_path`,
+      [req.params.attachmentId, req.params.id],
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Attachment not found' });
+    await deleteFile(result.rows[0].file_path);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// GET /api/counsellor/terms — active terms (for accommodation granting, student side panel, etc.)
+router.get('/terms', async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT id, label, start_date, end_date, is_active
+       FROM term
+       WHERE is_active = TRUE
+       ORDER BY start_date DESC NULLS LAST, label DESC`,
+    );
+    res.json({ ok: true, terms: result.rows });
   } catch (err) { next(err); }
 });
 

@@ -248,6 +248,9 @@ router.get('/exam-details', async (req, res, next) => {
          eu.exam_collection_method, eu.materials, eu.password,
          eu.rwg_flag, eu.is_makeup, eu.makeup_notes,
          eu.is_word_doc, eu.estimated_copies,
+         (eu.file_path IS NOT NULL OR EXISTS (
+           SELECT 1 FROM exam_upload_file f WHERE f.exam_upload_id = eu.id
+         )) AS has_files,
          u.first_name AS prof_first, u.last_name AS prof_last,
          u.email AS prof_email, pp.phone AS prof_phone,
          json_agg(

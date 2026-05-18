@@ -366,6 +366,7 @@ router.get("/me", async (req, res, next) => {
       tenantQuery(
         req.tenantSchema,
         `SELECT
+           ebr.course_id                             AS course_id,
            c.code                                    AS course_code,
            ebr.exam_date::text                       AS exam_date,
            ebr.exam_time::text                       AS exam_time,
@@ -510,6 +511,7 @@ router.get("/me", async (req, res, next) => {
       },
       unread:     parseInt(notifResult.rows[0].unread),
       nextExams:  nextExamsResult.rows.map(r => ({
+        courseId:        r.course_id,
         courseCode:      r.course_code,
         examDate:        r.exam_date,
         examTime:        r.exam_time,
@@ -593,7 +595,7 @@ router.post("/uploads", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
-    const data = createUploadSchema.parse(req.body);
+    const data = createUploadSchemaBase.parse(req.body);
     if (!data.isWordDoc) {
       await ensureCourseAllowed(req.tenantSchema, profId, data.courseId);
     }

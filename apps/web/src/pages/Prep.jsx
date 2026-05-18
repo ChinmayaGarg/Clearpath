@@ -744,13 +744,13 @@ const BOOKLET_MAP   = { not_needed: 'Not needed', engineering_booklet: 'Engineer
 const CALC_MAP      = { scientific: 'Scientific', non_programmable: 'Non-programmable', financial: 'Financial', basic: 'Basic', none: 'No calculator' };
 const COLLECT_MAP   = { delivery: 'Delivered to room', pickup_mah: 'MAH pickup', pickup_sexton: 'Sexton pickup' };
 
-function DeliveryBadge({ delivery, dropoffConfirmedAt, filePath }) {
+function DeliveryBadge({ delivery, dropoffConfirmedAt, filePath, hasFiles }) {
   if (delivery === 'dropped') {
     return dropoffConfirmedAt
       ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium shrink-0">Drop-off confirmed</span>
       : <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium shrink-0">Pending drop-off</span>;
   }
-  return filePath
+  return (filePath || hasFiles)
     ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium shrink-0">File uploaded</span>
     : <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium shrink-0">File not uploaded</span>;
 }
@@ -779,7 +779,7 @@ function ExamDetailCard({ e }) {
             <span className="text-xs text-gray-400 italic">{e.version_label}</span>
           )}
         </div>
-        <DeliveryBadge delivery={e.delivery} dropoffConfirmedAt={e.dropoff_confirmed_at} filePath={e.file_path} />
+        <DeliveryBadge delivery={e.delivery} dropoffConfirmedAt={e.dropoff_confirmed_at} filePath={e.file_path} hasFiles={e.has_files} />
       </div>
 
       {/* Prof + dates */}
@@ -953,7 +953,7 @@ function ExamBookCard({ e }) {
             <span className="text-xs text-gray-400 italic">{e.version_label}</span>
           )}
         </div>
-        <DeliveryBadge delivery={e.delivery} dropoffConfirmedAt={e.dropoff_confirmed_at} filePath={e.file_path} />
+        <DeliveryBadge delivery={e.delivery} dropoffConfirmedAt={e.dropoff_confirmed_at} filePath={e.file_path} hasFiles={e.has_files} />
       </div>
 
       {/* Room / time chips */}

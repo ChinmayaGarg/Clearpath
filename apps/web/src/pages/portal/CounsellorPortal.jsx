@@ -232,7 +232,7 @@ function StudentDetail({ student: initialStudent, onBack }) {
       const [studentData, codesData, termsData, examsData, examReqData] = await Promise.all([
         api.get(`/counsellor/students/${initialStudent.id}`),
         api.get('/counsellor/accommodation-codes'),
-        api.get('/institution/terms'),
+        api.get('/counsellor/terms'),
         api.get(`/counsellor/students/${initialStudent.id}/exams`),
         api.get(`/counsellor/students/${initialStudent.id}/exam-requests`),
       ]);
@@ -783,6 +783,10 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
   const [rejectReason,  setRejectReason]  = useState('');
   const [approveTerm,   setApproveTerm]   = useState('');
   const [action,        setAction]        = useState(null); // 'approve' | 'reject' | null
+  const [notes,         setNotes]         = useState('');
+  const [notesSaving,   setNotesSaving]   = useState(false);
+  const [attachments,   setAttachments]   = useState([]);
+  const [uploading,     setUploading]     = useState(false);
 
   async function load() {
     setLoading(true);
@@ -790,9 +794,12 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
       const [regData, codesData, termsData] = await Promise.all([
         api.get(`/counsellor/registrations/${initialReg.id}`),
         api.get('/counsellor/accommodation-codes'),
-        api.get('/institution/terms'),
+        api.get('/counsellor/terms'),
       ]);
-      setReg(regData.registration);
+      const r = regData.registration;
+      setReg(r);
+      setNotes(r?.counsellor_notes ?? '');
+      setAttachments(r?.attachments ?? []);
       const codeList = codesData.codes ?? [];
       setCodes(codeList);
       const termList = (termsData.terms ?? []).filter(t => t.is_active);
@@ -918,6 +925,46 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
       await api.patch(`/counsellor/registrations/${initialReg.id}/provider-form`, { status });
       toast(`Provider form marked as ${status}`);
       load();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function handleSaveNotes() {
+    setNotesSaving(true);
+    try {
+      await api.patch(`/counsellor/registrations/${initialReg.id}/notes`, { notes });
+      toast('Notes saved', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setNotesSaving(false);
+    }
+  }
+
+  async function handleUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const data = await api.upload(`/counsellor/registrations/${initialReg.id}/attachments`, form);
+      setAttachments(prev => [...prev, data.attachment]);
+      toast('File uploaded', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteAttachment(attId) {
+    try {
+      await api.delete(`/counsellor/registrations/${initialReg.id}/attachments/${attId}`);
+      setAttachments(prev => prev.filter(a => a.id !== attId));
+      toast('Attachment removed', 'success');
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -1089,6 +1136,81 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
           <p className="text-sm text-red-800">{reg.rejection_reason}</p>
         </div>
       )}
+
+      {/* Counsellor notes */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-2">Internal notes</h3>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          rows={4}
+          placeholder="Add internal notes for this registration (not visible to the student)…"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                     focus:outline-none focus:ring-2 focus:ring-brand-600 resize-none"
+        />
+        <div className="flex justify-end mt-2">
+          <button
+            onClick={handleSaveNotes}
+            disabled={notesSaving}
+            className="px-4 py-1.5 bg-brand-600 hover:bg-brand-800 text-white text-xs
+                       font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {notesSaving ? 'Saving…' : 'Save notes'}
+          </button>
+        </div>
+      </div>
+
+      {/* Attachments */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-800">Documents</h3>
+          <label className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer
+            ${uploading
+              ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed'
+              : 'border-brand-300 text-brand-700 hover:bg-brand-50'}`}>
+            {uploading ? 'Uploading…' : '+ Upload file'}
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              onChange={handleUpload}
+              disabled={uploading}
+              className="sr-only"
+            />
+          </label>
+        </div>
+        <p className="text-xs text-gray-400 mb-3">PDF, Word, JPEG, PNG — max 10 MB</p>
+
+        {attachments.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">No documents attached</p>
+        ) : (
+          <div className="space-y-1.5">
+            {attachments.map(att => (
+              <div key={att.id} className="flex items-center justify-between px-3 py-2
+                                           rounded-lg border border-gray-100 bg-gray-50">
+                <div className="min-w-0">
+                  <a
+                    href={att.url ?? `/uploads/${att.file_path}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-brand-600 hover:underline truncate block"
+                  >
+                    {att.original_name}
+                  </a>
+                  {att.uploaded_by_name && (
+                    <span className="text-xs text-gray-400">{att.uploaded_by_name}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDeleteAttachment(att.id)}
+                  className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1 shrink-0"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Action panel */}
       {canAct && (

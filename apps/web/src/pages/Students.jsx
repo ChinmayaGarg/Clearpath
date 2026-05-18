@@ -36,6 +36,14 @@ function StudentRow({ student, onClick }) {
         <div className="text-xs text-gray-500 font-mono">
           {student.student_number}
         </div>
+        {['submitted', 'under_review'].includes(student.registration_status) && (
+          <div className="mt-1">
+            <span className="text-xs font-medium text-amber-700 bg-amber-50
+                             border border-amber-200 px-2 py-0.5 rounded">
+              ⏳ Pending Approval — Meet Counsellor
+            </span>
+          </div>
+        )}
       </td>
       <td className="px-4 py-3">
         {student.do_not_call ? (

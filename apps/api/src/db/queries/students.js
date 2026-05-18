@@ -11,7 +11,10 @@ export async function searchStudents(schema, query) {
     `SELECT
        sp.id, sp.student_number, sp.phone, sp.do_not_call,
        u.first_name, u.last_name, u.email,
-       COUNT(DISTINCT ebr.id) AS appointment_count
+       COUNT(DISTINCT ebr.id) AS appointment_count,
+       (SELECT status FROM student_registration_request
+        WHERE student_profile_id = sp.id
+        ORDER BY created_at DESC LIMIT 1) AS registration_status
      FROM student_profile sp
      JOIN "user" u ON u.id = sp.user_id
      LEFT JOIN exam_booking_request ebr ON ebr.student_profile_id = sp.id
@@ -47,7 +50,10 @@ export async function listStudents(schema, { page = 1, limit = 50 } = {}) {
          COUNT(DISTINCT ebr.id)  AS appointment_count,
          COUNT(DISTINCT sa.id)   AS accommodation_count,
          BOOL_OR(sp.do_not_call) AS do_not_call,
-         MAX(ebr.exam_date)      AS last_seen_date
+         MAX(ebr.exam_date)      AS last_seen_date,
+         (SELECT status FROM student_registration_request
+          WHERE student_profile_id = sp.id
+          ORDER BY created_at DESC LIMIT 1) AS registration_status
        FROM student_profile sp
        JOIN "user" u ON u.id = sp.user_id
        LEFT JOIN exam_booking_request ebr ON ebr.student_profile_id = sp.id

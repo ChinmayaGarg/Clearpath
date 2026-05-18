@@ -40,15 +40,15 @@ export default function ProfessorPortal() {
     loadMe();
   }
 
-  function handleUploadFromAlert({ courseId, examType, examDate, examTime }) {
-    setPrefillData({ courseId, examTypeLabel: examType, examDate, examTime });
+  function handleUploadFromAlert({ courseId, courseCode, examType, examDate, examTime }) {
+    setPrefillData({ courseId, courseCode, examTypeLabel: examType, examDate, examTime });
     setEditId(null);
     setIsWordDoc(false);
     setShowForm(true);
   }
 
-  function handleWordDocFromAlert({ courseId, examType, examDate, examTime }) {
-    setPrefillData({ courseId, examTypeLabel: examType, examDate, examTime });
+  function handleWordDocFromAlert({ courseId, courseCode, examType, examDate, examTime }) {
+    setPrefillData({ courseId, courseCode, examTypeLabel: examType, examDate, examTime });
     setEditId(null);
     setIsWordDoc(true);
     setShowForm(true);
@@ -79,7 +79,7 @@ export default function ProfessorPortal() {
             </div>
             <div className="flex h-14 overflow-x-auto">
               {TABS.map(t => (
-                <button key={t} onClick={() => setTab(t)}
+                <button key={t} onClick={() => { setTab(t); if (t === 'Dashboard') loadMe(); }}
                   className={`px-3 text-sm font-medium border-b-2 transition-colors h-full whitespace-nowrap
                     ${tab === t
                       ? 'border-brand-600 text-brand-700'
@@ -128,7 +128,7 @@ export default function ProfessorPortal() {
                   bg: 'bg-red-50 border-red-300',
                   numColour: 'text-red-700',
                   subColour: 'text-red-500',
-                  onClick: () => { setEditId(null); setIsWordDoc(false); setShowForm(true); },
+                  onClick: () => setTab('My uploads'),
                 }] : []),
                 ...(stats.missingWordDocUploads > 0 ? [{
                   key: 'rwg',
@@ -215,14 +215,14 @@ export default function ProfessorPortal() {
                           <span className="text-xs text-green-600 font-medium">Uploaded ✓</span>
                         ) : (
                           <button
-                            onClick={() => handleUploadFromAlert({ courseCode: e.courseCode, examType: e.examType, examDate: e.examDate, examTime: e.examTime })}
+                            onClick={() => handleUploadFromAlert({ courseId: e.courseId, courseCode: e.courseCode, examType: e.examType, examDate: e.examDate, examTime: e.examTime })}
                             className="text-xs text-red-600 font-semibold underline">
                             Upload needed
                           </button>
                         )}
                         {e.hasRwgStudents && !e.wordDocUploaded && (
                           <button
-                            onClick={() => handleWordDocFromAlert({ courseCode: e.courseCode, examType: e.examType, examDate: e.examDate, examTime: e.examTime })}
+                            onClick={() => handleWordDocFromAlert({ courseId: e.courseId, courseCode: e.courseCode, examType: e.examType, examDate: e.examDate, examTime: e.examTime })}
                             className="text-xs text-purple-600 font-semibold underline">
                             Word doc needed
                           </button>
@@ -790,7 +790,7 @@ function MyStudentsTab() {
                               ? 'bg-green-50 text-green-700'
                               : 'bg-amber-50 text-amber-700'
                           }`}>
-                            {s.status === 'confirmed' ? 'Confirmed' : 'Awaiting confirmation'}
+                            {s.status === 'confirmed' ? 'Confirmed' : 'Awaiting Confirmation from Accessibility Center'}
                           </span>
                         </div>
                       ))}

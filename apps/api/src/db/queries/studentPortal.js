@@ -190,11 +190,12 @@ export async function createExamBookingRequest(
     computedDurationMins,
   },
 ) {
-  // Look up the professor responsible for this course via course_dossier
+  // Look up the professor responsible for this course via course_dossier → course_offering
   const profResult = await tenantQuery(
     schema,
-    `SELECT professor_id FROM course_dossier
-     WHERE course_id = $1
+    `SELECT cd.professor_id FROM course_dossier cd
+     JOIN course_offering co ON co.id = cd.course_offering_id
+     WHERE co.course_id = $1
      LIMIT 1`,
     [courseId],
   );

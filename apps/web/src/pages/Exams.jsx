@@ -8,19 +8,33 @@ import ExamSidePanel from '../components/exams/ExamSidePanel.jsx';
 
 const DELIVERY_LABELS = {
   pending:     'Not confirmed',
-  dropped:     'Prof drop-off',
   pickup:      'AC picks up',
   delivery:    'Delivered to room',
   file_upload: 'File upload',
 };
 
 const DELIVERY_BADGE = {
-  file_upload: 'bg-blue-100 text-blue-700',
-  dropped:     'bg-amber-100 text-amber-700',
-  pickup:      'bg-green-100 text-green-700',
-  delivery:    'bg-purple-100 text-purple-700',
-  pending:     'bg-gray-100 text-gray-500',
+  file_upload:      'bg-blue-100 text-blue-700',
+  dropped:          'bg-amber-100 text-amber-700',
+  dropped_confirmed:'bg-green-100 text-green-700',
+  pickup:           'bg-green-100 text-green-700',
+  delivery:         'bg-purple-100 text-purple-700',
+  pending:          'bg-gray-100 text-gray-500',
 };
+
+function deliveryLabel(delivery, dropoffConfirmedAt) {
+  if (delivery === 'dropped') {
+    return dropoffConfirmedAt ? 'Prof dropped off' : 'Prof will drop off';
+  }
+  return DELIVERY_LABELS[delivery] ?? delivery ?? '—';
+}
+
+function deliveryBadgeClass(delivery, dropoffConfirmedAt) {
+  if (delivery === 'dropped') {
+    return dropoffConfirmedAt ? DELIVERY_BADGE.dropped_confirmed : DELIVERY_BADGE.dropped;
+  }
+  return DELIVERY_BADGE[delivery] ?? 'bg-gray-100 text-gray-600';
+}
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -63,10 +77,8 @@ function ExamRow({ exam, onClick }) {
         ) : '—'}
       </td>
       <td className="px-4 py-3">
-        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-          DELIVERY_BADGE[exam.delivery] ?? 'bg-gray-100 text-gray-600'
-        }`}>
-          {DELIVERY_LABELS[exam.delivery] ?? exam.delivery ?? '—'}
+        <span className={`text-xs px-2 py-0.5 rounded font-medium ${deliveryBadgeClass(exam.delivery, exam.dropoff_confirmed_at)}`}>
+          {deliveryLabel(exam.delivery, exam.dropoff_confirmed_at)}
         </span>
       </td>
       <td className="px-4 py-3 text-center">

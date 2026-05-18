@@ -127,20 +127,33 @@ router.get("/accommodation-codes", async (req, res, next) => {
 
 // ── GET /api/student/exam-upload-duration ─────────────────────────────────────
 // ?courseId=&examType=&examDate=&examTime= (examTime optional)
-// Returns the professor's uploaded duration for this course+type+date, or null.
+// Returns professor's uploaded duration if available, falls back to admin-scheduled duration.
 router.get("/exam-upload-duration", async (req, res, next) => {
   try {
     const { courseId, examType, examDate, examTime } = req.query;
     if (!courseId || !examType || !examDate) {
       return res.json({ ok: true, data: null });
     }
-    const durationMins = await findExamUploadDuration(
-      req.tenantSchema,
-      courseId,
-      examType,
-      examDate,
-      examTime || null,
-    );
+
+    const [profMins, schedResult] = await Promise.all([
+      findExamUploadDuration(req.tenantSchema, courseId, examType, examDate, examTime || null),
+      tenantQuery(
+        req.tenantSchema,
+        `SELECT base_duration_mins FROM exam_schedule
+         WHERE course_id = $1
+           AND exam_date = $2
+           AND exam_type = $3
+           AND base_duration_mins IS NOT NULL
+           AND (exam_time = $4 OR exam_time IS NULL OR $4 IS NULL)
+         ORDER BY exam_time NULLS LAST
+         LIMIT 1`,
+        [courseId, examDate, examType, examTime || null],
+      ),
+    ]);
+
+    const adminMins = schedResult.rows[0]?.base_duration_mins ?? null;
+    // Professor's uploaded duration takes priority over admin-scheduled duration
+    const durationMins = profMins ?? adminMins;
     res.json({ ok: true, data: durationMins });
   } catch (err) {
     next(err);

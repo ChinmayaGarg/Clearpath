@@ -67,6 +67,7 @@ const migrationMap = {
   43: "043_student_accommodation_term_id.sql",
   44: "044_student_course_offering.sql",
   45: "045_drop_course_term.sql",
+  46: "046_registration_notes_attachments.sql",
 };
 
 const filename = migrationMap[targetVersion];
