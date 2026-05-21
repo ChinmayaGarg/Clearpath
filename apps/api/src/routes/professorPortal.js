@@ -654,7 +654,7 @@ router.put("/uploads/:id", async (req, res, next) => {
     // Lock editing once the earliest exam date+time has passed (exam has started)
     const datesResult = await tenantQuery(
       req.tenantSchema,
-      `SELECT exam_date, time_slot
+      `SELECT exam_date::text AS exam_date, time_slot::text AS time_slot
        FROM exam_upload_date
        WHERE exam_upload_id = $1
        ORDER BY exam_date ASC, time_slot ASC NULLS LAST
@@ -663,9 +663,10 @@ router.put("/uploads/:id", async (req, res, next) => {
     );
     const earliest = datesResult.rows[0];
     if (earliest) {
-      const dateStr = new Date(earliest.exam_date).toISOString().split("T")[0];
-      const examStart = earliest.time_slot
-        ? new Date(`${dateStr}T${earliest.time_slot}`)
+      const dateStr = String(earliest.exam_date).slice(0, 10);
+      const timeStr = earliest.time_slot ? String(earliest.time_slot).slice(0, 8) : null;
+      const examStart = timeStr
+        ? new Date(`${dateStr}T${timeStr}`)
         : new Date(`${dateStr}T00:00:00`);
       if (examStart <= new Date()) {
         return res.status(403).json({

@@ -55,7 +55,7 @@ function canEditUpload(upload) {
   if (!upload.dates?.length) return true;
   const now = new Date();
   return upload.dates.every(d => {
-    const diffDays = (new Date(d.exam_date + 'T00:00:00') - now) / (1000 * 60 * 60 * 24);
+    const diffDays = (new Date(String(d.exam_date).slice(0, 10) + 'T00:00:00') - now) / (1000 * 60 * 60 * 24);
     return diffDays > 2;
   });
 }
@@ -197,7 +197,7 @@ function UploadCard({ upload, onEdit }) {
                 className="text-xs bg-gray-50 border border-gray-200
                            px-2 py-1 rounded-lg flex items-center gap-1.5">
                 <span className="text-gray-700">
-                  {new Date(d.exam_date + 'T12:00:00').toLocaleDateString('en-CA', {
+                  {new Date(String(d.exam_date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-CA', {
                     month: 'short', day: 'numeric',
                   })}
                   {d.time_slot && ` · ${d.time_slot.slice(0, 5)}`}

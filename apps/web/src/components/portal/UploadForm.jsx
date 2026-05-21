@@ -857,7 +857,7 @@ export default function UploadForm({ uploadId, isWordDoc: isWordDocProp = false,
                              bg-gray-50 border border-gray-200 rounded-lg"
                 >
                   <span className="text-sm text-gray-700">
-                    {new Date(d.exam_date + "T12:00:00").toLocaleDateString(
+                    {new Date(String(d.exam_date).slice(0, 10) + "T12:00:00").toLocaleDateString(
                       "en-CA",
                       {
                         weekday: "short",
