@@ -45,7 +45,7 @@ const STATUS_BADGE = {
 
 const STATUS_LABEL = {
   pending: "Awaiting professor",
-  professor_approved: "Professor approved",
+  professor_approved: "Professor approved, awaiting Accessibility Centre",
   professor_rejected: "Professor rejected",
   confirmed: "Confirmed",
   cancelled: "Cancelled",
