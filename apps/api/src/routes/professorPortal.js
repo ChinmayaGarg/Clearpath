@@ -1606,7 +1606,7 @@ router.delete(
 );
 
 // ── GET /api/portal/conflicts ─────────────────────────────────────────────────
-// Returns all upload date rows with match_status='conflict', grouped by course+date.
+// Returns submitted uploads that share the same course+date+type+time, grouped as conflicts.
 router.get(
   "/conflicts",
   requireRole("lead", "institution_admin"),
@@ -1631,20 +1631,32 @@ router.get(
          JOIN course           c  ON c.id   = eu.course_id
          JOIN professor_profile pp ON pp.id = eu.professor_profile_id
          JOIN "user"            u  ON u.id  = pp.user_id
-         WHERE eud.match_status = 'conflict'
+         WHERE eu.status = 'submitted'
+           AND (eu.course_id, eud.exam_date, eu.exam_type_label, eud.time_slot) IN (
+             SELECT eu2.course_id, eud2.exam_date, eu2.exam_type_label, eud2.time_slot
+             FROM exam_upload_date eud2
+             JOIN exam_upload eu2 ON eu2.id = eud2.exam_upload_id
+             WHERE eu2.status = 'submitted'
+             GROUP BY eu2.course_id, eud2.exam_date, eu2.exam_type_label, eud2.time_slot
+             HAVING COUNT(DISTINCT eu2.id) > 1
+           )
          ORDER BY eud.exam_date, c.code`,
         [],
       );
 
-      // Group by course_id + exam_date
+      // Group by course_id + exam_date + exam_type_label + time_slot
       const map = new Map();
       for (const row of result.rows) {
-        const key = `${row.course_id}__${String(row.exam_date).slice(0, 10)}`;
+        const examDate = String(row.exam_date).slice(0, 10);
+        const timeSlot = row.time_slot ? String(row.time_slot).slice(0, 5) : null;
+        const key = `${row.course_id}__${examDate}__${row.exam_type_label}__${timeSlot}`;
         if (!map.has(key)) {
           map.set(key, {
             courseId:   row.course_id,
             courseCode: row.course_code,
-            examDate:   String(row.exam_date).slice(0, 10),
+            examDate,
+            examType:   row.exam_type_label,
+            timeSlot,
             uploads:    [],
           });
         }
@@ -1674,23 +1686,27 @@ router.post(
   requireRole("lead", "institution_admin"),
   async (req, res, next) => {
     try {
-      const { courseId, examDate, winnerUploadId } = req.body;
-      if (!courseId || !examDate || !winnerUploadId) {
-        return res.status(400).json({ ok: false, error: "courseId, examDate, and winnerUploadId are required" });
+      const { courseId, examDate, examType, timeSlot, winnerUploadId } = req.body;
+      if (!courseId || !examDate || !examType || !winnerUploadId) {
+        return res.status(400).json({ ok: false, error: "courseId, examDate, examType, and winnerUploadId are required" });
       }
 
-      // Find all conflict rows for this course+date
+      // Find all submitted uploads for this course+date+type+time
       const conflictRows = await tenantQuery(
         req.tenantSchema,
         `SELECT eud.id AS date_id, eud.exam_upload_id
          FROM exam_upload_date eud
-         JOIN exam_upload eu ON eu.id = eud.exam_upload_id AND eu.course_id = $1
-         WHERE eud.exam_date = $2 AND eud.match_status = 'conflict'`,
-        [courseId, examDate],
+         JOIN exam_upload eu ON eu.id = eud.exam_upload_id
+           AND eu.course_id = $1
+           AND eu.exam_type_label = $3
+           AND eu.status = 'submitted'
+         WHERE eud.exam_date = $2
+           AND eud.time_slot IS NOT DISTINCT FROM $4`,
+        [courseId, examDate, examType, timeSlot ?? null],
       );
 
-      if (!conflictRows.rows.length) {
-        return res.status(404).json({ ok: false, error: "No conflicts found for this course and date" });
+      if (conflictRows.rows.length < 2) {
+        return res.status(404).json({ ok: false, error: "No conflicts found for this course, date, type, and time" });
       }
 
       const winnerDateId = conflictRows.rows.find(r => r.exam_upload_id === winnerUploadId)?.date_id;

@@ -1684,13 +1684,16 @@ function ConflictsTab() {
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line
 
-  async function handleResolve(courseId, examDate, winnerUploadId) {
-    const key = `${courseId}__${examDate}`;
+  async function handleResolve(courseId, examDate, examType, timeSlot, winnerUploadId) {
+    const key = `${courseId}__${examDate}__${examType}__${timeSlot}`;
     setResolving(key);
     try {
-      await api.post('/portal/conflicts/resolve', { courseId, examDate, winnerUploadId });
+      await api.post('/portal/conflicts/resolve', { courseId, examDate, examType, timeSlot, winnerUploadId });
       toast('Conflict resolved', 'success');
-      setGroups(prev => prev.filter(g => !(g.courseId === courseId && g.examDate === examDate)));
+      setGroups(prev => prev.filter(g => !(
+        g.courseId === courseId && g.examDate === examDate &&
+        g.examType === examType && g.timeSlot === timeSlot
+      )));
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -1712,7 +1715,7 @@ function ConflictsTab() {
   return (
     <div className="space-y-6">
       {groups.map(g => {
-        const key = `${g.courseId}__${g.examDate}`;
+        const key = `${g.courseId}__${g.examDate}__${g.examType}__${g.timeSlot}`;
         const isResolving = resolving === key;
         return (
           <div key={key} className="bg-white rounded-xl border border-red-200 overflow-hidden">
@@ -1720,7 +1723,9 @@ function ConflictsTab() {
               <span className="text-red-500">⚠</span>
               <div>
                 <p className="text-sm font-semibold text-red-800">
-                  {g.courseCode} — {fmtDateShort(g.examDate)}
+                  {g.courseCode} — {TYPE_LABELS[g.examType] ?? g.examType}
+                  {g.timeSlot && <span className="font-normal"> at {g.timeSlot}</span>}
+                  {' · '}{fmtDateShort(g.examDate)}
                 </p>
                 <p className="text-xs text-red-500">{g.uploads.length} competing uploads — pick one to keep</p>
               </div>
@@ -1730,9 +1735,9 @@ function ConflictsTab() {
                 <div key={u.uploadId} className="flex items-center justify-between px-4 py-3 gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900">
-                      {TYPE_LABELS[u.examTypeLabel] ?? u.examTypeLabel}
-                      {u.versionLabel && <span className="ml-2 text-xs text-gray-400 italic">{u.versionLabel}</span>}
-                      {u.timeSlot && <span className="ml-2 text-xs text-gray-500">at {u.timeSlot.slice(0, 5)}</span>}
+                      {u.versionLabel
+                        ? <span className="text-xs text-gray-400 italic">{u.versionLabel}</span>
+                        : <span className="text-gray-400 text-xs">No version label</span>}
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {u.professorName}
@@ -1745,7 +1750,7 @@ function ConflictsTab() {
                     )}
                   </div>
                   <button
-                    onClick={() => handleResolve(g.courseId, g.examDate, u.uploadId)}
+                    onClick={() => handleResolve(g.courseId, g.examDate, g.examType, g.timeSlot, u.uploadId)}
                     disabled={isResolving}
                     className="shrink-0 px-3 py-1.5 text-xs font-medium text-white bg-brand-600
                                hover:bg-brand-700 disabled:opacity-50 rounded-lg transition-colors"
