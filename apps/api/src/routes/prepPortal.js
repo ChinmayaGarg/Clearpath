@@ -13,6 +13,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { tenantQuery } from '../db/tenantPool.js';
 import { readFileFromStorage } from '../services/fileStorage.js';
+import { insertLeadAuditLog } from '../db/queries/leadAuditLog.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -548,6 +549,23 @@ router.patch('/dropoffs/:uploadId', async (req, res, next) => {
       values,
     );
 
+    (async () => {
+      try {
+        const r = await tenantQuery(req.tenantSchema,
+          `SELECT c.code FROM exam_upload eu JOIN course c ON c.id = eu.course_id WHERE eu.id = $1`,
+          [req.params.uploadId],
+        );
+        const courseCode = r.rows[0]?.code ?? req.params.uploadId;
+        await insertLeadAuditLog(req.tenantSchema, {
+          performedBy: req.user.id,
+          action: 'CORRECT_DROPOFF',
+          description: `Corrected exam details for ${courseCode} upload`,
+          entityType: 'exam_upload',
+          entityId: req.params.uploadId,
+        });
+      } catch (err) { console.warn('audit log failed:', err); }
+    })();
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -572,6 +590,24 @@ router.post('/dropoffs/:uploadId/confirm', async (req, res, next) => {
     if (!result.rows.length) {
       return res.status(404).json({ error: 'Drop-off not found or already confirmed' });
     }
+
+    (async () => {
+      try {
+        const r = await tenantQuery(req.tenantSchema,
+          `SELECT c.code FROM exam_upload eu JOIN course c ON c.id = eu.course_id WHERE eu.id = $1`,
+          [req.params.uploadId],
+        );
+        const courseCode = r.rows[0]?.code ?? req.params.uploadId;
+        await insertLeadAuditLog(req.tenantSchema, {
+          performedBy: req.user.id,
+          action: 'CONFIRM_DROPOFF',
+          description: `Confirmed receipt of ${courseCode} exam`,
+          entityType: 'exam_upload',
+          entityId: req.params.uploadId,
+        });
+      } catch (err) { console.warn('audit log failed:', err); }
+    })();
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -807,6 +843,30 @@ router.patch('/exam-returns/:uploadDateId/stage', async (req, res, next) => {
       [req.params.uploadDateId, currentStage ?? null, stage, req.user.id, note ?? null],
     );
 
+    (async () => {
+      try {
+        const r = await tenantQuery(req.tenantSchema,
+          `SELECT c.code, eud.exam_date::text AS exam_date
+           FROM exam_upload_date eud
+           JOIN exam_upload eu ON eu.id = eud.exam_upload_id
+           JOIN course c ON c.id = eu.course_id
+           WHERE eud.id = $1`,
+          [req.params.uploadDateId],
+        );
+        const row = r.rows[0];
+        const desc = row
+          ? `Updated stage to ${stage} for ${row.code} (${row.exam_date})`
+          : `Updated stage to ${stage} for date ${req.params.uploadDateId}`;
+        await insertLeadAuditLog(req.tenantSchema, {
+          performedBy: req.user.id,
+          action: 'UPDATE_EXAM_STAGE',
+          description: desc,
+          entityType: 'exam_upload_date',
+          entityId: req.params.uploadDateId,
+        });
+      } catch (err) { console.warn('audit log failed:', err); }
+    })();
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -833,6 +893,32 @@ router.patch('/bookings/:id/attendance', async (req, res, next) => {
     if (!result.rows.length) {
       return res.status(404).json({ ok: false, error: 'Booking not found or not confirmed' });
     }
+
+    (async () => {
+      try {
+        const r = await tenantQuery(req.tenantSchema,
+          `SELECT u.first_name, u.last_name, c.code, ebr.exam_date::text AS exam_date
+           FROM exam_booking_request ebr
+           JOIN course c ON c.id = ebr.course_id
+           JOIN student_profile sp ON sp.id = ebr.student_profile_id
+           JOIN "user" u ON u.id = sp.user_id
+           WHERE ebr.id = $1`,
+          [req.params.id],
+        );
+        const row = r.rows[0];
+        const desc = row
+          ? `Marked attendance as ${status ?? 'cleared'} for ${row.first_name} ${row.last_name} (${row.code}, ${row.exam_date})`
+          : `Marked attendance as ${status ?? 'cleared'} for booking ${req.params.id}`;
+        await insertLeadAuditLog(req.tenantSchema, {
+          performedBy: req.user.id,
+          action: 'UPDATE_ATTENDANCE',
+          description: desc,
+          entityType: 'exam_booking_request',
+          entityId: req.params.id,
+        });
+      } catch (err) { console.warn('audit log failed:', err); }
+    })();
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

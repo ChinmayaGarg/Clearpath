@@ -22,6 +22,7 @@ import {
   changeExamStatus, saveExamRoom, removeExamRoom,
   getExamHistory,
 } from '../services/bookService.js';
+import { insertLeadAuditLog } from '../db/queries/leadAuditLog.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -46,6 +47,19 @@ router.post('/',
       const exam = await addExam(
         req.tenantSchema, examDayId, examData, req.user.id
       );
+
+      (async () => {
+        try {
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'CREATE_EXAM',
+            description: `Created ${exam.course_code ?? 'exam'} exam`,
+            entityType: 'exam',
+            entityId: exam?.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.status(201).json({ ok: true, exam });
     } catch (err) { next(err); }
   }
@@ -60,6 +74,19 @@ router.patch('/:id',
       const exam   = await editExam(
         req.tenantSchema, req.params.id, fields, req.user.id
       );
+
+      (async () => {
+        try {
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'UPDATE_EXAM',
+            description: `Updated ${exam.course_code ?? 'exam'} exam`,
+            entityType: 'exam',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.json({ ok: true, exam });
     } catch (err) { next(err); }
   }
@@ -70,7 +97,21 @@ router.delete('/:id',
   requireRole('lead', 'institution_admin'),
   async (req, res, next) => {
     try {
+      const examToDelete = await getOneExam(req.tenantSchema, req.params.id).catch(() => null);
       await removeExam(req.tenantSchema, req.params.id, req.user.id);
+
+      (async () => {
+        try {
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'DELETE_EXAM',
+            description: `Deleted ${examToDelete?.course_code ?? 'exam'} exam`,
+            entityType: 'exam',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.json({ ok: true });
     } catch (err) { next(err); }
   }
@@ -87,6 +128,24 @@ router.patch('/:id/status',
         changedBy: req.user.id,
         note,
       });
+
+      (async () => {
+        try {
+          const { tenantQuery } = await import('../db/tenantPool.js');
+          const r = await tenantQuery(req.tenantSchema,
+            `SELECT course_code FROM exam WHERE id = $1`, [req.params.id],
+          );
+          const courseCode = r.rows[0]?.course_code ?? req.params.id;
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'UPDATE_EXAM_STATUS',
+            description: `Updated status to ${status} for ${courseCode} exam`,
+            entityType: 'exam',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.json({ ok: true, ...result });
     } catch (err) { next(err); }
   }
@@ -109,6 +168,24 @@ router.post('/:id/rooms',
       const room = await saveExamRoom(
         req.tenantSchema, req.params.id, data, req.user.id
       );
+
+      (async () => {
+        try {
+          const { tenantQuery } = await import('../db/tenantPool.js');
+          const r = await tenantQuery(req.tenantSchema,
+            `SELECT course_code FROM exam WHERE id = $1`, [req.params.id],
+          );
+          const courseCode = r.rows[0]?.course_code ?? req.params.id;
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'ASSIGN_ROOM',
+            description: `Assigned room to ${courseCode} exam`,
+            entityType: 'exam',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.status(201).json({ ok: true, room });
     } catch (err) { next(err); }
   }
@@ -122,6 +199,24 @@ router.delete('/:id/rooms/:roomId',
       await removeExamRoom(
         req.tenantSchema, req.params.id, req.params.roomId, req.user.id
       );
+
+      (async () => {
+        try {
+          const { tenantQuery } = await import('../db/tenantPool.js');
+          const r = await tenantQuery(req.tenantSchema,
+            `SELECT course_code FROM exam WHERE id = $1`, [req.params.id],
+          );
+          const courseCode = r.rows[0]?.course_code ?? req.params.id;
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'REMOVE_ROOM',
+            description: `Removed room from ${courseCode} exam`,
+            entityType: 'exam',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.json({ ok: true });
     } catch (err) { next(err); }
   }
@@ -179,6 +274,23 @@ router.post('/:id/email',
           sentBy:   req.user.id,
         }
       );
+
+      (async () => {
+        try {
+          const { tenantQuery } = await import('../db/tenantPool.js');
+          const r = await tenantQuery(req.tenantSchema,
+            `SELECT course_code FROM exam WHERE id = $1`, [req.params.id],
+          );
+          const courseCode = r.rows[0]?.course_code ?? req.params.id;
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'SEND_PROF_EMAIL',
+            description: `Sent email to ${toEmail} for ${courseCode} exam`,
+            entityType: 'exam',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
 
       res.json({ ok: true, ...result });
     } catch (err) { next(err); }
@@ -345,6 +457,30 @@ router.post('/:id/uploads/:uploadId/link',
          WHERE exam_upload_id = $1`,
         [req.params.uploadId]
       );
+
+      (async () => {
+        try {
+          const { tenantQuery } = await import('../db/tenantPool.js');
+          const [examRes, uploadRes] = await Promise.all([
+            tenantQuery(req.tenantSchema,
+              `SELECT course_code FROM exam WHERE id = $1`, [req.params.id],
+            ),
+            tenantQuery(req.tenantSchema,
+              `SELECT c.code FROM exam_upload eu JOIN course c ON c.id = eu.course_id WHERE eu.id = $1`,
+              [req.params.uploadId],
+            ),
+          ]);
+          const examCode   = examRes.rows[0]?.course_code ?? 'exam';
+          const uploadCode = uploadRes.rows[0]?.code ?? 'upload';
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'LINK_UPLOAD',
+            description: `Linked ${uploadCode} upload to ${examCode} exam`,
+            entityType: 'exam',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
 
       res.json({ ok: true, message: 'Upload linked to exam' });
     } catch (err) { next(err); }

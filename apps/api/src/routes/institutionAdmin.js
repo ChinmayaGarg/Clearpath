@@ -31,6 +31,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/role.js";
 import { tenantQuery } from "../db/tenantPool.js";
 import { assignStudentsToRooms } from "../utils/scheduleAlgorithm.js";
+import { insertLeadAuditLog, queryLeadAuditLog, getStaff } from "../db/queries/leadAuditLog.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -101,6 +102,30 @@ router.patch("/bookings/:id/confirm", async (req, res, next) => {
       exam_time,
     ).catch(() => {});
 
+    (async () => {
+      try {
+        const [courseRow, bookingRow] = await Promise.all([
+          tenantQuery(schema, `SELECT code FROM course WHERE id = $1`, [course_id]),
+          tenantQuery(schema,
+            `SELECT u.first_name, u.last_name FROM exam_booking_request ebr
+             JOIN student_profile sp ON sp.id = ebr.student_profile_id
+             JOIN "user" u ON u.id = sp.user_id WHERE ebr.id = $1`,
+            [req.params.id],
+          ),
+        ]);
+        const courseCode = courseRow.rows[0]?.code ?? course_id;
+        const student    = bookingRow.rows[0];
+        const studentStr = student ? `${student.first_name} ${student.last_name}` : 'student';
+        await insertLeadAuditLog(schema, {
+          performedBy: req.user.id,
+          action: 'CONFIRM_BOOKING',
+          description: `Confirmed booking for ${studentStr} (${courseCode}, ${exam_date})`,
+          entityType: 'exam_booking_request',
+          entityId: req.params.id,
+        });
+      } catch (err) { console.warn('audit log failed:', err); }
+    })();
+
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -156,6 +181,14 @@ router.patch("/bookings/:id/cancel", async (req, res, next) => {
         ],
       ).catch(() => {});
     }
+
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'CANCEL_BOOKING',
+      description: `Cancelled booking for ${student_name ?? 'student'} (${course_code}, ${exam_date})`,
+      entityType: 'exam_booking_request',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
 
     res.json({ ok: true });
   } catch (err) {
@@ -216,6 +249,15 @@ router.post("/rooms", async (req, res, next) => {
       );
     }
     room.features = body.features ?? [];
+
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'CREATE_ROOM',
+      description: `Created room "${body.name}" (capacity ${body.capacity})`,
+      entityType: 'booking_room',
+      entityId: room.id,
+    }).catch(err => console.warn('audit log failed:', err));
+
     res.status(201).json({ ok: true, data: room });
   } catch (err) {
     next(err);
@@ -280,6 +322,14 @@ router.patch("/rooms/:id", async (req, res, next) => {
       room.features = body.features;
     }
 
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'UPDATE_ROOM',
+      description: `Updated room "${room.name}"`,
+      entityType: 'booking_room',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
+
     res.json({ ok: true, data: room });
   } catch (err) {
     next(err);
@@ -293,12 +343,21 @@ router.delete("/rooms/:id", async (req, res, next) => {
       req.tenantSchema,
       `UPDATE booking_room SET is_active = FALSE
        WHERE id = $1 AND is_active = TRUE
-       RETURNING id`,
+       RETURNING id, name`,
       [req.params.id],
     );
     if (!result.rows.length) {
       return res.status(404).json({ ok: false, error: "Room not found" });
     }
+
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'DELETE_ROOM',
+      description: `Deleted room "${result.rows[0].name}"`,
+      entityType: 'booking_room',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
+
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -336,7 +395,16 @@ router.post("/room-features", async (req, res, next) => {
        RETURNING id, code, label, is_active`,
       [body.code, body.label],
     );
-    res.status(201).json({ ok: true, data: result.rows[0] });
+    const feat = result.rows[0];
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'CREATE_ROOM_FEATURE',
+      description: `Created room feature "${feat.label}" (${feat.code})`,
+      entityType: 'room_feature',
+      entityId: feat.id,
+    }).catch(err => console.warn('audit log failed:', err));
+
+    res.status(201).json({ ok: true, data: feat });
   } catch (err) {
     next(err);
   }
@@ -361,7 +429,15 @@ router.patch("/room-features/:id", async (req, res, next) => {
       vals,
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: "Feature not found" });
-    res.json({ ok: true, data: result.rows[0] });
+    const feat = result.rows[0];
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'UPDATE_ROOM_FEATURE',
+      description: `Updated room feature "${feat.label}" (${feat.code})`,
+      entityType: 'room_feature',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
+    res.json({ ok: true, data: feat });
   } catch (err) {
     next(err);
   }
@@ -380,10 +456,17 @@ router.delete("/room-features/:id", async (req, res, next) => {
     }
     const result = await tenantQuery(
       req.tenantSchema,
-      `DELETE FROM room_feature WHERE id = $1 RETURNING id`,
+      `DELETE FROM room_feature WHERE id = $1 RETURNING id, code, label`,
       [req.params.id],
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: "Feature not found" });
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'DELETE_ROOM_FEATURE',
+      description: `Deleted room feature "${result.rows[0].label}" (${result.rows[0].code})`,
+      entityType: 'room_feature',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -433,6 +516,21 @@ router.put("/accommodation-feature-mappings/:id", async (req, res, next) => {
       );
     }
     res.json({ ok: true });
+
+    (async () => {
+      try {
+        const acRow = await tenantQuery(req.tenantSchema, `SELECT code, label FROM accommodation_code WHERE id = $1`, [req.params.id]);
+        const acCode  = acRow.rows[0]?.code  ?? req.params.id;
+        const acLabel = acRow.rows[0]?.label ?? '';
+        await insertLeadAuditLog(req.tenantSchema, {
+          performedBy: req.user.id,
+          action: 'UPDATE_ACCOM_FEATURE_MAPPING',
+          description: `Updated room feature requirements for accommodation "${acLabel}" (${acCode})`,
+          entityType: 'accommodation_code',
+          entityId: req.params.id,
+        });
+      } catch (err) { console.warn('audit log failed:', err); }
+    })();
   } catch (err) {
     next(err);
   }
@@ -471,7 +569,15 @@ router.post("/accommodation-codes", async (req, res, next) => {
        RETURNING id, code, label, triggers_rwg_flag, prefers_solo_room, is_active`,
       [body.code, body.label, body.triggers_rwg_flag, body.prefers_solo_room],
     );
-    res.status(201).json({ ok: true, data: result.rows[0] });
+    const accom = result.rows[0];
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'CREATE_ACCOM_CODE',
+      description: `Created accommodation code "${accom.label}" (${accom.code})`,
+      entityType: 'accommodation_code',
+      entityId: accom.id,
+    }).catch(err => console.warn('audit log failed:', err));
+    res.status(201).json({ ok: true, data: accom });
   } catch (err) {
     next(err);
   }
@@ -499,7 +605,15 @@ router.patch("/accommodation-codes/:id", async (req, res, next) => {
       vals,
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: "Code not found" });
-    res.json({ ok: true, data: result.rows[0] });
+    const accom = result.rows[0];
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'UPDATE_ACCOM_CODE',
+      description: `Updated accommodation code "${accom.label}" (${accom.code})`,
+      entityType: 'accommodation_code',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
+    res.json({ ok: true, data: accom });
   } catch (err) {
     next(err);
   }
@@ -518,10 +632,17 @@ router.delete("/accommodation-codes/:id", async (req, res, next) => {
     }
     const result = await tenantQuery(
       req.tenantSchema,
-      `DELETE FROM accommodation_code WHERE id = $1 RETURNING id`,
+      `DELETE FROM accommodation_code WHERE id = $1 RETURNING id, code, label`,
       [req.params.id],
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: "Code not found" });
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'DELETE_ACCOM_CODE',
+      description: `Deleted accommodation code "${result.rows[0].label}" (${result.rows[0].code})`,
+      entityType: 'accommodation_code',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -739,6 +860,14 @@ router.post("/schedule", async (req, res, next) => {
         students: assignedStudents,
       });
     }
+
+    insertLeadAuditLog(schema, {
+      performedBy: req.user.id,
+      action: 'GENERATE_SCHEDULE',
+      description: `Generated exam schedule for ${body.date} (${students.length} students)`,
+      entityType: 'booking_schedule',
+      entityId: scheduleId,
+    }).catch(err => console.warn('audit log failed:', err));
 
     res
       .status(201)
@@ -981,6 +1110,14 @@ router.post("/exam-schedules", async (req, res, next) => {
       [req.user.id, courseId, examDate, examTime || null],
     );
 
+    insertLeadAuditLog(schema, {
+      performedBy: req.user.id,
+      action: 'CREATE_EXAM_SCHEDULE',
+      description: `Scheduled ${sched.exam_type ?? 'exam'} for ${sched.course_code} on ${sched.exam_date}`,
+      entityType: 'exam_schedule',
+      entityId: sched.id,
+    }).catch(err => console.warn('audit log failed:', err));
+
     res.status(201).json({
       ok: true,
       data: {
@@ -1037,6 +1174,13 @@ router.patch("/exam-schedules/:id", async (req, res, next) => {
     const updated = result.rows[0];
     const cRow = await tenantQuery(schema, `SELECT code FROM course WHERE id = $1`, [updated.course_id]);
     updated.course_code = cRow.rows[0]?.code ?? null;
+    insertLeadAuditLog(schema, {
+      performedBy: req.user.id,
+      action: 'UPDATE_EXAM_SCHEDULE',
+      description: `Updated exam schedule for ${updated.course_code ?? updated.course_id} on ${updated.exam_date}`,
+      entityType: 'exam_schedule',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true, data: updated });
   } catch (err) {
     next(err);
@@ -1050,7 +1194,10 @@ router.delete("/exam-schedules/:id", async (req, res, next) => {
 
     const result = await tenantQuery(
       schema,
-      `DELETE FROM exam_schedule WHERE id = $1 RETURNING id`,
+      `DELETE FROM exam_schedule WHERE id = $1
+       RETURNING id,
+         (SELECT code FROM course WHERE id = course_id) AS course_code,
+         exam_date, exam_type`,
       [req.params.id],
     );
 
@@ -1059,6 +1206,14 @@ router.delete("/exam-schedules/:id", async (req, res, next) => {
         .status(404)
         .json({ ok: false, error: "Exam schedule not found" });
     }
+
+    insertLeadAuditLog(schema, {
+      performedBy: req.user.id,
+      action: 'DELETE_EXAM_SCHEDULE',
+      description: `Deleted ${result.rows[0].exam_type ?? 'exam'} schedule for ${result.rows[0].course_code ?? 'unknown'} on ${result.rows[0].exam_date}`,
+      entityType: 'exam_schedule',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
 
     res.json({ ok: true });
   } catch (err) {
@@ -1209,6 +1364,14 @@ router.patch("/cancellation-requests/:id/approve", async (req, res, next) => {
       );
     }
 
+    insertLeadAuditLog(schema, {
+      performedBy: req.user.id,
+      action: 'APPROVE_CANCELLATION',
+      description: `Approved cancellation for ${cr.first_name} ${cr.last_name} (${cr.course_code}, ${cr.exam_date})`,
+      entityType: 'cancellation_request',
+      entityId: id,
+    }).catch(err => console.warn('audit log failed:', err));
+
     res.json({ ok: true, data: { id } });
   } catch (err) {
     next(err);
@@ -1244,6 +1407,7 @@ router.patch("/cancellation-requests/:id/reject", async (req, res, next) => {
     }
 
     const adminProfileId = req.user.id;
+    const cr = crResult.rows[0];
 
     // Update cancellation_request to rejected
     await tenantQuery(
@@ -1253,6 +1417,14 @@ router.patch("/cancellation-requests/:id/reject", async (req, res, next) => {
        WHERE id = $3`,
       [adminReason, adminProfileId, id],
     );
+
+    insertLeadAuditLog(schema, {
+      performedBy: req.user.id,
+      action: 'REJECT_CANCELLATION',
+      description: `Rejected cancellation for ${cr.first_name} ${cr.last_name} (${cr.course_code}, ${cr.exam_date})`,
+      entityType: 'cancellation_request',
+      entityId: id,
+    }).catch(err => console.warn('audit log failed:', err));
 
     res.json({ ok: true, data: { id } });
   } catch (err) {
@@ -1302,6 +1474,13 @@ router.post('/course-list', async (req, res, next) => {
        RETURNING id, code, name, department, is_active, created_at`,
       [data.code, data.name ?? null, data.department ?? null, req.user.id],
     );
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'CREATE_COURSE',
+      description: `Created course "${result.rows[0].code}"`,
+      entityType: 'course',
+      entityId: result.rows[0].id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.status(201).json({ ok: true, course: result.rows[0] });
   } catch (err) {
     if (err.code === '23505' && data) {
@@ -1339,6 +1518,13 @@ router.patch('/course-list/:id', async (req, res, next) => {
       vals,
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Course not found' });
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'UPDATE_COURSE',
+      description: `Updated course "${result.rows[0].code}"`,
+      entityType: 'course',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true, course: result.rows[0] });
   } catch (err) { next(err); }
 });
@@ -1348,10 +1534,17 @@ router.delete('/course-list/:id', async (req, res, next) => {
   try {
     const result = await tenantQuery(
       req.tenantSchema,
-      `UPDATE course SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id`,
+      `UPDATE course SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id, code`,
       [req.params.id],
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Course not found' });
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'DELETE_COURSE',
+      description: `Deactivated course "${result.rows[0].code}"`,
+      entityType: 'course',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -1398,6 +1591,13 @@ router.post('/terms', async (req, res, next) => {
        RETURNING id, label, start_date, end_date, is_active, created_at`,
       [data.label, data.start_date ?? null, data.end_date ?? null, req.user.id],
     );
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'CREATE_TERM',
+      description: `Created term "${result.rows[0].label}"`,
+      entityType: 'term',
+      entityId: result.rows[0].id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.status(201).json({ ok: true, term: result.rows[0] });
   } catch (err) { next(err); }
 });
@@ -1421,6 +1621,13 @@ router.patch('/terms/:id', async (req, res, next) => {
       vals,
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Term not found' });
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'UPDATE_TERM',
+      description: `Updated term "${result.rows[0].label}"`,
+      entityType: 'term',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true, term: result.rows[0] });
   } catch (err) { next(err); }
 });
@@ -1438,10 +1645,17 @@ router.delete('/terms/:id', async (req, res, next) => {
     }
     const result = await tenantQuery(
       req.tenantSchema,
-      `DELETE FROM term WHERE id = $1 RETURNING id`,
+      `DELETE FROM term WHERE id = $1 RETURNING id, label`,
       [req.params.id],
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Term not found' });
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'DELETE_TERM',
+      description: `Deleted term "${result.rows[0].label}"`,
+      entityType: 'term',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -1480,6 +1694,23 @@ router.post('/course-offerings', async (req, res, next) => {
        RETURNING id, course_id, term_id, created_at`,
       [courseId, termId],
     );
+    (async () => {
+      try {
+        const [courseRow, termRow] = await Promise.all([
+          tenantQuery(req.tenantSchema, `SELECT code FROM course WHERE id = $1`, [courseId]),
+          tenantQuery(req.tenantSchema, `SELECT label FROM term WHERE id = $1`, [termId]),
+        ]);
+        const courseCode = courseRow.rows[0]?.code  ?? courseId;
+        const termLabel  = termRow.rows[0]?.label   ?? termId;
+        await insertLeadAuditLog(req.tenantSchema, {
+          performedBy: req.user.id,
+          action: 'CREATE_COURSE_OFFERING',
+          description: `Added ${courseCode} to term "${termLabel}"`,
+          entityType: 'course_offering',
+          entityId: result.rows[0].id,
+        });
+      } catch (err) { console.warn('audit log failed:', err); }
+    })();
     res.status(201).json({ ok: true, offering: result.rows[0] });
   } catch (err) { next(err); }
 });
@@ -1505,11 +1736,38 @@ router.delete('/course-offerings/:id', async (req, res, next) => {
     }
     const result = await tenantQuery(
       req.tenantSchema,
-      `DELETE FROM course_offering WHERE id = $1 RETURNING id`,
+      `DELETE FROM course_offering WHERE id = $1
+       RETURNING id,
+         (SELECT code  FROM course WHERE id = course_id) AS course_code,
+         (SELECT label FROM term   WHERE id = term_id)   AS term_label`,
       [req.params.id],
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Course offering not found' });
+    insertLeadAuditLog(req.tenantSchema, {
+      performedBy: req.user.id,
+      action: 'DELETE_COURSE_OFFERING',
+      description: `Removed ${result.rows[0].course_code ?? 'course'} from term "${result.rows[0].term_label ?? 'unknown'}"`,
+      entityType: 'course_offering',
+      entityId: req.params.id,
+    }).catch(err => console.warn('audit log failed:', err));
     res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/institution/audit-logs ───────────────────────────────────────────
+router.get('/audit-logs', async (req, res, next) => {
+  try {
+    const { performedBy, fromDate, toDate, page = '1' } = req.query;
+    const limit  = 50;
+    const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * limit;
+    const schema = req.tenantSchema;
+
+    const [staff, result] = await Promise.all([
+      getStaff(schema),
+      queryLeadAuditLog(schema, { performedBy, fromDate, toDate, limit, offset }),
+    ]);
+
+    res.json({ ok: true, logs: result.rows, total: result.total, leads: staff });
   } catch (err) { next(err); }
 });
 

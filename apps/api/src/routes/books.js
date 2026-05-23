@@ -14,6 +14,7 @@ import {
   getAllBooks, getBook,
   createBook, updateBook,
 } from '../services/bookService.js';
+import { insertLeadAuditLog } from '../db/queries/leadAuditLog.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -50,6 +51,19 @@ router.post('/',
       const book = await createBook(req.tenantSchema, {
         date, notes, createdBy: req.user.id,
       });
+
+      (async () => {
+        try {
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'CREATE_BOOK',
+            description: `Created exam day book for ${date}`,
+            entityType: 'exam_day',
+            entityId: book?.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.status(201).json({ ok: true, book });
     } catch (err) { next(err); }
   }
@@ -64,6 +78,19 @@ router.put('/:id',
       const book = await updateBook(req.tenantSchema, req.params.id, {
         notes, isPublished,
       });
+
+      (async () => {
+        try {
+          await insertLeadAuditLog(req.tenantSchema, {
+            performedBy: req.user.id,
+            action: 'UPDATE_BOOK',
+            description: `Updated exam day book for ${book?.date ?? req.params.id}`,
+            entityType: 'exam_day',
+            entityId: req.params.id,
+          });
+        } catch (err) { console.warn('audit log failed:', err); }
+      })();
+
       res.json({ ok: true, book });
     } catch (err) { next(err); }
   }
