@@ -147,60 +147,88 @@ function ProfDetailsTab({ prof, onUpdated }) {
   );
 }
 
-// ── Exam card (shared by Future + Past tabs) ──────────────────────────────────
-function ExamCard({ exam, dimmed }) {
-  const studentName = [exam.student_first_name, exam.student_last_name]
-    .filter(Boolean).join(' ');
+// ── Exam group card (Future Exams tab — one card per exam, students inside) ───
+const ATTENDANCE_STYLES = {
+  show:    'bg-green-100 text-green-700',
+  no_show: 'bg-red-100 text-red-700',
+};
+const ATTENDANCE_LABELS = {
+  show:    'Wrote',
+  no_show: 'No show',
+};
+
+function ExamGroupCard({ group, showAttendance = false }) {
+  const active   = group.students.filter(s => s.status !== 'cancelled' && s.status !== 'professor_rejected');
+  const inactive = group.students.filter(s => s.status === 'cancelled' || s.status === 'professor_rejected');
 
   return (
-    <div className={`border rounded-lg px-3 py-2.5 ${
-      dimmed ? 'border-gray-100 bg-gray-50 opacity-60' : 'border-gray-200 bg-white'
-    }`}>
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium font-mono text-gray-900">
-            {exam.course_code}
+    <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+      <div className="px-3 py-2.5 bg-gray-50 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium font-mono text-gray-900">{group.course_code}</span>
+            <span className="text-xs text-gray-400 capitalize">{group.exam_type?.replace(/_/g, ' ')}</span>
+          </div>
+          <span className="text-xs text-gray-400">
+            {active.length} student{active.length !== 1 ? 's' : ''}
           </span>
-          <span className="text-xs text-gray-400 capitalize">
-            {exam.exam_type?.replace(/_/g, ' ')}
-          </span>
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-          STATUS_STYLES[exam.status] ?? 'bg-gray-100 text-gray-600'
-        }`}>
-          {STATUS_LABELS[exam.status] ?? exam.status}
-        </span>
+        <div className="text-xs text-gray-500 mt-0.5">
+          {formatDate(group.exam_date)}
+          {group.exam_time && ` · ${formatTime(group.exam_time)}`}
+        </div>
+        {group.upload_id && (
+          <div className="text-xs mt-1">
+            <Link
+              to={`/exams?id=${group.upload_id}`}
+              className="text-gray-400 hover:text-brand-600 hover:underline"
+              onClick={e => e.stopPropagation()}
+            >
+              View exam upload →
+            </Link>
+          </div>
+        )}
       </div>
-
-      <div className="text-xs text-gray-500 mb-1">
-        {formatDate(exam.exam_date)}
-        {exam.exam_time && ` · ${formatTime(exam.exam_time)}`}
-        {exam.student_duration_mins && ` · ${exam.student_duration_mins} min`}
-        {exam.room_name && ` · ${exam.room_name}`}
+      <div className="divide-y divide-gray-50">
+        {[...active, ...inactive].map(s => {
+          const studentName = [s.student_first_name, s.student_last_name].filter(Boolean).join(' ');
+          const dimmed = s.status === 'cancelled' || s.status === 'professor_rejected';
+          return (
+            <div key={s.id}
+              className={`flex items-center justify-between gap-2 px-3 py-2 ${dimmed ? 'opacity-50' : ''}`}>
+              <a
+                href={`/students?id=${s.student_profile_id}`}
+                className="text-xs text-brand-600 hover:underline"
+                onClick={e => e.stopPropagation()}
+              >
+                {s.student_number ? `#${s.student_number} · ` : ''}{studentName}
+              </a>
+              <div className="flex items-center gap-2 shrink-0">
+                {s.student_duration_mins && (
+                  <span className="text-xs text-gray-400">{s.student_duration_mins} min</span>
+                )}
+                {s.room_name && (
+                  <span className="text-xs text-gray-400">{s.room_name}</span>
+                )}
+                {showAttendance && (
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                    s.attendance_status
+                      ? ATTENDANCE_STYLES[s.attendance_status]
+                      : 'bg-gray-100 text-gray-400'
+                  }`}>
+                    {s.attendance_status ? ATTENDANCE_LABELS[s.attendance_status] : 'Not recorded'}
+                  </span>
+                )}
+                <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                  STATUS_STYLES[s.status] ?? 'bg-gray-100 text-gray-600'
+                }`}>
+                  {STATUS_LABELS[s.status] ?? s.status}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
-
-      {studentName && (
-        <div className="text-xs">
-          <a
-            href={`/students?id=${exam.student_profile_id}`}
-            className="text-brand-600 hover:underline"
-            onClick={e => e.stopPropagation()}
-          >
-            {exam.student_number ? `#${exam.student_number} · ` : ''}{studentName}
-          </a>
-        </div>
-      )}
-      {exam.upload_id && (
-        <div className="text-xs mt-1">
-          <Link
-            to={`/exams?id=${exam.upload_id}`}
-            className="text-gray-400 hover:text-brand-600 hover:underline"
-            onClick={e => e.stopPropagation()}
-          >
-            View exam upload →
-          </Link>
-        </div>
-      )}
     </div>
   );
 }
@@ -428,13 +456,17 @@ export default function ProfessorSidePanel({ professorId, onClose }) {
               {t === 'Future Exams' && futureExams.length > 0 && (
                 <span className="ml-1.5 bg-gray-100 text-gray-500 text-xs
                                  px-1.5 py-0.5 rounded-full">
-                  {futureExams.length}
+                  {new Set(futureExams.map(e =>
+                    `${e.course_code}__${e.exam_date}__${e.exam_time ?? ''}__${e.exam_type}`
+                  )).size}
                 </span>
               )}
               {t === 'Past Exams' && pastExams.length > 0 && (
                 <span className="ml-1.5 bg-gray-100 text-gray-500 text-xs
                                  px-1.5 py-0.5 rounded-full">
-                  {pastExams.length}
+                  {new Set(pastExams.map(e =>
+                    `${e.course_code}__${e.exam_date}__${e.exam_time ?? ''}__${e.exam_type}`
+                  )).size}
                 </span>
               )}
             </button>
@@ -456,27 +488,61 @@ export default function ProfessorSidePanel({ professorId, onClose }) {
               {tab === 'Future Exams' && (
                 futureExams.length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-8">No upcoming exams</p>
-                ) : (
-                  <div className="space-y-2">
-                    {futureExams.map(e => (
-                      <ExamCard key={e.id} exam={e}
-                        dimmed={e.status === 'cancelled' || e.status === 'professor_rejected'} />
-                    ))}
-                  </div>
-                )
+                ) : (() => {
+                  const groupMap = {};
+                  for (const e of futureExams) {
+                    const key = `${e.course_code}__${e.exam_date}__${e.exam_time ?? ''}__${e.exam_type}`;
+                    if (!groupMap[key]) {
+                      groupMap[key] = {
+                        key,
+                        course_code: e.course_code,
+                        exam_date:   e.exam_date,
+                        exam_time:   e.exam_time,
+                        exam_type:   e.exam_type,
+                        upload_id:   e.upload_id,
+                        students:    [],
+                      };
+                    }
+                    groupMap[key].students.push(e);
+                  }
+                  const groups = Object.values(groupMap)
+                    .sort((a, b) => a.exam_date.localeCompare(b.exam_date) || (a.exam_time ?? '').localeCompare(b.exam_time ?? ''));
+                  return (
+                    <div className="space-y-2">
+                      {groups.map(g => <ExamGroupCard key={g.key} group={g} />)}
+                    </div>
+                  );
+                })()
               )}
 
               {tab === 'Past Exams' && (
                 pastExams.length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-8">No past exams on record</p>
-                ) : (
-                  <div className="space-y-2">
-                    {pastExams.map(e => (
-                      <ExamCard key={e.id} exam={e}
-                        dimmed={e.status === 'cancelled' || e.status === 'professor_rejected'} />
-                    ))}
-                  </div>
-                )
+                ) : (() => {
+                  const groupMap = {};
+                  for (const e of pastExams) {
+                    const key = `${e.course_code}__${e.exam_date}__${e.exam_time ?? ''}__${e.exam_type}`;
+                    if (!groupMap[key]) {
+                      groupMap[key] = {
+                        key,
+                        course_code: e.course_code,
+                        exam_date:   e.exam_date,
+                        exam_time:   e.exam_time,
+                        exam_type:   e.exam_type,
+                        upload_id:   e.upload_id,
+                        students:    [],
+                      };
+                    }
+                    groupMap[key].students.push(e);
+                  }
+                  const groups = Object.values(groupMap)
+                    .sort((a, b) => b.exam_date.localeCompare(a.exam_date) || (b.exam_time ?? '').localeCompare(a.exam_time ?? ''));
+                  return (
+                    <div className="space-y-2">
+                      {groups.map(g => <ExamGroupCard key={g.key} group={g} showAttendance />)}
+                    </div>
+                  );
+                })()
               )}
 
               {tab === 'Courses' && (

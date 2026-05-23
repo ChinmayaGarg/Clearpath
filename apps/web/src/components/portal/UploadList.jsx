@@ -23,11 +23,6 @@ const TYPE_LABELS = {
   other:      'Other',
 };
 
-const MATCH_META = {
-  unmatched: { label: 'Not yet matched', colour: 'text-gray-400'  },
-  matched:   { label: 'Matched to book', colour: 'text-green-600' },
-  conflict:  { label: 'Conflict',        colour: 'text-red-600'   },
-};
 
 const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -190,24 +185,16 @@ function UploadCard({ upload, onEdit }) {
       {/* Dates */}
       {upload.dates?.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {upload.dates.map(d => {
-            const match = MATCH_META[d.match_status] ?? MATCH_META.unmatched;
-            return (
-              <div key={d.id}
-                className="text-xs bg-gray-50 border border-gray-200
-                           px-2 py-1 rounded-lg flex items-center gap-1.5">
-                <span className="text-gray-700">
-                  {new Date(String(d.exam_date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-CA', {
-                    month: 'short', day: 'numeric',
-                  })}
-                  {d.time_slot && ` · ${d.time_slot.slice(0, 5)}`}
-                </span>
-                <span className={`font-medium ${match.colour}`}>
-                  {match.label}
-                </span>
-              </div>
-            );
-          })}
+          {upload.dates.map(d => (
+            <div key={d.id}
+              className="text-xs bg-gray-50 border border-gray-200
+                         px-2 py-1 rounded-lg text-gray-700">
+              {new Date(String(d.exam_date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-CA', {
+                month: 'short', day: 'numeric',
+              })}
+              {d.time_slot && ` · ${d.time_slot.slice(0, 5)}`}
+            </div>
+          ))}
         </div>
       )}
 

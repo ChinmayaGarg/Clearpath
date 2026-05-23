@@ -1231,7 +1231,7 @@ router.get("/exam-requests", async (req, res, next) => {
       `SELECT
          ebr.id, c.code AS course_code, ebr.exam_date, ebr.exam_time,
          ebr.exam_type, ebr.special_materials_note, ebr.status, ebr.created_at,
-         ebr.student_duration_mins, ebr.rejection_reason,
+         ebr.student_duration_mins, ebr.rejection_reason, ebr.attendance_status,
          u.first_name, u.last_name, u.email,
          sp.student_number,
          ru.first_name || ' ' || ru.last_name AS rejected_by_name,
