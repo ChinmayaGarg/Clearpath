@@ -37,6 +37,7 @@ async function fetchPrepData(schema, date) {
        br.name AS room_name,
        pu.first_name AS prof_first_name, pu.last_name AS prof_last_name,
        pu.email AS prof_email, pp.phone AS prof_phone,
+       eu.upload_found,
        eu.exam_format           AS prof_exam_format,
        eu.student_instructions  AS student_instructions,
        eu.exam_collection_method AS exam_collection_method,
@@ -60,7 +61,8 @@ async function fetchPrepData(schema, date) {
        FROM exam_upload eu2
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu2.id
        WHERE eu2.course_id = ebr.course_id
-         AND eud.exam_date = ebr.exam_date
+         AND eud.exam_date::text = ebr.exam_date::text
+         AND eu2.exam_type_label::text = ebr.exam_type
          AND (
            eu2.status = 'submitted'
            OR (eu2.delivery = 'dropped' AND eu2.dropoff_confirmed_at IS NOT NULL)
