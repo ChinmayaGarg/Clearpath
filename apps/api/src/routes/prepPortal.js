@@ -244,16 +244,20 @@ router.get('/exam-details', async (req, res, next) => {
       `SELECT
          eu.id AS upload_id,
          c.code AS course_code, eu.exam_type_label, eu.version_label,
-         eu.delivery, eu.dropoff_confirmed_at, eu.file_path, eu.submitted_at,
+         eu.delivery, eu.dropoff_confirmed_at, eu.file_path,
+         eu.file_original_name, eu.submitted_at,
          eu.exam_duration_mins, eu.exam_format,
          eu.booklet_type, eu.scantron_needed,
          eu.calculator_type, eu.student_instructions,
          eu.exam_collection_method, eu.materials, eu.password,
          eu.rwg_flag, eu.is_makeup, eu.makeup_notes,
-         eu.is_word_doc, eu.estimated_copies,
+         eu.is_word_doc, eu.estimated_copies, eu.copies_received,
          (eu.file_path IS NOT NULL OR EXISTS (
            SELECT 1 FROM exam_upload_file f WHERE f.exam_upload_id = eu.id
          )) AS has_files,
+         (SELECT json_agg(json_build_object('id', f.id, 'name', f.file_original_name, 'size', f.file_size)
+                          ORDER BY f.file_uploaded_at)
+          FROM exam_upload_file f WHERE f.exam_upload_id = eu.id) AS extra_files,
          u.first_name AS prof_first, u.last_name AS prof_last,
          u.email AS prof_email, pp.phone AS prof_phone,
          json_agg(

@@ -829,12 +829,57 @@ function ExamDetailCard({ e }) {
         </div>
       )}
 
+      {/* Drop-off copies */}
+      {e.delivery === 'dropped' && (e.copies_received != null || e.estimated_copies != null) && (
+        <div className="px-4 py-2.5 border-t border-gray-100 text-xs">
+          {e.dropoff_confirmed_at ? (
+            <>
+              <span className="font-semibold text-gray-700">{e.copies_received ?? e.estimated_copies}</span>
+              <span className="text-gray-500"> copies dropped off</span>
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-gray-700">{e.estimated_copies}</span>
+              <span className="text-gray-500"> copies estimated</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Text fields */}
       {(e.materials || e.student_instructions || e.password) && (
         <div className="px-4 pb-3 space-y-1 border-t border-gray-100 pt-2 text-xs">
           {e.materials           && <p className="text-gray-600"><span className="font-semibold text-gray-500">Materials:</span> {e.materials}</p>}
           {e.student_instructions && <p className="text-gray-600"><span className="font-semibold text-gray-500">Instructions:</span> {e.student_instructions}</p>}
           {e.password            && <p className="text-gray-600"><span className="font-semibold text-gray-500">Password:</span> <span className="font-mono font-bold">{e.password}</span></p>}
+        </div>
+      )}
+
+      {/* Files section */}
+      {(e.file_path || e.extra_files?.length > 0) && (
+        <div className="px-4 pb-3 space-y-1 border-t border-gray-100 pt-2 text-xs">
+          <p className="text-gray-400 uppercase tracking-wide text-[9px] font-semibold mb-1">Files</p>
+          {e.file_path && (
+            <a
+              href={`/api/prep/uploads/${e.upload_id}/file`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-brand-600 hover:text-brand-800 hover:underline"
+            >
+              📎 {e.file_original_name ?? 'Download exam'}
+            </a>
+          )}
+          {e.extra_files?.map(f => (
+            <a
+              key={f.id}
+              href={`/api/prep/uploads/${e.upload_id}/files/${f.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-brand-600 hover:text-brand-800 hover:underline"
+            >
+              📎 {f.name}
+            </a>
+          ))}
         </div>
       )}
     </div>
@@ -899,6 +944,22 @@ function ExamDetailsTab() {
           )}
         </div>
       </div>
+
+      {!loading && uploads.length > 0 && (
+        <div className="flex gap-3 mb-3 text-xs text-gray-500">
+          <span>
+            <span className="font-semibold text-gray-700">
+              {uploads.filter(u => u.delivery === 'dropped').length}
+            </span> drop-off{uploads.filter(u => u.delivery === 'dropped').length !== 1 ? 's' : ''}
+          </span>
+          <span className="text-gray-300">·</span>
+          <span>
+            <span className="font-semibold text-gray-700">
+              {uploads.filter(u => u.file_path).length}
+            </span> file upload{uploads.filter(u => u.file_path).length !== 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16"><Spinner /></div>
