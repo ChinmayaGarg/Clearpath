@@ -32,6 +32,14 @@ import { requireRole } from "../middleware/role.js";
 import { tenantQuery } from "../db/tenantPool.js";
 import { assignStudentsToRooms } from "../utils/scheduleAlgorithm.js";
 import { insertLeadAuditLog, queryLeadAuditLog, getStaff } from "../db/queries/leadAuditLog.js";
+import {
+  createExamBookingRequest,
+  getStudentAccommodationCodes,
+  findExamUploadDuration,
+  getStudentBookingsOnDate,
+  getSarsAppointmentsOnDate,
+} from "../db/queries/studentPortal.js";
+import { calcStudentDuration, addMinutes, timesOverlap } from "../utils/durationCalc.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -41,10 +49,19 @@ router.use(requireRole("institution_admin"));
 router.get("/bookings", async (req, res, next) => {
   try {
     const schema = req.tenantSchema;
-    const { date } = req.query;
+    const { date, status } = req.query;
 
     const params = [];
-    let whereClause = `WHERE ebr.status = 'professor_approved'`;
+    let statusFilter;
+    if (status === 'confirmed') {
+      statusFilter = `ebr.status = 'confirmed'`;
+    } else if (status === 'cancelled') {
+      statusFilter = `ebr.status IN ('cancelled', 'professor_rejected')`;
+    } else {
+      statusFilter = `ebr.status = 'professor_approved'`;
+    }
+
+    let whereClause = `WHERE ${statusFilter}`;
     if (date) {
       params.push(date);
       whereClause += ` AND ebr.exam_date = $${params.length}`;
@@ -58,12 +75,20 @@ router.get("/bookings", async (req, res, next) => {
          ebr.special_materials_note, ebr.status, ebr.confirmed_at, ebr.created_at,
          ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
          ebr.computed_duration_mins, ebr.student_duration_mins,
+         ebr.rejection_reason,
          u.first_name, u.last_name, u.email,
-         sp.student_number, sp.id AS student_profile_id
+         sp.student_number, sp.id AS student_profile_id,
+         cu.first_name AS confirmed_by_first, cu.last_name AS confirmed_by_last,
+         ru.first_name AS rejected_by_first, ru.last_name AS rejected_by_last,
+         cr.student_reason AS cancel_student_reason,
+         cr.admin_reason   AS cancel_admin_reason
        FROM exam_booking_request ebr
        JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
+       LEFT JOIN "user" cu ON cu.id = ebr.confirmed_by
+       LEFT JOIN "user" ru ON ru.id = ebr.rejected_by
+       LEFT JOIN cancellation_request cr ON cr.exam_booking_request_id = ebr.id
        ${whereClause}
        ORDER BY ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST, ebr.created_at ASC`,
       params,
@@ -73,6 +98,131 @@ router.get("/bookings", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ── GET /api/institution/students ────────────────────────────────────────────
+// List active students with their profile IDs for the admin booking form.
+router.get("/students", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT u.id AS user_id, u.first_name, u.last_name, u.email,
+              sp.id AS student_profile_id, sp.student_number
+       FROM student_profile sp
+       JOIN "user" u ON u.id = sp.user_id
+       WHERE u.is_active = true
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+    );
+    res.json({ ok: true, students: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/institution/students/:studentProfileId/courses ──────────────────
+// Courses the student is enrolled in (via student_course → course_offering → course).
+router.get("/students/:studentProfileId/courses", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT DISTINCT c.id, c.code, c.name
+       FROM student_course sc
+       JOIN course_offering co ON co.id = sc.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       WHERE sc.student_profile_id = $1
+         AND c.is_active = true
+       ORDER BY c.code ASC`,
+      [req.params.studentProfileId],
+    );
+    res.json({ ok: true, courses: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/institution/bookings ────────────────────────────────────────────
+// Admin creates a booking on behalf of a student, bypassing the 9-day restriction.
+// mode = 'direct_confirm' → confirmed immediately
+// mode = 'send_to_prof'   → pending, professor reviews normally
+router.post("/bookings", requireRole("institution_admin"), async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { studentProfileId, courseId, examDate, examTime, examType,
+            examDurationMins, specialMaterialsNote, mode } = req.body;
+
+    if (!studentProfileId || !courseId || !examDate || !examType || !examDurationMins) {
+      return res.status(400).json({ ok: false, error: "studentProfileId, courseId, examDate, examType, and examDurationMins are required" });
+    }
+    if (!["direct_confirm", "send_to_prof"].includes(mode)) {
+      return res.status(400).json({ ok: false, error: "mode must be 'direct_confirm' or 'send_to_prof'" });
+    }
+
+    // Duration calculation
+    const [codes, uploadBaseMins] = await Promise.all([
+      getStudentAccommodationCodes(schema, studentProfileId),
+      findExamUploadDuration(schema, courseId, examType, examDate, examTime || null),
+    ]);
+    const baseMins = uploadBaseMins ?? examDurationMins;
+    const { extraMins, stbMins, totalMins } = calcStudentDuration(baseMins, codes);
+
+    // 10 PM end-time check
+    if (examTime && totalMins) {
+      const [h, m] = examTime.split(":").map(Number);
+      if (h * 60 + m + totalMins > 22 * 60) {
+        const endTime = addMinutes(examTime, totalMins);
+        return res.status(400).json({ ok: false, error: `Exam would end at ${endTime}, past 10:00 PM` });
+      }
+    }
+
+    // Time conflict check
+    if (examTime && totalMins) {
+      const [sarsAppts, existingBookings] = await Promise.all([
+        getSarsAppointmentsOnDate(schema, studentProfileId, examDate),
+        getStudentBookingsOnDate(schema, studentProfileId, examDate),
+      ]);
+      const allSlots = [
+        ...sarsAppts.map(a => ({ start: a.start_time.slice(0, 5), dur: a.duration_mins, label: a.course_code })),
+        ...existingBookings.map(r => ({ start: r.exam_time.slice(0, 5), dur: r.computed_duration_mins, label: r.course_code })),
+      ];
+      for (const slot of allSlots) {
+        if (timesOverlap(examTime, totalMins, slot.start, slot.dur)) {
+          return res.status(409).json({ ok: false, error: `Student already has an exam (${slot.label}) from ${slot.start} to ${addMinutes(slot.start, slot.dur)} on that date` });
+        }
+      }
+    }
+
+    // Insert the booking
+    const id = await createExamBookingRequest(schema, {
+      studentProfileId,
+      courseId,
+      examDate,
+      examTime: examTime || null,
+      examType,
+      specialMaterialsNote: specialMaterialsNote || null,
+      studentDurationMins: examDurationMins,
+      baseDurationMins: baseMins,
+      extraMins,
+      stbMins,
+      computedDurationMins: totalMins,
+    });
+
+    // Set status based on mode
+    if (mode === "direct_confirm") {
+      await tenantQuery(schema,
+        `UPDATE exam_booking_request
+         SET status = 'confirmed', confirmed_by = $2, confirmed_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [id, req.user.id],
+      );
+    }
+    // send_to_prof: default status 'pending' is already set by createExamBookingRequest
+
+    insertLeadAuditLog(schema, {
+      performedBy: req.user.id,
+      action: "ADMIN_CREATE_BOOKING",
+      description: `Admin created booking for student (${mode}) — ${examType} on ${examDate}`,
+      entityType: "exam_booking_request",
+      entityId: id,
+    }).catch(() => {});
+
+    res.status(201).json({ ok: true, data: { id, status: mode === "direct_confirm" ? "confirmed" : "pending" } });
+  } catch (err) { next(err); }
 });
 
 // ── PATCH /api/institution/bookings/:id/confirm ───────────────────────────────

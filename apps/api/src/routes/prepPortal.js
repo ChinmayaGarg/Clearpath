@@ -815,9 +815,13 @@ router.patch('/exam-returns/:uploadDateId/stage', async (req, res, next) => {
     const currentStage = current.rows[0].session_stage;
     const currentIdx   = currentStage ? STAGE_ORDER.indexOf(currentStage) : -1;
     const newIdx       = STAGE_ORDER.indexOf(stage);
+    const isAdmin      = req.userRoles?.includes('institution_admin');
 
-    if (newIdx <= currentIdx) {
-      return res.status(400).json({ ok: false, error: 'Can only advance to a later stage' });
+    if (newIdx < currentIdx && !isAdmin) {
+      return res.status(403).json({ ok: false, error: 'Only admins can revert a stage' });
+    }
+    if (newIdx === currentIdx) {
+      return res.status(400).json({ ok: false, error: 'Already at this stage' });
     }
 
     // Build UPDATE
@@ -833,6 +837,10 @@ router.patch('/exam-returns/:uploadDateId/stage', async (req, res, next) => {
       values.push(completedCopies);
       setClauses.push(`extra_copies_returned = $${values.length + 1}`);
       values.push(extraCopies);
+    } else if (currentStage === 'returned') {
+      // Reverting from returned — clear the copy counts
+      setClauses.push(`completed_copies_returned = NULL`);
+      setClauses.push(`extra_copies_returned = NULL`);
     }
 
     await tenantQuery(

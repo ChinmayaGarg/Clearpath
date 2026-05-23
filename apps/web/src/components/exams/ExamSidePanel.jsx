@@ -2,11 +2,24 @@ import { useState } from 'react';
 
 const DELIVERY_LABELS = {
   pending:     'Not confirmed',
-  dropped:     'Prof drop-off',
   pickup:      'AC picks up',
   delivery:    'Delivered to room',
   file_upload: 'File upload',
 };
+
+function deliveryLabel(delivery, dropoffConfirmedAt) {
+  if (delivery === 'dropped') {
+    return dropoffConfirmedAt ? 'Prof dropped off' : 'Prof will drop off';
+  }
+  return DELIVERY_LABELS[delivery] ?? delivery ?? '—';
+}
+
+function deliveryBadgeClass(delivery, dropoffConfirmedAt) {
+  if (delivery === 'dropped') {
+    return dropoffConfirmedAt ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700';
+  }
+  return DELIVERY_BADGE[delivery] ?? 'bg-gray-100 text-gray-600';
+}
 
 const DELIVERY_BADGE = {
   file_upload: 'bg-blue-100 text-blue-700',
@@ -96,10 +109,8 @@ function DetailsTab({ exam }) {
           )}
           <div className="flex gap-3">
             <span className="text-xs text-gray-500 w-36 shrink-0">Delivery</span>
-            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-              DELIVERY_BADGE[exam.delivery] ?? 'bg-gray-100 text-gray-600'
-            }`}>
-              {DELIVERY_LABELS[exam.delivery] ?? exam.delivery ?? '—'}
+            <span className={`text-xs px-2 py-0.5 rounded font-medium ${deliveryBadgeClass(exam.delivery, exam.dropoff_confirmed_at)}`}>
+              {deliveryLabel(exam.delivery, exam.dropoff_confirmed_at)}
             </span>
           </div>
           {exam.dropoff_confirmed_at && (

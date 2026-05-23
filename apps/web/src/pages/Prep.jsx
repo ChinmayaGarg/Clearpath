@@ -3,6 +3,7 @@ import { api }     from '../lib/api.js';
 import { toast }   from '../components/ui/Toast.jsx';
 import Spinner     from '../components/ui/Spinner.jsx';
 import TopNav      from '../components/ui/TopNav.jsx';
+import { useAuth } from '../hooks/useAuth.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -1279,16 +1280,19 @@ function AuditTrail({ audit }) {
   );
 }
 
-function ExamReturnCard({ exam, acting, expandedReturn, setExpandedReturn, onAdvance }) {
+function ExamReturnCard({ exam, acting, expandedReturn, setExpandedReturn, onAdvance, isAdmin }) {
   const stage    = exam.sessionStage;
   const stageIdx = stage ? STAGE_ORDER.indexOf(stage) : -1;
   const nextStage = stageIdx < STAGE_ORDER.length - 1 ? STAGE_ORDER[stageIdx + 1] : null;
+  const prevStage = stageIdx > 0 ? STAGE_ORDER[stageIdx - 1] : null;
   const isReturned = stage === 'returned';
   const isExpandedReturn = expandedReturn === exam.uploadDateId;
 
   const nextLabel = nextStage === 'returned'
     ? returnedLabel(exam.examCollectionMethod)
     : nextStage ? STAGE_LABELS[nextStage] : null;
+
+  const prevLabel = prevStage ? (STAGE_LABELS[prevStage] ?? prevStage) : null;
 
   function handleAdvance() {
     if (nextStage === 'returned') {
@@ -1394,7 +1398,7 @@ function ExamReturnCard({ exam, acting, expandedReturn, setExpandedReturn, onAdv
 
         {/* Advance button */}
         {!isReturned && nextStage && (
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
             <button
               onClick={handleAdvance}
               disabled={acting === exam.uploadDateId}
@@ -1402,6 +1406,29 @@ function ExamReturnCard({ exam, acting, expandedReturn, setExpandedReturn, onAdv
                          hover:bg-brand-700 disabled:opacity-50 rounded-lg transition-colors"
             >
               {acting === exam.uploadDateId ? 'Saving…' : `Mark ${nextLabel} →`}
+            </button>
+            {isAdmin && prevStage && (
+              <button
+                onClick={() => onAdvance(exam.uploadDateId, prevStage)}
+                disabled={acting === exam.uploadDateId}
+                className="px-3 py-1.5 text-xs font-medium text-gray-500 border border-gray-300
+                           hover:bg-gray-50 disabled:opacity-50 rounded-lg transition-colors"
+              >
+                ← Revert to {prevLabel}
+              </button>
+            )}
+          </div>
+        )}
+        {/* Admin revert from returned */}
+        {isReturned && isAdmin && prevStage && (
+          <div className="mt-3">
+            <button
+              onClick={() => onAdvance(exam.uploadDateId, prevStage)}
+              disabled={acting === exam.uploadDateId}
+              className="px-3 py-1.5 text-xs font-medium text-gray-500 border border-gray-300
+                         hover:bg-gray-50 disabled:opacity-50 rounded-lg transition-colors"
+            >
+              ← Revert to {prevLabel}
             </button>
           </div>
         )}
@@ -1424,6 +1451,8 @@ function ExamReturnCard({ exam, acting, expandedReturn, setExpandedReturn, onAdv
 const RETURN_STAGE_FILTERS = ['All', 'Scheduled', 'Prepped', 'Ongoing', 'Finished', 'Returned'];
 
 function ReturnsTab() {
+  const { hasRole }      = useAuth();
+  const isAdmin          = hasRole('institution_admin');
   const [exams,          setExams]          = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [showAll,        setShowAll]        = useState(false);
@@ -1659,6 +1688,7 @@ function ReturnsTab() {
                     expandedReturn={expandedReturn}
                     setExpandedReturn={setExpandedReturn}
                     onAdvance={handleAdvance}
+                    isAdmin={isAdmin}
                   />
                 ))}
               </div>
