@@ -14,6 +14,7 @@ export default function CoursesTab() {
   const [form,         setForm]         = useState(EMPTY_FORM);
   const [editForm,     setEditForm]     = useState(EMPTY_FORM);
   const [hideInactive, setHideInactive] = useState(false);
+  const [search,       setSearch]       = useState('');
 
   useEffect(() => { load(); }, []);
 
@@ -102,7 +103,14 @@ export default function CoursesTab() {
     }
   }
 
-  const visible = hideInactive ? courses.filter(c => c.is_active) : courses;
+  const q = search.toLowerCase().trim();
+  const visible = courses
+    .filter(c => !hideInactive || c.is_active)
+    .filter(c => !q ||
+      c.code.toLowerCase().includes(q) ||
+      (c.name ?? '').toLowerCase().includes(q) ||
+      (c.department ?? '').toLowerCase().includes(q),
+    );
 
   return (
     <div className="space-y-6">
@@ -190,16 +198,31 @@ export default function CoursesTab() {
         </div>
       ) : (
         <>
-          {/* Filter toggle */}
-          <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none w-fit">
+          {/* Filters */}
+          <div className="flex items-center gap-3 flex-wrap">
             <input
-              type="checkbox"
-              checked={hideInactive}
-              onChange={e => setHideInactive(e.target.checked)}
-              className="rounded border-gray-300 text-brand-600 focus:ring-brand-600"
+              type="search"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by code, name, or department…"
+              className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-72
+                         focus:outline-none focus:ring-2 focus:ring-brand-600"
             />
-            Hide inactive courses
-          </label>
+            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={hideInactive}
+                onChange={e => setHideInactive(e.target.checked)}
+                className="rounded border-gray-300 text-brand-600 focus:ring-brand-600"
+              />
+              Hide inactive
+            </label>
+            {(search || hideInactive) && (
+              <span className="text-xs text-gray-400">
+                {visible.length} of {courses.length}
+              </span>
+            )}
+          </div>
 
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <table className="w-full">

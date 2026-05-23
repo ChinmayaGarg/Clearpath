@@ -12,6 +12,7 @@ function CancellationRequestsTab() {
     approved: 0,
     rejected: 0,
   });
+  const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [modalState, setModalState] = useState(null); // { action: 'approve'|'reject', id, reason: '' }
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +53,7 @@ function CancellationRequestsTab() {
 
   useEffect(() => {
     setLoading(true);
+    setSearch('');
     loadRequests();
   }, [status]);
 
@@ -110,9 +112,18 @@ function CancellationRequestsTab() {
       </div>
     );
 
+  const sq = search.toLowerCase().trim();
+  const visible = sq
+    ? requests.filter(r =>
+        `${r.first_name} ${r.last_name}`.toLowerCase().includes(sq) ||
+        (r.student_number ?? '').toLowerCase().includes(sq) ||
+        r.course_code.toLowerCase().includes(sq),
+      )
+    : requests;
+
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {["pending", "approved", "rejected"].map((s) => (
           <button
             key={s}
@@ -128,6 +139,14 @@ function CancellationRequestsTab() {
             <span className="ml-2 text-xs">{counts[s]}</span>
           </button>
         ))}
+        <input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search student or course…"
+          className="ml-auto text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-56
+                     focus:outline-none focus:ring-2 focus:ring-brand-600"
+        />
       </div>
 
       {requests.length === 0 ? (
@@ -138,7 +157,12 @@ function CancellationRequestsTab() {
         </div>
       ) : (
         <div className="space-y-2">
-          {requests.map((req) => (
+          {visible.length === 0 && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6 text-center text-sm text-gray-400">
+              No results match your search
+            </div>
+          )}
+          {visible.map((req) => (
             <div
               key={req.id}
               className="bg-white rounded-lg border border-gray-200"

@@ -98,6 +98,8 @@ export default function Exams() {
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [deliveryFilter, setDeliveryFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
 
   const selectedId = searchParams.get('id');
   const selectedExam = exams.find(e => String(e.upload_id) === selectedId) ?? null;
@@ -121,15 +123,19 @@ export default function Exams() {
 
   useEffect(() => {
     const q = search.toLowerCase().trim();
-    if (!q) { setFiltered(exams); return; }
     setFiltered(
-      exams.filter(e =>
-        e.course_code.toLowerCase().includes(q) ||
-        `${e.prof_first} ${e.prof_last}`.toLowerCase().includes(q) ||
-        (e.exam_type_label ?? '').toLowerCase().includes(q),
-      ),
+      exams.filter(e => {
+        if (deliveryFilter && e.delivery !== deliveryFilter) return false;
+        if (dateFilter && !(e.dates ?? []).some(d => d.exam_date === dateFilter)) return false;
+        if (!q) return true;
+        return (
+          e.course_code.toLowerCase().includes(q) ||
+          `${e.prof_first} ${e.prof_last}`.toLowerCase().includes(q) ||
+          (e.exam_type_label ?? '').toLowerCase().includes(q)
+        );
+      }),
     );
-  }, [search, exams]);
+  }, [search, deliveryFilter, dateFilter, exams]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -146,16 +152,47 @@ export default function Exams() {
           </div>
         </div>
 
-        {/* Search */}
-        <div className="mb-4">
+        {/* Search + Filters */}
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
           <input
             type="search"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by course, professor, or type…"
-            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg
-                       text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-72
+                       focus:outline-none focus:ring-2 focus:ring-brand-600"
           />
+          <select
+            value={deliveryFilter}
+            onChange={e => setDeliveryFilter(e.target.value)}
+            className="text-sm border border-gray-300 rounded-lg px-3 py-2
+                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+          >
+            <option value="">All delivery types</option>
+            <option value="file_upload">File upload</option>
+            <option value="dropped">Prof drop-off</option>
+            <option value="pickup">AC picks up</option>
+            <option value="delivery">Delivered to room</option>
+            <option value="pending">Not confirmed</option>
+          </select>
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            className="text-sm border border-gray-300 rounded-lg px-3 py-2
+                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+          />
+          {dateFilter && (
+            <button
+              onClick={() => setDateFilter('')}
+              className="text-xs text-gray-400 hover:text-gray-600"
+            >
+              Clear date
+            </button>
+          )}
+          {(search || deliveryFilter || dateFilter) && filtered.length !== exams.length && (
+            <span className="text-xs text-gray-400">{filtered.length} of {exams.length}</span>
+          )}
         </div>
 
         {/* Table */}

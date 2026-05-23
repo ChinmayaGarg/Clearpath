@@ -72,10 +72,12 @@ function RoleBadge({ role }) {
 
 export default function UserTable({ onInvite }) {
   const { user: currentUser } = useAuth();
-  const [users,     setUsers]     = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState('');
-  const [reinvited, setReinvited] = useState(null); // { email, password }
+  const [users,      setUsers]      = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState('');
+  const [reinvited,  setReinvited]  = useState(null); // { email, password }
+  const [search,     setSearch]     = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
 
   async function load() {
     setLoading(true);
@@ -133,6 +135,16 @@ export default function UserTable({ onInvite }) {
     <div className="text-sm text-red-600 bg-red-50 px-4 py-3 rounded-lg">{error}</div>
   );
 
+  const uq = search.toLowerCase().trim();
+  const visible = users.filter(u => {
+    if (roleFilter && !u.roles.includes(roleFilter)) return false;
+    if (!uq) return true;
+    return (
+      `${u.first_name} ${u.last_name}`.toLowerCase().includes(uq) ||
+      u.email.toLowerCase().includes(uq)
+    );
+  });
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -148,6 +160,31 @@ export default function UserTable({ onInvite }) {
         </button>
       </div>
 
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name or email…"
+          className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-64
+                     focus:outline-none focus:ring-2 focus:ring-brand-600"
+        />
+        <select
+          value={roleFilter}
+          onChange={e => setRoleFilter(e.target.value)}
+          className="text-sm border border-gray-300 rounded-lg px-3 py-1.5
+                     focus:outline-none focus:ring-2 focus:ring-brand-600"
+        >
+          <option value="">All roles</option>
+          {Object.entries(ROLE_LABELS).map(([val, label]) => (
+            <option key={val} value={val}>{label}</option>
+          ))}
+        </select>
+        {(search || roleFilter) && (
+          <span className="text-xs text-gray-400">{visible.length} of {users.length}</span>
+        )}
+      </div>
+
       <div className="border border-gray-200 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
@@ -161,7 +198,14 @@ export default function UserTable({ onInvite }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {users.map(u => (
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
+                  No users match your search
+                </td>
+              </tr>
+            )}
+            {visible.map(u => (
               <tr key={u.id} className={`hover:bg-gray-50 ${!u.is_active ? 'opacity-50' : ''}`}>
                 <td className="px-4 py-3 font-medium text-gray-900">
                   {u.first_name} {u.last_name}

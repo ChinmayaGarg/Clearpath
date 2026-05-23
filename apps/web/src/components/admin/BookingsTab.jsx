@@ -32,6 +32,7 @@ export default function BookingsTab() {
   const [bookings, setBookings] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [acting,   setActing]   = useState(null);
+  const [search,   setSearch]   = useState('');
 
   function fetchBookings(d) {
     setLoading(true);
@@ -66,17 +67,34 @@ export default function BookingsTab() {
     } finally { setActing(null); }
   }
 
+  const q = search.toLowerCase().trim();
+  const visible = q
+    ? bookings.filter(b =>
+        `${b.first_name} ${b.last_name}`.toLowerCase().includes(q) ||
+        (b.student_number ?? '').toLowerCase().includes(q) ||
+        b.course_code.toLowerCase().includes(q),
+      )
+    : bookings;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-semibold text-gray-900">Pending Bookings</h2>
           <p className="text-xs text-gray-500 mt-0.5">
             Professor-approved exam requests awaiting your confirmation
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-500">Filter by date</label>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Student, number, or course…"
+            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-52
+                       focus:outline-none focus:ring-2 focus:ring-brand-400"
+          />
+          <label className="text-xs text-gray-500">Date</label>
           <input
             type="date"
             value={date}
@@ -108,8 +126,17 @@ export default function BookingsTab() {
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs text-gray-500">{bookings.length} pending request{bookings.length !== 1 ? 's' : ''}</p>
-          {bookings.map(r => {
+          <p className="text-xs text-gray-500">
+            {visible.length !== bookings.length
+              ? `${visible.length} of ${bookings.length} request${bookings.length !== 1 ? 's' : ''}`
+              : `${bookings.length} pending request${bookings.length !== 1 ? 's' : ''}`}
+          </p>
+          {visible.length === 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-400">
+              No bookings match your search
+            </div>
+          )}
+          {visible.map(r => {
             const examDateStr = new Date(r.exam_date).toLocaleDateString('en-CA', {
               year: 'numeric', month: 'short', day: 'numeric',
             });
