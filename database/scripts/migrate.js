@@ -69,6 +69,8 @@ const migrationMap = {
   45: "045_drop_course_term.sql",
   46: "046_registration_notes_attachments.sql",
   47: "047_lead_audit_log.sql",
+  48: "048_exam_upload_messages.sql",
+  49: "049_thread_read_tracking.sql",
 };
 
 const filename = migrationMap[targetVersion];

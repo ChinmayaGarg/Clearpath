@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api }                 from '../../lib/api.js';
 import { toast }               from '../ui/Toast.jsx';
 import Spinner                 from '../ui/Spinner.jsx';
+import UploadThreadPanel       from './UploadThreadPanel.jsx';
 
 const TYPE_LABELS = {
   // current
@@ -109,7 +110,7 @@ function MissingBanner({ courseCode, examDate, examTime, examType, studentCount,
 
 // ── Upload card ───────────────────────────────────────────────────────────────
 
-function UploadCard({ upload, onEdit }) {
+function UploadCard({ upload, onEdit, onThread }) {
   const editable = canEditUpload(upload);
   const isDropoff = upload.delivery === 'dropped';
   const dropoffConfirmed = !!upload.dropoff_confirmed_at;
@@ -144,6 +145,10 @@ function UploadCard({ upload, onEdit }) {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => onThread(upload)}
+            className="text-xs text-gray-500 hover:text-brand-600 font-medium">
+            Messages
+          </button>
           {editable ? (
             <button onClick={() => onEdit(upload.id)}
               className="text-xs text-brand-600 hover:text-brand-800 font-medium">
@@ -213,13 +218,13 @@ function UploadCard({ upload, onEdit }) {
   );
 }
 
-function UploadCards({ uploads, onEdit }) {
+function UploadCards({ uploads, onEdit, onThread }) {
   if (!uploads.length) return (
     <div className="text-center py-10 text-sm text-gray-400">No uploads in this category</div>
   );
   return (
     <div className="space-y-3">
-      {uploads.map(u => <UploadCard key={u.id} upload={u} onEdit={onEdit} />)}
+      {uploads.map(u => <UploadCard key={u.id} upload={u} onEdit={onEdit} onThread={onThread} />)}
     </div>
   );
 }
@@ -236,6 +241,7 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
   const [activeTab,      setActiveTab]      = useState('Upcoming');
   const [searchQuery,    setSearchQuery]    = useState('');
   const [filterType,     setFilterType]     = useState('all');
+  const [threadUpload,   setThreadUpload]   = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -401,9 +407,13 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
       </div>
 
       {/* Tab content */}
-      {activeTab === 'Upcoming' && <UploadCards uploads={visibleUpcoming} onEdit={onEdit} />}
-      {activeTab === 'Pending'  && <UploadCards uploads={visiblePending}  onEdit={onEdit} />}
-      {activeTab === 'History'  && <UploadCards uploads={visibleHistory}  onEdit={onEdit} />}
+      {activeTab === 'Upcoming' && <UploadCards uploads={visibleUpcoming} onEdit={onEdit} onThread={setThreadUpload} />}
+      {activeTab === 'Pending'  && <UploadCards uploads={visiblePending}  onEdit={onEdit} onThread={setThreadUpload} />}
+      {activeTab === 'History'  && <UploadCards uploads={visibleHistory}  onEdit={onEdit} onThread={setThreadUpload} />}
+
+      {threadUpload && (
+        <UploadThreadPanel upload={threadUpload} onClose={() => setThreadUpload(null)} />
+      )}
     </div>
   );
 }

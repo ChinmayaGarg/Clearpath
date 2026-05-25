@@ -1739,4 +1739,204 @@ router.post(
   },
 );
 
+// ── GET /api/portal/messages ─────────────────────────────────────────────────
+// Conversation inbox for professors — all their upload threads with unread counts.
+router.get('/messages', async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         eu.id              AS upload_id,
+         c.code             AS course_code,
+         eu.exam_type_label,
+         MAX(m.created_at)  AS latest_at,
+         COUNT(m.id)::int   AS message_count,
+         COUNT(m.id) FILTER (
+           WHERE m.created_at > COALESCE(tr.last_read_at, '1970-01-01'::timestamptz)
+             AND m.sent_by <> $1
+         )::int             AS unread_count,
+         (ARRAY_AGG(m.body ORDER BY m.created_at DESC))[1]                                       AS last_body,
+         (ARRAY_AGG(lu.first_name || ' ' || lu.last_name ORDER BY m.created_at DESC))[1]         AS last_sender
+       FROM exam_upload eu
+       JOIN course                  c   ON c.id  = eu.course_id
+       JOIN exam_upload_message     m   ON m.exam_upload_id = eu.id
+       JOIN "user"                  lu  ON lu.id = m.sent_by
+       LEFT JOIN exam_upload_thread_read tr
+         ON tr.exam_upload_id = eu.id AND tr.user_id = $1
+       WHERE eu.professor_profile_id = $2
+       GROUP BY eu.id, c.code, eu.exam_type_label, tr.last_read_at
+       ORDER BY MAX(m.created_at) DESC`,
+      [req.user.id, profId],
+    );
+
+    res.json({ ok: true, conversations: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/portal/messages/unread-count ────────────────────────────────────
+router.get('/messages/unread-count', async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT COUNT(m.id)::int AS unread_count
+       FROM exam_upload_message m
+       JOIN exam_upload eu ON eu.id = m.exam_upload_id
+       LEFT JOIN exam_upload_thread_read tr
+         ON tr.exam_upload_id = eu.id AND tr.user_id = $1
+       WHERE eu.professor_profile_id = $2
+         AND m.sent_by <> $1
+         AND m.created_at > COALESCE(tr.last_read_at, '1970-01-01'::timestamptz)`,
+      [req.user.id, profId],
+    );
+    res.json({ ok: true, unreadCount: result.rows[0].unread_count });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/portal/uploads/message-files/:filePath ──────────────────────────
+router.get('/uploads/message-files/:filePath(*)', async (req, res, next) => {
+  try {
+    const { readFileFromStorage } = await import('../services/fileStorage.js');
+    const buffer = await readFileFromStorage(req.params.filePath);
+    const filename = req.params.filePath.split('/').pop();
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.send(buffer);
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ ok: false, error: 'File not found' });
+    next(err);
+  }
+});
+
+// ── GET /api/portal/uploads/:id/messages ─────────────────────────────────────
+router.get('/uploads/:id/messages', async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    // Ownership check — prof must own this upload
+    const check = await tenantQuery(
+      req.tenantSchema,
+      `SELECT id FROM exam_upload WHERE id = $1 AND professor_profile_id = $2`,
+      [req.params.id, profId],
+    );
+    if (!check.rows.length) {
+      return res.status(404).json({ ok: false, error: 'Upload not found' });
+    }
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         m.id, m.sent_by, m.body, m.created_at,
+         u.first_name, u.last_name,
+         (SELECT role FROM user_role WHERE user_id = u.id LIMIT 1) AS sender_role,
+         COALESCE(
+           json_agg(json_build_object(
+             'id', f.id, 'original_name', f.original_name,
+             'file_size', f.file_size, 'file_path', f.file_path
+           )) FILTER (WHERE f.id IS NOT NULL),
+           '[]'
+         ) AS files
+       FROM exam_upload_message m
+       JOIN "user" u ON u.id = m.sent_by
+       LEFT JOIN exam_upload_message_file f ON f.message_id = m.id
+       WHERE m.exam_upload_id = $1
+       GROUP BY m.id, u.first_name, u.last_name, u.id
+       ORDER BY m.created_at ASC`,
+      [req.params.id],
+    );
+
+    // Mark conversation as read for this user (fire-and-forget)
+    tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO exam_upload_thread_read (exam_upload_id, user_id, last_read_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (exam_upload_id, user_id) DO UPDATE SET last_read_at = NOW()`,
+      [req.params.id, req.user.id],
+    ).catch(() => {});
+
+    res.json({ ok: true, messages: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/portal/uploads/:id/messages ────────────────────────────────────
+router.post('/uploads/:id/messages', uploadCombined.single('file'), async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const body = req.body.body?.trim() || null;
+
+    if (!body && !req.file) {
+      return res.status(400).json({ ok: false, error: 'Message body or file is required' });
+    }
+
+    // Ownership check + get professor's user_id for notification
+    const check = await tenantQuery(
+      req.tenantSchema,
+      `SELECT eu.id, eu.professor_profile_id FROM exam_upload eu
+       WHERE eu.id = $1 AND eu.professor_profile_id = $2`,
+      [req.params.id, profId],
+    );
+    if (!check.rows.length) {
+      return res.status(404).json({ ok: false, error: 'Upload not found' });
+    }
+
+    const msgResult = await tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO exam_upload_message (exam_upload_id, sent_by, body)
+       VALUES ($1, $2, $3)
+       RETURNING id, created_at`,
+      [req.params.id, req.user.id, body],
+    );
+    const msg = msgResult.rows[0];
+
+    let fileRow = null;
+    if (req.file) {
+      const storagePath = generateFilePath(req.tenantSchema, req.params.id, req.file.originalname);
+      const { size } = await saveFile(req.file.buffer, storagePath);
+      const fResult = await tenantQuery(
+        req.tenantSchema,
+        `INSERT INTO exam_upload_message_file (message_id, file_path, original_name, file_size)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, original_name, file_size`,
+        [msg.id, storagePath, req.file.originalname, size],
+      );
+      fileRow = fResult.rows[0];
+    }
+
+    // Notify leads/admins (fire-and-forget)
+    tenantQuery(
+      req.tenantSchema,
+      `INSERT INTO upload_notification (professor_profile_id, exam_upload_id, type, message)
+       SELECT pp.id, $1, 'new_message', $2
+       FROM professor_profile pp WHERE pp.id = $3`,
+      [req.params.id, `Professor sent a message about exam upload`, profId],
+    ).catch(() => {});
+
+    res.status(201).json({
+      ok: true,
+      message: {
+        id:          msg.id,
+        sent_by:     req.user.id,
+        body,
+        created_at:  msg.created_at,
+        files:       fileRow ? [fileRow] : [],
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

@@ -6,7 +6,8 @@ import { toast }               from '../../components/ui/Toast.jsx';
 import Spinner                 from '../../components/ui/Spinner.jsx';
 import UploadList              from '../../components/portal/UploadList.jsx';
 import UploadForm              from '../../components/portal/UploadForm.jsx';
-const TABS = ['Dashboard', 'My uploads', 'My students', 'Exam requests'];
+import UploadThreadPanel       from '../../components/portal/UploadThreadPanel.jsx';
+const TABS = ['Dashboard', 'My uploads', 'My students', 'Exam requests', 'Messages'];
 
 export default function ProfessorPortal() {
   const { user, logout }       = useAuth();
@@ -17,8 +18,14 @@ export default function ProfessorPortal() {
   const [showForm,    setShowForm]    = useState(false);
   const [editId,      setEditId]      = useState(null);
   const [isWordDoc,   setIsWordDoc]   = useState(false);
-  const [refreshKey,  setRefreshKey]  = useState(0);
-  const [prefillData, setPrefillData] = useState(null);
+  const [refreshKey,    setRefreshKey]    = useState(0);
+  const [prefillData,   setPrefillData]   = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [unreadCount,   setUnreadCount]   = useState(0);
+  const [msgsLoading,   setMsgsLoading]   = useState(false);
+  const [threadUpload,  setThreadUpload]  = useState(null);
+  const [showPicker,    setShowPicker]    = useState(false);
+  const [pickerUploads, setPickerUploads] = useState(null);
 
   async function loadMe() {
     try {
@@ -34,6 +41,39 @@ export default function ProfessorPortal() {
   }
 
   useEffect(() => { loadMe(); }, []); // eslint-disable-line
+
+  // Load conversations when Messages tab is opened
+  useEffect(() => {
+    if (tab !== 'Messages') return;
+    setMsgsLoading(true);
+    fetch('/api/portal/messages', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok) { setConversations(d.conversations); setUnreadCount(0); } })
+      .finally(() => setMsgsLoading(false));
+  }, [tab]); // eslint-disable-line
+
+  // Fetch uploads lazily when picker is opened
+  useEffect(() => {
+    if (!showPicker) return;
+    if (pickerUploads !== null) return; // already loaded
+    fetch('/api/portal/uploads', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.ok) setPickerUploads(d.uploads ?? []); })
+      .catch(() => setPickerUploads([]));
+  }, [showPicker]); // eslint-disable-line
+
+  // Poll unread count every 60s when not on Messages tab
+  useEffect(() => {
+    if (tab === 'Messages') return;
+    const load = () =>
+      fetch('/api/portal/messages/unread-count', { credentials: 'include' })
+        .then(r => r.json())
+        .then(d => { if (d.ok) setUnreadCount(d.unreadCount); })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, [tab]); // eslint-disable-line
 
   function refresh() {
     setRefreshKey(k => k + 1);
@@ -77,14 +117,20 @@ export default function ProfessorPortal() {
                 Professor portal
               </span>
             </div>
-            <div className="flex h-14 overflow-x-auto">
+            <div className="flex h-14 mr-8">
               {TABS.map(t => (
                 <button key={t} onClick={() => { setTab(t); if (t === 'Dashboard') loadMe(); }}
-                  className={`px-3 text-sm font-medium border-b-2 transition-colors h-full whitespace-nowrap
+                  className={`px-5 text-sm font-medium border-b-2 transition-colors h-full whitespace-nowrap
+                    flex items-center gap-1.5
                     ${tab === t
                       ? 'border-brand-600 text-brand-700'
                       : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                   {t}
+                  {t === 'Messages' && unreadCount > 0 && (
+                    <span className="bg-brand-600 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">
+                      {unreadCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -351,8 +397,93 @@ export default function ProfessorPortal() {
 
         {tab === 'Exam requests' && <ProfessorExamRequestsTab />}
 
+        {tab === 'Messages' && (
+          <div className="space-y-2">
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowPicker(true)}
+                className="text-xs font-medium text-brand-600 hover:text-brand-800"
+              >
+                + Add Exam To Message About
+              </button>
+            </div>
+            {msgsLoading ? (
+              <div className="flex justify-center py-12"><Spinner /></div>
+            ) : conversations.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-12">No messages yet</p>
+            ) : (
+              conversations.map(c => {
+                const hasUnread = c.unread_count > 0;
+                const ago = (() => {
+                  if (!c.latest_at) return '';
+                  const diff = Math.floor((Date.now() - new Date(c.latest_at)) / 60000);
+                  if (diff < 1) return 'just now';
+                  if (diff < 60) return `${diff}m ago`;
+                  const h = Math.floor(diff / 60);
+                  if (h < 24) return `${h}h ago`;
+                  return new Date(c.latest_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+                })();
+                return (
+                  <button key={c.upload_id} onClick={() => setThreadUpload({ ...c, id: c.upload_id })}
+                    className="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded-xl
+                               hover:border-brand-300 transition-colors">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {hasUnread && <span className="w-2 h-2 rounded-full bg-brand-600 shrink-0 mt-0.5" />}
+                        <span className={`text-sm font-mono truncate ${hasUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+                          {c.course_code}
+                        </span>
+                        <span className="text-xs text-gray-400 capitalize truncate shrink-0">
+                          {c.exam_type_label?.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-400 shrink-0">{ago}</span>
+                    </div>
+                    {c.last_body && (
+                      <p className={`text-xs mt-1 truncate ${hasUnread ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                        {c.last_sender ? `${c.last_sender.split(' ')[0]}: ` : ''}{c.last_body}
+                      </p>
+                    )}
+                    {hasUnread && (
+                      <span className="inline-block mt-1 text-xs bg-brand-600 text-white px-1.5 py-0.5 rounded-full">
+                        {c.unread_count} new
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
+
 
       </div>
+
+      {/* Message thread drawer */}
+      {threadUpload && (
+        <UploadThreadPanel
+          upload={threadUpload}
+          onClose={() => {
+            setThreadUpload(null);
+            setConversations(prev => prev.map(c =>
+              c.upload_id === threadUpload.id ? { ...c, unread_count: 0 } : c
+            ));
+          }}
+        />
+      )}
+
+      {/* Exam picker modal */}
+      {showPicker && (
+        <ProfExamPickerModal
+          uploads={pickerUploads}
+          existingIds={new Set(conversations.map(c => c.upload_id))}
+          onSelect={u => {
+            setThreadUpload({ id: u.id, course_code: u.course_code, exam_type_label: u.exam_type_label });
+            setShowPicker(false);
+          }}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
 
       {/* Upload form modal */}
       {showForm && (
@@ -651,6 +782,61 @@ const TYPE_LABELS = {
   assignment: 'Assignment',
   other:      'Other',
 };
+
+function ProfExamPickerModal({ uploads, existingIds, onSelect, onClose }) {
+  const [q, setQ] = useState('');
+  const available = (uploads ?? []).filter(u => !existingIds.has(u.id));
+  const filtered = available.filter(u => {
+    const needle = q.toLowerCase();
+    return !needle
+      || (u.course_code ?? '').toLowerCase().includes(needle)
+      || (u.exam_type_label ?? '').toLowerCase().includes(needle);
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[70vh]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900">Start a conversation about an exam</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+        </div>
+        <div className="px-4 py-2 border-b border-gray-100">
+          <input
+            autoFocus
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Search by course or exam type…"
+            className="w-full text-sm px-3 py-1.5 border border-gray-300 rounded-lg
+                       focus:outline-none focus:ring-2 focus:ring-brand-400"
+          />
+        </div>
+        <div className="overflow-y-auto flex-1 px-2 py-2">
+          {uploads === null ? (
+            <div className="flex justify-center py-8"><Spinner /></div>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              {available.length === 0 ? 'All your uploads already have conversations' : 'No matches'}
+            </p>
+          ) : (
+            filtered.map(u => (
+              <button key={u.id} onClick={() => onSelect(u)}
+                className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
+                <span className="text-sm font-mono font-semibold text-gray-900">{u.course_code}</span>
+                <span className="ml-2 text-xs text-gray-500 capitalize">{(u.exam_type_label ?? '').replace(/_/g, ' ')}</span>
+                {u.dates?.[0]?.exam_date && (
+                  <span className="ml-2 text-xs text-gray-400">
+                    {new Date(String(u.dates[0].exam_date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function MyStudentsTab() {
   const [courses, setCourses] = useState([]);
