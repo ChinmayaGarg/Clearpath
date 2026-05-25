@@ -1907,14 +1907,14 @@ router.delete('/course-offerings/:id', async (req, res, next) => {
 // ── GET /api/institution/audit-logs ───────────────────────────────────────────
 router.get('/audit-logs', async (req, res, next) => {
   try {
-    const { performedBy, fromDate, toDate, page = '1' } = req.query;
+    const { performedBy, action, fromDate, toDate, page = '1' } = req.query;
     const limit  = 50;
     const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * limit;
     const schema = req.tenantSchema;
 
     const [staff, result] = await Promise.all([
       getStaff(schema),
-      queryLeadAuditLog(schema, { performedBy, fromDate, toDate, limit, offset }),
+      queryLeadAuditLog(schema, { performedBy, action, fromDate, toDate, limit, offset }),
     ]);
 
     res.json({ ok: true, logs: result.rows, total: result.total, leads: staff });

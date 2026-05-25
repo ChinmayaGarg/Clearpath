@@ -8,13 +8,17 @@ export async function insertLeadAuditLog(schema, { performedBy, action, descript
   );
 }
 
-export async function queryLeadAuditLog(schema, { performedBy, fromDate, toDate, limit = 50, offset = 0 }) {
+export async function queryLeadAuditLog(schema, { performedBy, action, fromDate, toDate, limit = 50, offset = 0 }) {
   const conditions = [];
   const filterParams = [];
 
   if (performedBy) {
     filterParams.push(performedBy);
     conditions.push(`lal.performed_by = $${filterParams.length}::uuid`);
+  }
+  if (action) {
+    filterParams.push(action);
+    conditions.push(`lal.action = $${filterParams.length}`);
   }
   if (fromDate) {
     filterParams.push(fromDate);

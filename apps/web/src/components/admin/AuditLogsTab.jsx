@@ -64,15 +64,17 @@ export default function AuditLogsTab() {
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [performedBy, setPerformedBy] = useState('');
+  const [action, setAction]         = useState('');
   const [fromDate, setFromDate]     = useState('');
   const [toDate, setToDate]         = useState('');
   const [page, setPage]             = useState(1);
 
-  const load = useCallback(async (leadId, from, to, pg) => {
+  const load = useCallback(async (leadId, act, from, to, pg) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: pg });
       if (leadId)  params.set('performedBy', leadId);
+      if (act)     params.set('action', act);
       if (from)    params.set('fromDate', from);
       if (to)      params.set('toDate', to);
 
@@ -88,25 +90,26 @@ export default function AuditLogsTab() {
   }, []);
 
   useEffect(() => {
-    load(performedBy, fromDate, toDate, page);
+    load(performedBy, action, fromDate, toDate, page);
   }, []); // eslint-disable-line
 
   function applyFilters() {
     setPage(1);
-    load(performedBy, fromDate, toDate, 1);
+    load(performedBy, action, fromDate, toDate, 1);
   }
 
   function clearFilters() {
     setPerformedBy('');
+    setAction('');
     setFromDate('');
     setToDate('');
     setPage(1);
-    load('', '', '', 1);
+    load('', '', '', '', 1);
   }
 
   function goPage(pg) {
     setPage(pg);
-    load(performedBy, fromDate, toDate, pg);
+    load(performedBy, action, fromDate, toDate, pg);
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -141,6 +144,20 @@ export default function AuditLogsTab() {
                 </optgroup>
               );
             })}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Action</label>
+          <select
+            value={action}
+            onChange={e => setAction(e.target.value)}
+            className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-600"
+          >
+            <option value="">All actions</option>
+            {Object.entries(ACTION_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
           </select>
         </div>
 
