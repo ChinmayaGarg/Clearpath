@@ -97,6 +97,7 @@ const EXAM_TYPES = [
   "test_2",
   "test_3",
   "assignment",
+  "other",
 ];
 const DELIVERIES = ["pickup", "dropped", "delivery", "pending", "file_upload"];
 

@@ -14,6 +14,7 @@ const EXAM_TYPES = [
   { value: 'test_2',     label: 'Test 2' },
   { value: 'test_3',     label: 'Test 3' },
   { value: 'assignment', label: 'Assignment' },
+  { value: 'other',      label: 'Other'      },
 ];
 
 const EMPTY_FORM = {

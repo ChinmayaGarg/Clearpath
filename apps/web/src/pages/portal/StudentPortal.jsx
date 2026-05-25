@@ -16,6 +16,7 @@ const EXAM_TYPES = [
   { value: "test_2",     label: "Test 2" },
   { value: "test_3",     label: "Test 3" },
   { value: "assignment", label: "Assignment" },
+  { value: "other",      label: "Other"      },
 ];
 
 // Time slots: 7:45 AM – 8:00 PM in 5-minute intervals

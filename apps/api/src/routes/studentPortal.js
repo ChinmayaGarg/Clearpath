@@ -199,6 +199,7 @@ const BookingSchema = z.object({
       "test_2",
       "test_3",
       "assignment",
+      "other",
     ])
     .default("midterm"),
   examDurationMins: z.number().int().min(1).max(600),
