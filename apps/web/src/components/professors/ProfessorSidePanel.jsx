@@ -153,7 +153,7 @@ const ATTENDANCE_STYLES = {
   no_show: 'bg-red-100 text-red-700',
 };
 const ATTENDANCE_LABELS = {
-  show:    'Wrote',
+  show:    'Showed',
   no_show: 'No show',
 };
 

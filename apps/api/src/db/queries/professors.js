@@ -349,6 +349,7 @@ export async function getProfessorExamRequestsForPanel(schema, profId) {
        ebr.exam_date, ebr.exam_time,
        ebr.exam_type, ebr.status, ebr.rejection_reason,
        ebr.base_duration_mins, ebr.student_duration_mins,
+       ebr.attendance_status,
        br.name AS room_name,
        sp.student_number,
        u.first_name AS student_first_name,
