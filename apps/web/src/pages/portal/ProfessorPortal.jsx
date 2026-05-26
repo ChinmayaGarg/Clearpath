@@ -891,7 +891,7 @@ function MyStudentsTab() {
     const filteredDates = Object.entries(dates)
       .map(([dk, { examDate, types }]) => {
         const filteredTypes = Object.values(types).filter(tg =>
-          tg.examUploaded === wantUploaded && (wantUploaded || hasNonCancelled(tg))
+          tg.examUploaded === wantUploaded && hasNonCancelled(tg)
         );
         return filteredTypes.length ? { dateKey: dk, examDate, types: filteredTypes } : null;
       })
@@ -904,7 +904,7 @@ function MyStudentsTab() {
     Object.values(grouped).reduce((n, { dates }) =>
       n + Object.values(dates).reduce((m, { types }) =>
         m + Object.values(types).filter(tg =>
-          tg.examUploaded === uploaded && (uploaded || hasNonCancelled(tg))
+          tg.examUploaded === uploaded && hasNonCancelled(tg)
         ).length, 0), 0);
 
   const uploadedCount    = countTypes(true);
