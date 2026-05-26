@@ -7,6 +7,7 @@ import Spinner                 from '../../components/ui/Spinner.jsx';
 import UploadList              from '../../components/portal/UploadList.jsx';
 import UploadForm              from '../../components/portal/UploadForm.jsx';
 import UploadThreadPanel       from '../../components/portal/UploadThreadPanel.jsx';
+import TermSelector            from '../../components/portal/TermSelector.jsx';
 const TABS = ['Dashboard', 'My uploads', 'My students', 'Exam requests', 'Messages'];
 
 export default function ProfessorPortal() {
@@ -27,10 +28,15 @@ export default function ProfessorPortal() {
   const [threadUpload,  setThreadUpload]  = useState(null);
   const [showPicker,    setShowPicker]    = useState(false);
   const [pickerUploads, setPickerUploads] = useState(null);
+  const [terms,         setTerms]         = useState([]);
+  const [selectedTerm,  setSelectedTerm]  = useState(
+    () => localStorage.getItem('clearpath_prof_term') ?? 'all'
+  );
 
-  async function loadMe() {
+  async function loadMe(termId) {
     try {
-      const data = await api.get('/portal/me');
+      const tid = termId ?? selectedTerm;
+      const data = await api.get(`/portal/me${tid && tid !== 'all' ? `?termId=${tid}` : ''}`);
       setMe(data);
     } catch (err) {
       if (err.message.includes('professor profile')) {
@@ -41,7 +47,23 @@ export default function ProfessorPortal() {
     }
   }
 
-  useEffect(() => { loadMe(); }, []); // eslint-disable-line
+  useEffect(() => {
+    api.get('/portal/terms')
+      .then(d => {
+        setTerms(d.terms ?? []);
+        const saved = localStorage.getItem('clearpath_prof_term');
+        const initial = saved ?? d.currentTermId ?? 'all';
+        setSelectedTerm(initial);
+        loadMe(initial);
+      })
+      .catch(() => loadMe());
+  }, []); // eslint-disable-line
+
+  function handleTermChange(termId) {
+    setSelectedTerm(termId);
+    localStorage.setItem('clearpath_prof_term', termId);
+    loadMe(termId);
+  }
 
   // Load conversations when Messages tab is opened
   useEffect(() => {
@@ -66,10 +88,11 @@ export default function ProfessorPortal() {
   // Refresh pending exam request count whenever leaving that tab
   useEffect(() => {
     if (tab === 'Exam requests') return;
-    api.get('/portal/exam-requests')
+    const q = selectedTerm && selectedTerm !== 'all' ? `?termId=${selectedTerm}` : '';
+    api.get(`/portal/exam-requests${q}`)
       .then(d => setPendingRequestsCount((d.examRequests ?? []).filter(r => r.status === 'pending').length))
       .catch(() => {});
-  }, [tab]); // eslint-disable-line
+  }, [tab, selectedTerm]); // eslint-disable-line
 
   // Poll unread count every 60s when not on Messages tab
   useEffect(() => {
@@ -162,6 +185,17 @@ export default function ProfessorPortal() {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
+
+        {/* Term selector */}
+        {tab !== 'Messages' && (
+          <div className="flex justify-end mb-4">
+            <TermSelector
+              terms={terms}
+              selectedTermId={selectedTerm}
+              onChange={handleTermChange}
+            />
+          </div>
+        )}
 
         {/* Tab content */}
         {tab === 'Dashboard' && (
@@ -407,9 +441,9 @@ export default function ProfessorPortal() {
           </div>
         )}
 
-        {tab === 'My students' && <MyStudentsTab />}
+        {tab === 'My students' && <MyStudentsTab termId={selectedTerm} />}
 
-        {tab === 'Exam requests' && <ProfessorExamRequestsTab />}
+        {tab === 'Exam requests' && <ProfessorExamRequestsTab termId={selectedTerm} />}
 
         {tab === 'Messages' && (
           <div className="space-y-2">
@@ -661,7 +695,7 @@ function ExamRequestCard({ r, onAction }) {
   );
 }
 
-function ProfessorExamRequestsTab() {
+function ProfessorExamRequestsTab({ termId }) {
   const [requests, setRequests] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [subTab,   setSubTab]   = useState('Pending');
@@ -669,7 +703,8 @@ function ProfessorExamRequestsTab() {
   async function load() {
     setLoading(true);
     try {
-      const data = await api.get('/portal/exam-requests');
+      const q = termId && termId !== 'all' ? `?termId=${termId}` : '';
+      const data = await api.get(`/portal/exam-requests${q}`);
       setRequests(data.examRequests ?? []);
     } catch (err) {
       toast(err.message || 'Failed to load exam requests', 'error');
@@ -678,7 +713,7 @@ function ProfessorExamRequestsTab() {
     }
   }
 
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => { load(); }, [termId]); // eslint-disable-line
 
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
@@ -914,18 +949,20 @@ function AttendanceBadge({ bookingId, examDate, attendanceStatus, onUpdate }) {
   );
 }
 
-function MyStudentsTab() {
+function MyStudentsTab({ termId }) {
   const [courses,             setCourses]             = useState([]);
   const [loading,             setLoading]             = useState(true);
   const [subTab,              setSubTab]              = useState('not_uploaded');
   const [attendanceOverrides, setAttendanceOverrides] = useState({});
 
   useEffect(() => {
-    api.get('/portal/my-students')
+    setLoading(true);
+    const q = termId && termId !== 'all' ? `?termId=${termId}` : '';
+    api.get(`/portal/my-students${q}`)
       .then(d => setCourses(d.courses ?? []))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []); // eslint-disable-line
+  }, [termId]); // eslint-disable-line
 
   if (loading) return <div className="flex justify-center py-10"><div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" /></div>;
 

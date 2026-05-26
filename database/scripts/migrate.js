@@ -72,6 +72,8 @@ const migrationMap = {
   48: "048_exam_upload_messages.sql",
   49: "049_thread_read_tracking.sql",
   50: "050_add_other_exam_type.sql",
+  51: "051_ebr_course_offering.sql",
+  52: "052_upload_course_offering.sql",
 };
 
 const filename = migrationMap[targetVersion];

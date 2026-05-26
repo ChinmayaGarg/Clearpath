@@ -193,11 +193,50 @@ async function ensureCourseAllowed(schema, professorProfileId, courseId) {
   }
 }
 
+// ── GET /api/portal/terms ─────────────────────────────────────────────────────
+// Returns terms where this professor has at least one course_dossier,
+// plus the currentTermId (most recent active term by start_date).
+router.get("/terms", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT * FROM (
+         SELECT DISTINCT t.id, t.label, t.start_date::text AS start_date,
+                t.end_date::text AS end_date, t.is_active
+         FROM term t
+         JOIN course_offering co ON co.term_id = t.id
+         JOIN course_dossier cd ON cd.course_offering_id = co.id
+         WHERE cd.professor_id = $1
+       ) terms
+       ORDER BY start_date DESC NULLS LAST`,
+      [profId],
+    );
+
+    const currentResult = await tenantQuery(
+      req.tenantSchema,
+      `SELECT id FROM term WHERE is_active = TRUE ORDER BY start_date DESC NULLS LAST LIMIT 1`,
+      [],
+    );
+
+    res.json({
+      ok: true,
+      terms: result.rows,
+      currentTermId: currentResult.rows[0]?.id ?? null,
+    });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/portal/me ────────────────────────────────────────────────────────
 router.get("/me", async (req, res, next) => {
   try {
     const profId = await getProfId(req, res);
     if (!profId) return;
+
+    const { termId } = req.query;
+    const tId = (!termId || termId === 'all') ? null : termId;
 
     const [profileResult, statsResult, notifResult, requestsResult, missingResult, dropoffResult, upcomingResult, reuseResult, studentsResult, rwgResult, nextExamsResult, missingWordDocResult] = await Promise.all([
       tenantQuery(
@@ -215,8 +254,10 @@ router.get("/me", async (req, res, next) => {
            COUNT(*) FILTER (WHERE status = 'submitted')  AS submitted,
            COUNT(*) FILTER (WHERE status = 'draft')      AS drafts,
            COUNT(DISTINCT course_id)                     AS courses
-         FROM exam_upload WHERE professor_profile_id = $1`,
-        [profId],
+         FROM exam_upload
+         WHERE professor_profile_id = $1
+           AND ($2::uuid IS NULL OR course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))`,
+        [profId, tId],
       ),
       tenantQuery(
         req.tenantSchema,
@@ -231,6 +272,7 @@ router.get("/me", async (req, res, next) => {
         `SELECT COUNT(*) AS pending_requests
          FROM exam_booking_request ebr
          WHERE ebr.status = 'pending'
+           AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
            AND (
              ebr.professor_profile_id = $1
              OR EXISTS (
@@ -240,7 +282,7 @@ router.get("/me", async (req, res, next) => {
                  AND cd.professor_id = $1
              )
            )`,
-        [profId],
+        [profId, tId],
       ),
       // Course+date combos with confirmed students but no submitted exam upload
       tenantQuery(
@@ -253,6 +295,7 @@ router.get("/me", async (req, res, next) => {
            FROM exam_booking_request ebr
            WHERE ebr.status IN ('professor_approved', 'confirmed')
              AND ebr.exam_date >= CURRENT_DATE
+             AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
              AND (
                ebr.professor_profile_id = $1
                OR EXISTS (
@@ -282,7 +325,7 @@ router.get("/me", async (req, res, next) => {
                )
              )
          )`,
-        [profId],
+        [profId, tId],
       ),
       // Exams dropped off but not yet confirmed by accessibility centre
       tenantQuery(
@@ -290,10 +333,11 @@ router.get("/me", async (req, res, next) => {
         `SELECT COUNT(*) AS pending_dropoffs
          FROM exam_upload
          WHERE professor_profile_id = $1
+           AND ($2::uuid IS NULL OR course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
            AND delivery = 'dropped'
            AND dropoff_confirmed_at IS NULL
            AND status = 'submitted'`,
-        [profId],
+        [profId, tId],
       ),
       // Upcoming submitted exams (future dates)
       tenantQuery(
@@ -303,6 +347,7 @@ router.get("/me", async (req, res, next) => {
          JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
          WHERE eu.status = 'submitted'
            AND eud.exam_date >= CURRENT_DATE
+           AND ($2::uuid IS NULL OR eu.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
            AND (
              eu.professor_profile_id = $1
              OR EXISTS (
@@ -312,7 +357,7 @@ router.get("/me", async (req, res, next) => {
                  AND cd.professor_id = $1
              )
            )`,
-        [profId],
+        [profId, tId],
       ),
       // Pending reuse requests
       tenantQuery(
@@ -331,6 +376,7 @@ router.get("/me", async (req, res, next) => {
          FROM exam_booking_request ebr
          WHERE ebr.status IN ('confirmed', 'professor_approved')
            AND ebr.exam_date >= CURRENT_DATE
+           AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
            AND (
              ebr.professor_profile_id = $1
              OR EXISTS (
@@ -340,7 +386,7 @@ router.get("/me", async (req, res, next) => {
                  AND cd.professor_id = $1
              )
            )`,
-        [profId],
+        [profId, tId],
       ),
       // RWG students with upcoming exams
       tenantQuery(
@@ -352,6 +398,7 @@ router.get("/me", async (req, res, next) => {
          WHERE ac.triggers_rwg_flag = true
            AND ebr.status IN ('confirmed', 'professor_approved')
            AND ebr.exam_date >= CURRENT_DATE
+           AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
            AND (
              ebr.professor_profile_id = $1
              OR EXISTS (
@@ -361,7 +408,7 @@ router.get("/me", async (req, res, next) => {
                  AND cd.professor_id = $1
              )
            )`,
-        [profId],
+        [profId, tId],
       ),
       // Next 5 upcoming exam date slots with student counts + upload status
       tenantQuery(
@@ -425,6 +472,7 @@ router.get("/me", async (req, res, next) => {
          JOIN course c ON c.id = ebr.course_id
          WHERE ebr.status IN ('confirmed', 'professor_approved')
            AND ebr.exam_date >= CURRENT_DATE
+           AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
            AND (
              ebr.professor_profile_id = $1
              OR EXISTS (
@@ -437,7 +485,7 @@ router.get("/me", async (req, res, next) => {
          GROUP BY ebr.course_id, c.code, ebr.exam_date, ebr.exam_time, ebr.exam_type
          ORDER BY ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST
          LIMIT 5`,
-        [profId],
+        [profId, tId],
       ),
       // Course+date combos with RWG students but no submitted Word doc upload
       tenantQuery(
@@ -450,6 +498,7 @@ router.get("/me", async (req, res, next) => {
            FROM exam_booking_request ebr
            WHERE ebr.status IN ('professor_approved', 'confirmed')
              AND ebr.exam_date >= CURRENT_DATE
+             AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
              AND (
                ebr.professor_profile_id = $1
                OR EXISTS (
@@ -492,7 +541,7 @@ router.get("/me", async (req, res, next) => {
                )
              )
          )`,
-        [profId],
+        [profId, tId],
       ),
     ]);
 
@@ -1057,6 +1106,9 @@ router.get("/my-students", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
+    const { termId } = req.query;
+    const tId = (!termId || termId === 'all') ? null : termId;
+
     const result = await tenantQuery(
       req.tenantSchema,
       `SELECT
@@ -1086,9 +1138,10 @@ router.get("/my-students", async (req, res, next) => {
                AND cd.professor_id = $1
            )
          )
+         AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
          AND ebr.status IN ('professor_approved', 'confirmed', 'cancelled')
        ORDER BY c.code ASC, ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST, u.last_name ASC`,
-      [profId],
+      [profId, tId],
     );
 
     // Find which (course_code, exam_date, exam_type_label, time_slot) tuples have a
@@ -1267,6 +1320,9 @@ router.get("/exam-requests", async (req, res, next) => {
     const profId = await getProfId(req, res);
     if (!profId) return;
 
+    const { termId } = req.query;
+    const tId = (!termId || termId === 'all') ? null : termId;
+
     const result = await tenantQuery(
       req.tenantSchema,
       `SELECT
@@ -1301,9 +1357,10 @@ router.get("/exam-requests", async (req, res, next) => {
              AND cd.professor_id = $1
          )
        )
+         AND ($2::uuid IS NULL OR ebr.course_offering_id IN (SELECT id FROM course_offering WHERE term_id = $2::uuid))
          AND ebr.status IN ('pending', 'professor_approved', 'professor_rejected', 'confirmed', 'cancelled')
        ORDER BY ebr.exam_date ASC, ebr.created_at ASC`,
-      [profId],
+      [profId, tId],
     );
     res.json({ ok: true, examRequests: result.rows });
   } catch (err) {

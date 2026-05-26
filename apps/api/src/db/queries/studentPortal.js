@@ -201,29 +201,45 @@ export async function createExamBookingRequest(
     computedDurationMins,
   },
 ) {
-  // Look up the professor responsible for this course via course_dossier → course_offering
-  const profResult = await tenantQuery(
-    schema,
-    `SELECT cd.professor_id FROM course_dossier cd
-     JOIN course_offering co ON co.id = cd.course_offering_id
-     WHERE co.course_id = $1
-     LIMIT 1`,
-    [courseId],
-  );
-  const professorProfileId = profResult.rows[0]?.professor_id ?? null;
+  // Resolve professor + course_offering for this student's enrollment
+  const [profResult, offeringResult] = await Promise.all([
+    tenantQuery(
+      schema,
+      `SELECT cd.professor_id FROM course_dossier cd
+       JOIN course_offering co ON co.id = cd.course_offering_id
+       WHERE co.course_id = $1
+       LIMIT 1`,
+      [courseId],
+    ),
+    tenantQuery(
+      schema,
+      `SELECT sc.course_offering_id
+       FROM student_course sc
+       JOIN course_offering co ON co.id = sc.course_offering_id
+       JOIN term t ON t.id = co.term_id
+       WHERE sc.student_profile_id = $1
+         AND co.course_id = $2
+       ORDER BY t.start_date DESC NULLS LAST
+       LIMIT 1`,
+      [studentProfileId, courseId],
+    ),
+  ]);
+  const professorProfileId  = profResult.rows[0]?.professor_id     ?? null;
+  const courseOfferingId    = offeringResult.rows[0]?.course_offering_id ?? null;
 
   const result = await tenantQuery(
     schema,
     `INSERT INTO exam_booking_request
-       (student_profile_id, course_id, exam_date, exam_time, exam_type,
+       (student_profile_id, course_id, course_offering_id, exam_date, exam_time, exam_type,
         special_materials_note, professor_profile_id,
         student_duration_mins,
         base_duration_mins, extra_mins, stb_mins, computed_duration_mins)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING id`,
     [
       studentProfileId,
       courseId,
+      courseOfferingId,
       examDate,
       examTime ?? null,
       examType ?? "midterm",
