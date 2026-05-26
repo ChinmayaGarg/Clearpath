@@ -870,7 +870,7 @@ function MyStudentsTab() {
       if (!grouped[course.courseCode].dates[dateKey]) {
         grouped[course.courseCode].dates[dateKey] = { examDate: dg.examDate, types: {} };
       }
-      const typeKey = dg.examType ?? 'other';
+      const typeKey = `${dg.examType ?? 'other'}__${dg.examTime ?? ''}`;
       if (!grouped[course.courseCode].dates[dateKey].types[typeKey]) {
         grouped[course.courseCode].dates[dateKey].types[typeKey] = {
           examType: dg.examType,
@@ -883,12 +883,16 @@ function MyStudentsTab() {
     }
   }
 
+  const hasNonCancelled = (tg) => tg.students.some(s => s.status !== 'cancelled');
+
   // Filter grouped data for the active tab — only include type groups matching the tab
   const wantUploaded = subTab === 'uploaded';
   const filtered = Object.values(grouped).map(({ courseCode, dates }) => {
     const filteredDates = Object.entries(dates)
       .map(([dk, { examDate, types }]) => {
-        const filteredTypes = Object.values(types).filter(tg => tg.examUploaded === wantUploaded);
+        const filteredTypes = Object.values(types).filter(tg =>
+          tg.examUploaded === wantUploaded && (wantUploaded || hasNonCancelled(tg))
+        );
         return filteredTypes.length ? { dateKey: dk, examDate, types: filteredTypes } : null;
       })
       .filter(Boolean);
@@ -899,7 +903,9 @@ function MyStudentsTab() {
   const countTypes = (uploaded) =>
     Object.values(grouped).reduce((n, { dates }) =>
       n + Object.values(dates).reduce((m, { types }) =>
-        m + Object.values(types).filter(tg => tg.examUploaded === uploaded).length, 0), 0);
+        m + Object.values(types).filter(tg =>
+          tg.examUploaded === uploaded && (uploaded || hasNonCancelled(tg))
+        ).length, 0), 0);
 
   const uploadedCount    = countTypes(true);
   const notUploadedCount = countTypes(false);
