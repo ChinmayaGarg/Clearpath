@@ -89,7 +89,18 @@ export async function getStudentExamBookings(schema, studentProfileId) {
        ebr.exam_date, ebr.exam_time, ebr.exam_type,
        ebr.special_materials_note, ebr.status,
        ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins, ebr.computed_duration_mins,
-       ebr.confirmed_at, ebr.created_at, ebr.updated_at
+       ebr.confirmed_at, ebr.created_at, ebr.updated_at,
+       EXISTS (
+         SELECT 1 FROM cancellation_request cr
+         WHERE cr.exam_booking_request_id = ebr.id
+           AND cr.request_status = 'pending'
+       ) AS has_pending_cancellation,
+       (SELECT cr2.admin_reason
+        FROM cancellation_request cr2
+        WHERE cr2.exam_booking_request_id = ebr.id
+          AND cr2.request_status = 'rejected'
+        ORDER BY cr2.reviewed_at DESC
+        LIMIT 1) AS last_cancellation_rejection_reason
      FROM exam_booking_request ebr
      JOIN course c ON c.id = ebr.course_id
      WHERE ebr.student_profile_id = $1

@@ -1086,7 +1086,7 @@ router.get("/my-students", async (req, res, next) => {
                AND cd.professor_id = $1
            )
          )
-         AND ebr.status IN ('professor_approved', 'confirmed')
+         AND ebr.status IN ('professor_approved', 'confirmed', 'cancelled')
        ORDER BY c.code ASC, ebr.exam_date ASC, ebr.exam_time ASC NULLS LAST, u.last_name ASC`,
       [profId],
     );

@@ -188,7 +188,7 @@ router.get('/requests', async (req, res, next) => {
       `SELECT
          u.first_name || ' ' || u.last_name    AS student_name,
          sp.student_number,
-         ebr.id, ebr.course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type,
+         ebr.id, c.code AS course_code, ebr.exam_date, ebr.exam_time, ebr.exam_type,
          ebr.status, ebr.created_at, ebr.confirmed_at,
          pu.first_name || ' ' || pu.last_name  AS professor_name,
          cu.first_name || ' ' || cu.last_name  AS confirmed_by_name,
@@ -202,6 +202,7 @@ router.get('/requests', async (req, res, next) => {
        FROM exam_booking_request ebr
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
+       JOIN course c ON c.id = ebr.course_id
        LEFT JOIN professor_profile pp ON pp.id = ebr.professor_profile_id
        LEFT JOIN "user" pu ON pu.id = pp.user_id
        LEFT JOIN "user" cu ON cu.id = ebr.confirmed_by

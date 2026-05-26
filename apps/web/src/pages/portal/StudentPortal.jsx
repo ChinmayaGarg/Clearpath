@@ -427,6 +427,15 @@ function ExamRequestsTab() {
                 {b.special_materials_note}
               </p>
             )}
+            {isApprovedOrConfirmed && !b.has_pending_cancellation && b.last_cancellation_rejection_reason && (
+              <div className="mt-2 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                <span className="text-amber-500 text-xs shrink-0 mt-0.5">⚠</span>
+                <p className="text-xs text-amber-700">
+                  <span className="font-semibold">Cancellation request declined: </span>
+                  {b.last_cancellation_rejection_reason}
+                </p>
+              </div>
+            )}
           </div>
           <div className="flex-shrink-0">
             {isPending && canCancel && (
@@ -446,7 +455,12 @@ function ExamRequestsTab() {
                 Cannot cancel
               </button>
             )}
-            {isApprovedOrConfirmed && canCancel && (
+            {isApprovedOrConfirmed && b.has_pending_cancellation && (
+              <span className="text-xs text-orange-500 font-medium italic">
+                Cancellation pending…
+              </span>
+            )}
+            {isApprovedOrConfirmed && !b.has_pending_cancellation && canCancel && (
               <button
                 onClick={() => setShowRequestModal(b.id)}
                 className="text-xs text-orange-500 hover:text-orange-600 font-medium"
@@ -454,7 +468,7 @@ function ExamRequestsTab() {
                 Request Cancel
               </button>
             )}
-            {isApprovedOrConfirmed && !canCancel && (
+            {isApprovedOrConfirmed && !b.has_pending_cancellation && !canCancel && (
               <button
                 disabled
                 title="Cannot cancel within 24 hours of exam"

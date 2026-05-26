@@ -225,6 +225,10 @@ function StudentDetail({ student: initialStudent, onBack }) {
   const [form,           setForm]          = useState({ accommodationCodeId: '', termId: '', notes: '' });
   const [saving,         setSaving]        = useState(false);
   const [examRequests,   setExamRequests]  = useState([]);
+  const [regNotes,       setRegNotes]      = useState('');
+  const [regAttachments, setRegAttachments] = useState([]);
+  const [notesSaving,    setNotesSaving]   = useState(false);
+  const [uploading,      setUploading]     = useState(false);
 
   async function load() {
     setLoading(true);
@@ -237,6 +241,8 @@ function StudentDetail({ student: initialStudent, onBack }) {
         api.get(`/counsellor/students/${initialStudent.id}/exam-requests`),
       ]);
       setStudent(studentData.student);
+      setRegNotes(studentData.student?.counsellor_notes ?? '');
+      setRegAttachments(studentData.student?.reg_attachments ?? []);
       setCodes(codesData.codes ?? []);
       const termList = (termsData.terms ?? []).filter(t => t.is_active);
       setTerms(termList);
@@ -307,6 +313,48 @@ function StudentDetail({ student: initialStudent, onBack }) {
     }
   }
 
+  async function handleSaveRegNotes() {
+    if (!student?.registration_id) return;
+    setNotesSaving(true);
+    try {
+      await api.patch(`/counsellor/registrations/${student.registration_id}/notes`, { notes: regNotes });
+      toast('Notes saved', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setNotesSaving(false);
+    }
+  }
+
+  async function handleRegUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file || !student?.registration_id) return;
+    e.target.value = '';
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const data = await api.upload(`/counsellor/registrations/${student.registration_id}/attachments`, fd);
+      setRegAttachments(prev => [...prev, data.attachment]);
+      toast('File uploaded', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteRegAttachment(attId) {
+    if (!student?.registration_id) return;
+    try {
+      await api.delete(`/counsellor/registrations/${student.registration_id}/attachments/${attId}`);
+      setRegAttachments(prev => prev.filter(a => a.id !== attId));
+      toast('Attachment removed', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
 
   if (loading) return (
     <div className="flex justify-center py-12"><Spinner /></div>
@@ -362,6 +410,87 @@ function StudentDetail({ student: initialStudent, onBack }) {
           </p>
         )}
       </div>
+
+      {/* Registration Notes & Documents */}
+      {student.registration_id && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900">Registration Notes & Documents</h3>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Counsellor notes</label>
+            <textarea
+              value={regNotes}
+              onChange={e => setRegNotes(e.target.value)}
+              rows={4}
+              placeholder="Internal notes about this student's registration…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                         focus:outline-none focus:ring-2 focus:ring-brand-600 resize-none"
+            />
+            <div className="flex justify-end mt-1.5">
+              <button
+                onClick={handleSaveRegNotes}
+                disabled={notesSaving}
+                className="px-3 py-1.5 bg-brand-600 hover:bg-brand-800 text-white
+                           text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                {notesSaving ? 'Saving…' : 'Save notes'}
+              </button>
+            </div>
+          </div>
+
+          {/* Attachments */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-gray-500">Documents</label>
+              <label className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer
+                ${uploading
+                  ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed'
+                  : 'border-brand-300 text-brand-700 hover:bg-brand-50'}`}>
+                {uploading ? 'Uploading…' : '+ Upload file'}
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  onChange={handleRegUpload}
+                  disabled={uploading}
+                  className="sr-only"
+                />
+              </label>
+            </div>
+            {regAttachments.length === 0 ? (
+              <p className="text-xs text-gray-400">No documents attached</p>
+            ) : (
+              <div className="space-y-1.5">
+                {regAttachments.map(att => (
+                  <div key={att.id}
+                    className="flex items-center justify-between px-3 py-2 bg-gray-50
+                               border border-gray-200 rounded-lg">
+                    <div className="min-w-0">
+                      <a
+                        href={att.url ?? `/uploads/${att.file_path}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-brand-600 hover:underline truncate block"
+                      >
+                        {att.original_name}
+                      </a>
+                      {att.uploaded_by_name && (
+                        <span className="text-xs text-gray-400">{att.uploaded_by_name}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDeleteRegAttachment(att.id)}
+                      className="text-xs text-red-400 hover:text-red-600 ml-3 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Accommodations */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">

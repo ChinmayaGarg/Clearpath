@@ -966,7 +966,7 @@ function MyStudentsTab() {
                     {/* Students */}
                     <div className="px-4 pb-3 space-y-1.5">
                       {tg.students.map(s => (
-                        <div key={s.bookingId} className="flex items-center justify-between">
+                        <div key={s.bookingId} className={`flex items-center justify-between ${s.status === 'cancelled' ? 'opacity-50' : ''}`}>
                           <div>
                             <span className="text-sm text-gray-900">{s.firstName} {s.lastName}</span>
                             {s.studentNumber && <span className="text-xs text-gray-400 ml-1.5">#{s.studentNumber}</span>}
@@ -974,9 +974,15 @@ function MyStudentsTab() {
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                             s.status === 'confirmed'
                               ? 'bg-green-50 text-green-700'
+                              : s.status === 'cancelled'
+                              ? 'bg-red-50 text-red-500'
                               : 'bg-amber-50 text-amber-700'
                           }`}>
-                            {s.status === 'confirmed' ? 'Confirmed' : 'Awaiting Confirmation from Accessibility Center'}
+                            {s.status === 'confirmed'
+                              ? 'Confirmed'
+                              : s.status === 'cancelled'
+                              ? 'Cancelled'
+                              : 'Awaiting Confirmation from Accessibility Center'}
                           </span>
                         </div>
                       ))}
