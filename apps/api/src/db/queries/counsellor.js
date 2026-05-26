@@ -64,7 +64,7 @@ export async function searchStudents(schema, query) {
  * Get a single student with accommodations and recent exam history.
  */
 export async function getStudentDetail(schema, studentProfileId) {
-  const [profileResult, accResult, examsResult] = await Promise.all([
+  const [profileResult, accResult, regResult] = await Promise.all([
     tenantQuery(
       schema,
       `SELECT
@@ -96,14 +96,44 @@ export async function getStudentDetail(schema, studentProfileId) {
        ORDER BY sa.source DESC, t.start_date DESC NULLS FIRST, ac.code`,
       [studentProfileId],
     ),
+    tenantQuery(
+      schema,
+      `SELECT
+         srr.id AS registration_id, srr.counsellor_notes,
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'id',               ra.id,
+               'file_path',        ra.file_path,
+               'original_name',    ra.original_name,
+               'file_size',        ra.file_size,
+               'created_at',       ra.created_at,
+               'uploaded_by_name', ura.first_name || ' ' || ura.last_name
+             ) ORDER BY ra.created_at
+           ) FILTER (WHERE ra.id IS NOT NULL),
+           '[]'
+         ) AS attachments
+       FROM student_registration_request srr
+       LEFT JOIN registration_attachment ra ON ra.registration_id = srr.id
+       LEFT JOIN "user" ura ON ura.id = ra.uploaded_by
+       WHERE srr.student_profile_id = $1
+       GROUP BY srr.id, srr.counsellor_notes
+       ORDER BY srr.created_at DESC
+       LIMIT 1`,
+      [studentProfileId],
+    ),
   ]);
 
   if (!profileResult.rows.length) return null;
 
+  const reg = regResult.rows[0] ?? null;
   return {
     ...profileResult.rows[0],
     accommodations: accResult.rows,
     recentExams: [],
+    registration_id:     reg?.registration_id ?? null,
+    counsellor_notes:    reg?.counsellor_notes ?? '',
+    reg_attachments:     reg?.attachments ?? [],
   };
 }
 
