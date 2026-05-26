@@ -1124,7 +1124,16 @@ router.get("/my-students", async (req, res, next) => {
            JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
            WHERE sa.student_profile_id = ebr.student_profile_id
              AND ac.triggers_rwg_flag = TRUE
-         ) AS has_rwg
+         ) AS has_rwg,
+         ARRAY(
+           SELECT DISTINCT ac2.code
+           FROM student_accommodation sa2
+           JOIN accommodation_code ac2 ON ac2.id = sa2.accommodation_code_id
+           WHERE sa2.student_profile_id = ebr.student_profile_id
+             AND sa2.is_active = TRUE
+             AND ac2.is_active = TRUE
+           ORDER BY ac2.code
+         ) AS accommodation_codes
        FROM exam_booking_request ebr
        JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
@@ -1228,10 +1237,11 @@ router.get("/my-students", async (req, res, next) => {
         email:            row.email,
         studentNumber:    row.student_number,
         status:           row.status,
-        attendanceStatus: row.attendance_status ?? null,
-        baseDurationMins: row.base_duration_mins ?? row.student_duration_mins,
-        extraMins:        row.extra_mins ?? 0,
-        stbMins:          row.stb_mins  ?? 0,
+        attendanceStatus:   row.attendance_status ?? null,
+        baseDurationMins:   row.base_duration_mins ?? row.student_duration_mins,
+        extraMins:          row.extra_mins ?? 0,
+        stbMins:            row.stb_mins  ?? 0,
+        accommodationCodes: row.accommodation_codes ?? [],
       });
     }
 
@@ -1282,6 +1292,57 @@ router.patch("/bookings/:id/attendance", async (req, res, next) => {
       return res.status(404).json({ ok: false, error: 'Booking not found or not accessible' });
     }
     res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/portal/accessibility-students ───────────────────────────────────
+// Returns all students with active accommodations enrolled in this prof's courses.
+router.get("/accessibility-students", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const { termId } = req.query;
+    const tId = (!termId || termId === 'all') ? null : termId;
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT
+         sp.id AS student_profile_id,
+         sp.student_number,
+         u.first_name, u.last_name, u.email,
+         c.code AS course_code,
+         array_remove(array_agg(DISTINCT ac.code ORDER BY ac.code), NULL) AS accommodation_codes,
+         array_remove(array_agg(DISTINCT ac.label ORDER BY ac.label), NULL) AS accommodation_labels
+       FROM student_course sc
+       JOIN course_offering co ON co.id = sc.course_offering_id
+       JOIN course c ON c.id = co.course_id
+       JOIN course_dossier cd ON cd.course_offering_id = co.id
+       JOIN student_profile sp ON sp.id = sc.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       LEFT JOIN student_accommodation sa ON sa.student_profile_id = sp.id
+         AND sa.is_active = TRUE
+       LEFT JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+         AND ac.is_active = TRUE
+       WHERE cd.professor_id = $1
+         AND ($2::uuid IS NULL OR co.term_id = $2::uuid)
+       GROUP BY sp.id, sp.student_number, u.first_name, u.last_name, u.email, c.code
+       ORDER BY c.code, u.last_name, u.first_name`,
+      [profId, tId],
+    );
+
+    const students = result.rows.map(r => ({
+      studentProfileId:     r.student_profile_id,
+      studentNumber:        r.student_number,
+      firstName:            r.first_name,
+      lastName:             r.last_name,
+      email:                r.email,
+      courseCode:           r.course_code,
+      accommodationCodes:   r.accommodation_codes ?? [],
+      accommodationLabels:  r.accommodation_labels ?? [],
+    }));
+
+    res.json({ ok: true, students });
   } catch (err) { next(err); }
 });
 

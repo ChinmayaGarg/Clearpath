@@ -949,6 +949,180 @@ function AttendanceBadge({ bookingId, examDate, attendanceStatus, onUpdate }) {
   );
 }
 
+function downloadCsv(courseCode, dates) {
+  const headers = ['Course','Exam Date','Exam Time','Exam Type','Name','Student #','Email','Status','Base Mins','Extra Mins','STB Mins','Attendance','Accommodations'];
+  const rows = [headers];
+  for (const { examDate, types } of dates) {
+    for (const tg of types) {
+      for (const s of tg.students) {
+        rows.push([
+          courseCode,
+          examDate,
+          tg.examTime ?? '',
+          TYPE_LABELS[tg.examType] ?? tg.examType,
+          `${s.firstName} ${s.lastName}`,
+          s.studentNumber ?? '',
+          s.email,
+          s.status,
+          s.baseDurationMins ?? '',
+          s.extraMins ?? 0,
+          s.stbMins ?? 0,
+          s.attendanceStatus ?? '',
+          (s.accommodationCodes ?? []).join('; '),
+        ]);
+      }
+    }
+  }
+  const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${courseCode}_students.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadAccessibilityCsv(students) {
+  const headers = ['Student Name','Student #','Email','Course','Accommodation Codes','Accommodation Labels'];
+  const rows = [headers, ...students.map(s => [
+    `${s.firstName} ${s.lastName}`,
+    s.studentNumber ?? '',
+    s.email,
+    s.courseCode,
+    (s.accommodationCodes ?? []).join('; '),
+    (s.accommodationLabels ?? []).join('; '),
+  ])];
+  const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'accessibility_students.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function AccessibilityStudentsTab({ termId }) {
+  const [students,     setStudents]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [search,       setSearch]       = useState('');
+  const [filterCourse, setFilterCourse] = useState('');
+  const [filterCode,   setFilterCode]   = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    const q = termId && termId !== 'all' ? `?termId=${termId}` : '';
+    api.get(`/portal/accessibility-students${q}`)
+      .then(d => setStudents(d.students ?? []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [termId]); // eslint-disable-line
+
+  if (loading) return <div className="flex justify-center py-10"><div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" /></div>;
+
+  const courses = [...new Set(students.map(s => s.courseCode))].sort();
+  const codes   = [...new Set(students.flatMap(s => s.accommodationCodes))].sort();
+
+  const filtered = students.filter(s => {
+    const q = search.toLowerCase();
+    const matchSearch = !q ||
+      `${s.firstName} ${s.lastName}`.toLowerCase().includes(q) ||
+      (s.studentNumber ?? '').toLowerCase().includes(q);
+    const matchCourse = !filterCourse || s.courseCode === filterCourse;
+    const matchCode   = !filterCode   || s.accommodationCodes.includes(filterCode);
+    return matchSearch && matchCourse && matchCode;
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2 items-center justify-between">
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="text"
+            placeholder="Search by name or student #"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400 w-56"
+          />
+          <select
+            value={filterCourse}
+            onChange={e => setFilterCourse(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400"
+          >
+            <option value="">All courses</option>
+            {courses.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select
+            value={filterCode}
+            onChange={e => setFilterCode(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400"
+          >
+            <option value="">All accommodations</option>
+            {codes.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        {filtered.length > 0 && (
+          <button
+            onClick={() => downloadAccessibilityCsv(filtered)}
+            className="text-xs text-brand-600 hover:text-brand-700 font-medium border border-brand-200 rounded-lg px-3 py-1.5"
+          >
+            Download CSV
+          </button>
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+          <p className="text-sm text-gray-400">
+            {students.length === 0
+              ? 'No students with accommodations in your courses for this term'
+              : 'No students match the current filters'}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Student</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Student #</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Course</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Accommodations</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s, i) => (
+                <tr key={`${s.studentProfileId}-${s.courseCode}`}
+                  className={i % 2 === 0 ? '' : 'bg-gray-50/50'}>
+                  <td className="px-4 py-2.5 font-medium text-gray-900">{s.firstName} {s.lastName}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{s.studentNumber ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{s.email}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded">{s.courseCode}</span>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex flex-wrap gap-1">
+                      {s.accommodationCodes.map((code, ci) => (
+                        <span key={code} title={s.accommodationLabels[ci]}
+                          className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">
+                          {code}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MyStudentsTab({ termId }) {
   const [courses,             setCourses]             = useState([]);
   const [loading,             setLoading]             = useState(true);
@@ -965,13 +1139,6 @@ function MyStudentsTab({ termId }) {
   }, [termId]); // eslint-disable-line
 
   if (loading) return <div className="flex justify-center py-10"><div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" /></div>;
-
-  if (!courses.length) return (
-    <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-      <p className="text-sm font-medium text-gray-700">No confirmed students yet</p>
-      <p className="text-xs text-gray-400 mt-1">Students whose exam requests you approved will appear here once confirmed by the accommodation centre.</p>
-    </div>
-  );
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -1037,9 +1204,10 @@ function MyStudentsTab({ termId }) {
       {/* Sub-tabs */}
       <div className="flex gap-1 border-b border-gray-200">
         {[
-          { key: 'not_uploaded',    label: 'Exam not uploaded',  count: notUploadedCount,    activeColour: 'border-amber-500 text-amber-700' },
-          { key: 'uploaded',        label: 'Exam uploaded',      count: uploadedCount,       activeColour: 'border-green-600 text-green-700' },
-          { key: 'deadline_missed', label: 'Deadline missed',    count: deadlineMissedCount, activeColour: 'border-red-500 text-red-700' },
+          { key: 'not_uploaded',    label: 'Awaiting Exam Upload', count: notUploadedCount,    activeColour: 'border-amber-500 text-amber-700' },
+          { key: 'uploaded',        label: 'Students Writing',    count: uploadedCount,       activeColour: 'border-green-600 text-green-700' },
+          { key: 'deadline_missed', label: 'Upload Missed',       count: deadlineMissedCount, activeColour: 'border-red-500 text-red-700' },
+          { key: 'accessibility',   label: 'Accessibility List',  count: null,                activeColour: 'border-blue-500 text-blue-700' },
         ].map(({ key, label, count, activeColour }) => (
           <button key={key} onClick={() => setSubTab(key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors
@@ -1057,7 +1225,14 @@ function MyStudentsTab({ termId }) {
       </div>
 
       {/* Content */}
-      {filtered.length === 0 ? (
+      {subTab === 'accessibility' ? (
+        <AccessibilityStudentsTab termId={termId} />
+      ) : !courses.length ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+          <p className="text-sm font-medium text-gray-700">No confirmed students yet</p>
+          <p className="text-xs text-gray-400 mt-1">Students whose exam requests you approved will appear here once confirmed by the accommodation centre.</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
           <p className="text-sm text-gray-400">
             {isDeadlineMissed ? 'No missed deadlines' : wantUploaded ? 'No exams uploaded yet' : 'All exams have been uploaded'}
@@ -1067,8 +1242,16 @@ function MyStudentsTab({ termId }) {
         filtered.map(({ courseCode, dates }) => (
           <div key={courseCode} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {/* Course header */}
-            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
               <span className="text-sm font-bold text-gray-900">{courseCode}</span>
+              {wantUploaded && (
+                <button
+                  onClick={() => downloadCsv(courseCode, dates)}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+                >
+                  Download CSV
+                </button>
+              )}
             </div>
 
             {dates.sort((a, b) => a.dateKey.localeCompare(b.dateKey)).map(({ dateKey, examDate, types }) => (
