@@ -256,7 +256,8 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
         for (const course of (studentsRes.courses ?? [])) {
           for (const dg of (course.dates ?? [])) {
             const dateStr = String(dg.examDate).slice(0, 10);
-            if (!dg.examUploaded && dateStr >= todayStr) {
+            const nonCancelledCount = dg.students?.filter(s => s.status !== 'cancelled').length ?? 0;
+            if (!dg.examUploaded && dateStr >= todayStr && nonCancelledCount > 0) {
               missing.push({
                 key: `${course.courseCode}__${dg.examDate}__${dg.examType}`,
                 courseId:     course.courseId,
@@ -264,10 +265,10 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
                 examDate:     dg.examDate,
                 examTime:     dg.examTime ?? null,
                 examType:     dg.examType ?? null,
-                studentCount: dg.students?.length ?? 0,
+                studentCount: nonCancelledCount,
               });
             }
-            if (dg.hasRwgStudents && !dg.wordDocUploaded && dateStr >= todayStr) {
+            if (dg.hasRwgStudents && !dg.wordDocUploaded && dateStr >= todayStr && nonCancelledCount > 0) {
               missingWd.push({
                 key: `wd__${course.courseCode}__${dg.examDate}__${dg.examType}`,
                 courseId:   course.courseId,
