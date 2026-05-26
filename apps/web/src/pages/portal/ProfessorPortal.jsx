@@ -21,7 +21,8 @@ export default function ProfessorPortal() {
   const [refreshKey,    setRefreshKey]    = useState(0);
   const [prefillData,   setPrefillData]   = useState(null);
   const [conversations, setConversations] = useState([]);
-  const [unreadCount,   setUnreadCount]   = useState(0);
+  const [unreadCount,          setUnreadCount]          = useState(0);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [msgsLoading,   setMsgsLoading]   = useState(false);
   const [threadUpload,  setThreadUpload]  = useState(null);
   const [showPicker,    setShowPicker]    = useState(false);
@@ -61,6 +62,14 @@ export default function ProfessorPortal() {
       .then(d => { if (d.ok) setPickerUploads(d.uploads ?? []); })
       .catch(() => setPickerUploads([]));
   }, [showPicker]); // eslint-disable-line
+
+  // Refresh pending exam request count whenever leaving that tab
+  useEffect(() => {
+    if (tab === 'Exam requests') return;
+    api.get('/portal/exam-requests')
+      .then(d => setPendingRequestsCount((d.examRequests ?? []).filter(r => r.status === 'pending').length))
+      .catch(() => {});
+  }, [tab]); // eslint-disable-line
 
   // Poll unread count every 60s when not on Messages tab
   useEffect(() => {
@@ -129,6 +138,11 @@ export default function ProfessorPortal() {
                   {t === 'Messages' && unreadCount > 0 && (
                     <span className="bg-brand-600 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">
                       {unreadCount}
+                    </span>
+                  )}
+                  {t === 'Exam requests' && pendingRequestsCount > 0 && (
+                    <span className="bg-amber-500 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">
+                      {pendingRequestsCount}
                     </span>
                   )}
                 </button>
