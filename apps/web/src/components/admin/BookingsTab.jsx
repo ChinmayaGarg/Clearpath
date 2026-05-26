@@ -249,6 +249,20 @@ function DurationBadge({ r }) {
 
 function ApprovalBadge({ r }) {
   if (r.status === 'confirmed') {
+    if (r.auto_approve_source === 'upload') {
+      return (
+        <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded font-medium">
+          Auto-approved by Professor
+        </span>
+      );
+    }
+    if (r.auto_approve_source === 'schedule') {
+      return (
+        <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded font-medium">
+          Auto-approved by Centre
+        </span>
+      );
+    }
     if (!r.confirmed_by_first) {
       return (
         <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded font-medium">

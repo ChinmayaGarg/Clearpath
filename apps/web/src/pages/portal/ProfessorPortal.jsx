@@ -696,9 +696,12 @@ function ExamRequestCard({ r, onAction }) {
 }
 
 function ProfessorExamRequestsTab({ termId }) {
-  const [requests, setRequests] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [subTab,   setSubTab]   = useState('Pending');
+  const [requests,      setRequests]      = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [subTab,        setSubTab]        = useState('Pending');
+  const [search,        setSearch]        = useState('');
+  const [filterCourse,  setFilterCourse]  = useState('');
+  const [filterType,    setFilterType]    = useState('');
 
   async function load() {
     setLoading(true);
@@ -717,9 +720,23 @@ function ProfessorExamRequestsTab({ termId }) {
 
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
-  const pending  = requests.filter(r => r.status === 'pending');
-  const approved = requests.filter(r => r.status === 'professor_approved' || r.status === 'confirmed');
-  const rejected = requests.filter(r => r.status === 'professor_rejected' || r.status === 'cancelled');
+  const courses   = [...new Set(requests.map(r => r.course_code))].sort();
+  const examTypes = [...new Set(requests.map(r => r.exam_type).filter(Boolean))].sort();
+
+  const applyFilters = (list) => list.filter(r => {
+    const q = search.toLowerCase();
+    const matchSearch = !q ||
+      `${r.first_name} ${r.last_name}`.toLowerCase().includes(q) ||
+      (r.student_number ?? '').toLowerCase().includes(q);
+    const matchCourse = !filterCourse || r.course_code === filterCourse;
+    const matchType   = !filterType   || r.exam_type   === filterType;
+    return matchSearch && matchCourse && matchType;
+  });
+
+  const byDate = (a, b) => String(a.exam_date).localeCompare(String(b.exam_date));
+  const pending  = applyFilters(requests.filter(r => r.status === 'pending')).sort(byDate);
+  const approved = applyFilters(requests.filter(r => r.status === 'professor_approved' || r.status === 'confirmed')).sort(byDate);
+  const rejected = applyFilters(requests.filter(r => r.status === 'professor_rejected' || r.status === 'cancelled')).sort(byDate);
 
   const tabs = [
     { key: 'Pending',  items: pending,  emptyMsg: 'No pending requests' },
@@ -773,11 +790,48 @@ function ProfessorExamRequestsTab({ termId }) {
         ))}
       </div>
 
+      {/* Search + filters */}
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="text"
+          placeholder="Search by student name or #"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400 w-52"
+        />
+        <select
+          value={filterCourse}
+          onChange={e => setFilterCourse(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400"
+        >
+          <option value="">All courses</option>
+          {courses.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select
+          value={filterType}
+          onChange={e => setFilterType(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400"
+        >
+          <option value="">All exam types</option>
+          {examTypes.map(t => <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>)}
+        </select>
+        {(search || filterCourse || filterType) && (
+          <button
+            onClick={() => { setSearch(''); setFilterCourse(''); setFilterType(''); }}
+            className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {tabs.map(({ key, items, emptyMsg }) => subTab === key && (
         items.length === 0 ? (
           <div key={key} className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-            <p className="text-sm font-medium text-gray-700">{emptyMsg}</p>
-            {key === 'Pending' && (
+            <p className="text-sm font-medium text-gray-700">
+              {(search || filterCourse || filterType) ? 'No requests match the current filters' : emptyMsg}
+            </p>
+            {key === 'Pending' && !(search || filterCourse || filterType) && (
               <p className="text-xs text-gray-400 mt-1">
                 Student exam scheduling requests for your courses will appear here.
               </p>
@@ -791,7 +845,12 @@ function ProfessorExamRequestsTab({ termId }) {
                 {key !== 'Pending' && (
                   <div className="flex items-center gap-2 mb-1.5 px-1">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CHIP[r.status] ?? ''}`}>
-                      {key === 'Rejected' ? rejectionLabel(r) : r.status === 'confirmed' ? 'Confirmed by centre' : 'Professor approved'}
+                      {key === 'Rejected' ? rejectionLabel(r)
+                        : r.status === 'confirmed'
+                          ? r.auto_approve_source === 'upload'   ? 'Auto-approved by Professor'
+                          : r.auto_approve_source === 'schedule' ? 'Auto-approved by Centre'
+                          : `Confirmed by Centre${r.confirmed_by_first ? ` (${r.confirmed_by_first} ${r.confirmed_by_last})` : ''}`
+                        : 'Professor approved'}
                     </span>
                     <span className="text-xs text-gray-400">
                       {new Date(r.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}

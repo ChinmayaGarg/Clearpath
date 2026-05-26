@@ -75,7 +75,7 @@ router.get("/bookings", async (req, res, next) => {
          ebr.special_materials_note, ebr.status, ebr.confirmed_at, ebr.created_at,
          ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
          ebr.computed_duration_mins, ebr.student_duration_mins,
-         ebr.rejection_reason,
+         ebr.rejection_reason, ebr.auto_approve_source,
          u.first_name, u.last_name, u.email,
          sp.student_number, sp.id AS student_profile_id,
          cu.first_name AS confirmed_by_first, cu.last_name AS confirmed_by_last,
@@ -1241,7 +1241,7 @@ router.post("/exam-schedules", async (req, res, next) => {
        SET status = 'professor_approved', updated_at = NOW()
        WHERE course_id = $1
          AND exam_date = $2
-         AND (exam_time = $3 OR $3 IS NULL)
+         AND ($3::time IS NULL OR exam_time IS NULL OR exam_time = $3::time)
          AND status = 'pending'
        RETURNING id`,
       [courseId, examDate, examTime || null],
@@ -1251,10 +1251,11 @@ router.post("/exam-schedules", async (req, res, next) => {
     const confirmedResult = await tenantQuery(
       schema,
       `UPDATE exam_booking_request
-       SET status = 'confirmed', confirmed_by = $1, confirmed_at = NOW(), updated_at = NOW()
+       SET status = 'confirmed', confirmed_by = $1, confirmed_at = NOW(),
+           auto_approve_source = 'schedule', updated_at = NOW()
        WHERE course_id = $2
          AND exam_date = $3
-         AND (exam_time = $4 OR $4 IS NULL)
+         AND ($4::time IS NULL OR exam_time IS NULL OR exam_time = $4::time)
          AND status = 'professor_approved'
        RETURNING id`,
       [req.user.id, courseId, examDate, examTime || null],

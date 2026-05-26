@@ -842,6 +842,42 @@ router.post("/uploads/:id/submit", async (req, res, next) => {
     await submitUpload(req.tenantSchema, req.params.id, profId);
     await persistUploadDossier(req.tenantSchema, req.params.id, req.user.id);
 
+    // Auto-approve all pending requests matching this upload's course+date+type+time
+    const uploadDatesResult = await tenantQuery(
+      req.tenantSchema,
+      `SELECT eu.course_id, eu.exam_type_label::text AS exam_type,
+              eud.exam_date, eud.time_slot
+       FROM exam_upload eu
+       JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+       WHERE eu.id = $1`,
+      [req.params.id],
+    );
+    for (const row of uploadDatesResult.rows) {
+      await tenantQuery(
+        req.tenantSchema,
+        `UPDATE exam_booking_request
+         SET status = 'professor_approved', updated_at = NOW()
+         WHERE course_id = $1
+           AND exam_date = $2
+           AND exam_type = $3
+           AND ($4::time IS NULL OR exam_time IS NULL OR exam_time = $4::time)
+           AND status = 'pending'`,
+        [row.course_id, row.exam_date, row.exam_type, row.time_slot || null],
+      );
+      await tenantQuery(
+        req.tenantSchema,
+        `UPDATE exam_booking_request
+         SET status = 'confirmed', confirmed_by = $1, confirmed_at = NOW(),
+             auto_approve_source = 'upload', updated_at = NOW()
+         WHERE course_id = $2
+           AND exam_date = $3
+           AND exam_type = $4
+           AND ($5::time IS NULL OR exam_time IS NULL OR exam_time = $5::time)
+           AND status = 'professor_approved'`,
+        [req.user.id, row.course_id, row.exam_date, row.exam_type, row.time_slot || null],
+      );
+    }
+
     // Run matching engine asynchronously — don't block the response
     matchUpload(
       req.tenantSchema,
@@ -1390,8 +1426,10 @@ router.get("/exam-requests", async (req, res, next) => {
          ebr.id, c.code AS course_code, ebr.exam_date, ebr.exam_time,
          ebr.exam_type, ebr.special_materials_note, ebr.status, ebr.created_at,
          ebr.student_duration_mins, ebr.rejection_reason, ebr.attendance_status,
+         ebr.auto_approve_source,
          u.first_name, u.last_name, u.email,
          sp.student_number,
+         cu.first_name AS confirmed_by_first, cu.last_name AS confirmed_by_last,
          ru.first_name || ' ' || ru.last_name AS rejected_by_name,
          ur.role AS rejected_by_role,
          EXISTS (
@@ -1405,6 +1443,7 @@ router.get("/exam-requests", async (req, res, next) => {
        JOIN course c ON c.id = ebr.course_id
        JOIN student_profile sp ON sp.id = ebr.student_profile_id
        JOIN "user" u ON u.id = sp.user_id
+       LEFT JOIN "user" cu ON cu.id = ebr.confirmed_by
        LEFT JOIN "user" ru ON ru.id = ebr.rejected_by
        LEFT JOIN LATERAL (
          SELECT role FROM user_role WHERE user_id = ebr.rejected_by LIMIT 1

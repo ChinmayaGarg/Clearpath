@@ -323,21 +323,35 @@ router.post("/exam-requests", async (req, res, next) => {
       computedDurationMins: totalMins,
     });
 
-    // ── Check if exam is scheduled for auto-approval ──────────────────────────
-    const schedResult = await tenantQuery(
-      schema,
-      `SELECT id, auto_approve_enabled FROM exam_schedule
-       WHERE course_id = $1
-         AND exam_date = $2
-         AND (exam_time = $3 OR $3 IS NULL)
-         AND auto_approve_enabled = true
-       LIMIT 1`,
-      [body.courseId, body.examDate, body.examTime || null],
-    );
+    // ── Check if exam is scheduled for auto-approval (admin schedule OR prof upload) ──
+    const [schedResult, uploadResult] = await Promise.all([
+      tenantQuery(
+        schema,
+        `SELECT id FROM exam_schedule
+         WHERE course_id = $1
+           AND exam_date = $2
+           AND (exam_time IS NULL OR $3 IS NULL OR exam_time = $3::time)
+           AND auto_approve_enabled = true
+         LIMIT 1`,
+        [body.courseId, body.examDate, body.examTime || null],
+      ),
+      tenantQuery(
+        schema,
+        `SELECT eu.id FROM exam_upload eu
+         JOIN exam_upload_date eud ON eud.exam_upload_id = eu.id
+         WHERE eu.course_id = $1
+           AND eud.exam_date = $2
+           AND eu.exam_type_label::text = $3
+           AND eu.status = 'submitted'
+           AND (eud.time_slot IS NULL OR $4 IS NULL OR eud.time_slot = $4::time)
+         LIMIT 1`,
+        [body.courseId, body.examDate, body.examType, body.examTime || null],
+      ),
+    ]);
 
     let autoApproved = false;
-    if (schedResult.rows.length > 0) {
-      // Auto-approve: set to professor_approved then confirmed
+    if (schedResult.rows.length > 0 || uploadResult.rows.length > 0) {
+      const autoApproveSource = schedResult.rows.length > 0 ? 'schedule' : 'upload';
       await tenantQuery(
         schema,
         `UPDATE exam_booking_request
@@ -345,15 +359,14 @@ router.post("/exam-requests", async (req, res, next) => {
          WHERE id = $1`,
         [id],
       );
-
       await tenantQuery(
         schema,
         `UPDATE exam_booking_request
-         SET status = 'confirmed', confirmed_at = NOW(), updated_at = NOW()
+         SET status = 'confirmed', confirmed_at = NOW(),
+             auto_approve_source = $2, updated_at = NOW()
          WHERE id = $1`,
-        [id],
+        [id, autoApproveSource],
       );
-
       autoApproved = true;
     }
 
