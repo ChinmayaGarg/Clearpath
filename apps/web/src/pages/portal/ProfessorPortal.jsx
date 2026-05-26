@@ -859,6 +859,8 @@ function MyStudentsTab() {
     </div>
   );
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   // Build grouped structure: course → date → type → students[]
   const grouped = {};
   for (const course of courses) {
@@ -875,6 +877,7 @@ function MyStudentsTab() {
         grouped[course.courseCode].dates[dateKey].types[typeKey] = {
           examType: dg.examType,
           examTime: dg.examTime,
+          examDate: dateKey,
           examUploaded: dg.examUploaded,
           students: [],
         };
@@ -884,15 +887,21 @@ function MyStudentsTab() {
   }
 
   const hasNonCancelled = (tg) => tg.students.some(s => s.status !== 'cancelled');
+  const isPast          = (tg) => tg.examDate < todayStr;
 
   // Filter grouped data for the active tab — only include type groups matching the tab
-  const wantUploaded = subTab === 'uploaded';
+  const wantUploaded     = subTab === 'uploaded';
+  const isDeadlineMissed = subTab === 'deadline_missed';
+  const matchesTab = (tg) => {
+    if (isDeadlineMissed) return !tg.examUploaded && isPast(tg);
+    if (wantUploaded)     return  tg.examUploaded && hasNonCancelled(tg);
+    // not_uploaded: future exams only, with at least one non-cancelled student
+    return !tg.examUploaded && !isPast(tg) && hasNonCancelled(tg);
+  };
   const filtered = Object.values(grouped).map(({ courseCode, dates }) => {
     const filteredDates = Object.entries(dates)
       .map(([dk, { examDate, types }]) => {
-        const filteredTypes = Object.values(types).filter(tg =>
-          tg.examUploaded === wantUploaded && hasNonCancelled(tg)
-        );
+        const filteredTypes = Object.values(types).filter(matchesTab);
         return filteredTypes.length ? { dateKey: dk, examDate, types: filteredTypes } : null;
       })
       .filter(Boolean);
@@ -900,23 +909,23 @@ function MyStudentsTab() {
   }).filter(Boolean);
 
   // Counts for tab badges
-  const countTypes = (uploaded) =>
+  const countTypes = (pred) =>
     Object.values(grouped).reduce((n, { dates }) =>
       n + Object.values(dates).reduce((m, { types }) =>
-        m + Object.values(types).filter(tg =>
-          tg.examUploaded === uploaded && hasNonCancelled(tg)
-        ).length, 0), 0);
+        m + Object.values(types).filter(pred).length, 0), 0);
 
-  const uploadedCount    = countTypes(true);
-  const notUploadedCount = countTypes(false);
+  const uploadedCount       = countTypes(tg =>  tg.examUploaded && hasNonCancelled(tg));
+  const notUploadedCount    = countTypes(tg => !tg.examUploaded && !isPast(tg) && hasNonCancelled(tg));
+  const deadlineMissedCount = countTypes(tg => !tg.examUploaded && isPast(tg));
 
   return (
     <div className="space-y-4">
       {/* Sub-tabs */}
       <div className="flex gap-1 border-b border-gray-200">
         {[
-          { key: 'not_uploaded', label: 'Exam not uploaded', count: notUploadedCount, activeColour: 'border-amber-500 text-amber-700' },
-          { key: 'uploaded',     label: 'Exam uploaded',     count: uploadedCount,    activeColour: 'border-green-600 text-green-700' },
+          { key: 'not_uploaded',    label: 'Exam not uploaded',  count: notUploadedCount,    activeColour: 'border-amber-500 text-amber-700' },
+          { key: 'uploaded',        label: 'Exam uploaded',      count: uploadedCount,       activeColour: 'border-green-600 text-green-700' },
+          { key: 'deadline_missed', label: 'Deadline missed',    count: deadlineMissedCount, activeColour: 'border-red-500 text-red-700' },
         ].map(({ key, label, count, activeColour }) => (
           <button key={key} onClick={() => setSubTab(key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors
@@ -937,7 +946,7 @@ function MyStudentsTab() {
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
           <p className="text-sm text-gray-400">
-            {wantUploaded ? 'No exams uploaded yet' : 'All exams have been uploaded'}
+            {isDeadlineMissed ? 'No missed deadlines' : wantUploaded ? 'No exams uploaded yet' : 'All exams have been uploaded'}
           </p>
         </div>
       ) : (
