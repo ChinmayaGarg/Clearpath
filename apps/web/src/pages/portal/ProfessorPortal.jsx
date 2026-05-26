@@ -838,10 +838,73 @@ function ProfExamPickerModal({ uploads, existingIds, onSelect, onClose }) {
   );
 }
 
+function AttendanceBadge({ bookingId, examDate, attendanceStatus, onUpdate }) {
+  const [open,   setOpen]   = useState(false);
+  const [saving, setSaving] = useState(false);
+  const isPast = String(examDate).slice(0, 10) < new Date().toISOString().slice(0, 10);
+
+  if (!isPast) {
+    return (
+      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-400">
+        Exam yet to happen
+      </span>
+    );
+  }
+
+  const cfg = attendanceStatus === 'show'
+    ? { label: 'Show',         cls: 'bg-green-50 text-green-700' }
+    : attendanceStatus === 'no_show'
+    ? { label: 'No show',      cls: 'bg-red-50 text-red-500' }
+    : { label: 'Not recorded', cls: 'bg-amber-50 text-amber-700' };
+
+  const setStatus = async (status) => {
+    setSaving(true);
+    setOpen(false);
+    try {
+      await api.patch(`/portal/bookings/${bookingId}/attendance`, { status });
+      onUpdate(status);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        disabled={saving}
+        onClick={() => setOpen(o => !o)}
+        className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.cls}`}
+      >
+        {saving ? '…' : cfg.label}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[110px]">
+            {[
+              { status: 'show',    label: 'Show' },
+              { status: 'no_show', label: 'No show' },
+              { status: null,      label: 'Clear' },
+            ].map(({ status, label }) => (
+              <button key={label} onClick={() => setStatus(status)}
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 text-gray-700">
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MyStudentsTab() {
-  const [courses, setCourses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [subTab, setSubTab]   = useState('not_uploaded');
+  const [courses,             setCourses]             = useState([]);
+  const [loading,             setLoading]             = useState(true);
+  const [subTab,              setSubTab]              = useState('not_uploaded');
+  const [attendanceOverrides, setAttendanceOverrides] = useState({});
 
   useEffect(() => {
     api.get('/portal/my-students')
@@ -980,27 +1043,42 @@ function MyStudentsTab() {
 
                     {/* Students */}
                     <div className="px-4 pb-3 space-y-1.5">
-                      {tg.students.map(s => (
-                        <div key={s.bookingId} className={`flex items-center justify-between ${s.status === 'cancelled' ? 'opacity-50' : ''}`}>
-                          <div>
-                            <span className="text-sm text-gray-900">{s.firstName} {s.lastName}</span>
-                            {s.studentNumber && <span className="text-xs text-gray-400 ml-1.5">#{s.studentNumber}</span>}
+                      {tg.students.map(s => {
+                        const effectiveAttendance = attendanceOverrides[s.bookingId] !== undefined
+                          ? attendanceOverrides[s.bookingId]
+                          : s.attendanceStatus;
+                        return (
+                          <div key={s.bookingId} className={`flex items-center justify-between ${s.status === 'cancelled' ? 'opacity-50' : ''}`}>
+                            <div>
+                              <span className="text-sm text-gray-900">{s.firstName} {s.lastName}</span>
+                              {s.studentNumber && <span className="text-xs text-gray-400 ml-1.5">#{s.studentNumber}</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {subTab === 'uploaded' && s.status !== 'cancelled' && (
+                                <AttendanceBadge
+                                  bookingId={s.bookingId}
+                                  examDate={tg.examDate}
+                                  attendanceStatus={effectiveAttendance}
+                                  onUpdate={(newStatus) => setAttendanceOverrides(prev => ({ ...prev, [s.bookingId]: newStatus }))}
+                                />
+                              )}
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                s.status === 'confirmed'
+                                  ? 'bg-green-50 text-green-700'
+                                  : s.status === 'cancelled'
+                                  ? 'bg-red-50 text-red-500'
+                                  : 'bg-amber-50 text-amber-700'
+                              }`}>
+                                {s.status === 'confirmed'
+                                  ? 'Confirmed'
+                                  : s.status === 'cancelled'
+                                  ? 'Cancelled'
+                                  : 'Awaiting Confirmation from Accessibility Center'}
+                              </span>
+                            </div>
                           </div>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            s.status === 'confirmed'
-                              ? 'bg-green-50 text-green-700'
-                              : s.status === 'cancelled'
-                              ? 'bg-red-50 text-red-500'
-                              : 'bg-amber-50 text-amber-700'
-                          }`}>
-                            {s.status === 'confirmed'
-                              ? 'Confirmed'
-                              : s.status === 'cancelled'
-                              ? 'Cancelled'
-                              : 'Awaiting Confirmation from Accessibility Center'}
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

@@ -1064,7 +1064,7 @@ router.get("/my-students", async (req, res, next) => {
          ebr.course_id, c.code AS course_code, ebr.exam_type,
          ebr.exam_date::text AS exam_date, ebr.exam_time::text AS exam_time, ebr.status,
          ebr.base_duration_mins, ebr.extra_mins, ebr.stb_mins,
-         ebr.student_duration_mins,
+         ebr.student_duration_mins, ebr.attendance_status,
          u.first_name, u.last_name, u.email,
          sp.student_number,
          EXISTS (
@@ -1169,15 +1169,16 @@ router.get("/my-students", async (req, res, next) => {
       }
 
       grouped[courseKey].dates[dateKey].students.push({
-        bookingId:       row.booking_id,
-        firstName:       row.first_name,
-        lastName:        row.last_name,
-        email:           row.email,
-        studentNumber:   row.student_number,
-        status:          row.status,
+        bookingId:        row.booking_id,
+        firstName:        row.first_name,
+        lastName:         row.last_name,
+        email:            row.email,
+        studentNumber:    row.student_number,
+        status:           row.status,
+        attendanceStatus: row.attendance_status ?? null,
         baseDurationMins: row.base_duration_mins ?? row.student_duration_mins,
-        extraMins:       row.extra_mins ?? 0,
-        stbMins:         row.stb_mins  ?? 0,
+        extraMins:        row.extra_mins ?? 0,
+        stbMins:          row.stb_mins  ?? 0,
       });
     }
 
@@ -1189,6 +1190,45 @@ router.get("/my-students", async (req, res, next) => {
     }));
 
     res.json({ ok: true, courses });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/portal/bookings/:id/attendance ─────────────────────────────────
+router.patch("/bookings/:id/attendance", async (req, res, next) => {
+  try {
+    const profId = await getProfId(req, res);
+    if (!profId) return;
+
+    const { status } = req.body;
+    if (status !== null && status !== 'show' && status !== 'no_show') {
+      return res.status(400).json({ ok: false, error: 'status must be "show", "no_show", or null' });
+    }
+
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `UPDATE exam_booking_request
+       SET attendance_status      = $2,
+           attendance_recorded_by = $3,
+           attendance_recorded_at = $4,
+           updated_at             = NOW()
+       WHERE id = $1
+         AND status = 'confirmed'
+         AND (
+           professor_profile_id = $5
+           OR EXISTS (
+             SELECT 1 FROM course_dossier cd
+             JOIN course_offering co ON co.id = cd.course_offering_id
+             WHERE co.course_id = exam_booking_request.course_id
+               AND cd.professor_id = $5
+           )
+         )
+       RETURNING id`,
+      [req.params.id, status, status ? req.user.id : null, status ? new Date() : null, profId],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ ok: false, error: 'Booking not found or not accessible' });
+    }
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
