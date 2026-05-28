@@ -4,6 +4,7 @@ import { toast }   from '../components/ui/Toast.jsx';
 import Spinner     from '../components/ui/Spinner.jsx';
 import TopNav      from '../components/ui/TopNav.jsx';
 import { useAuth } from '../hooks/useAuth.js';
+import EdDashboardTab from '../components/admin/EdDashboardTab.jsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -1799,7 +1800,7 @@ function ConflictsTab() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const TABS = ['Exam Day', 'Exam Details', 'Exam Book', 'Dropoffs', 'Returns', 'Conflicts'];
+const TABS = ['Exam Day', 'ED Dashboard', 'Exam Details', 'Exam Book', 'Dropoffs', 'Returns', 'Conflicts'];
 
 export default function Prep() {
   const [tab, setTab] = useState('Exam Day');
@@ -1829,18 +1830,22 @@ export default function Prep() {
 
         {/* Main content */}
         <main className="flex-1 min-w-0 px-6 py-8">
-          <div className="max-w-3xl mx-auto">
-            <div className="mb-6">
-              <h1 className="text-xl font-semibold text-gray-900">Exam Prep</h1>
-            </div>
+          {tab === 'ED Dashboard' ? (
+            <EdDashboardTab />
+          ) : (
+            <div className="max-w-3xl mx-auto">
+              <div className="mb-6">
+                <h1 className="text-xl font-semibold text-gray-900">Exam Prep</h1>
+              </div>
 
-            {tab === 'Exam Day'     && <ExamDayTab />}
-            {tab === 'Exam Details' && <ExamDetailsTab />}
-            {tab === 'Exam Book'    && <ExamBookTab />}
-            {tab === 'Dropoffs'     && <DropoffsTab />}
-            {tab === 'Returns'      && <ReturnsTab />}
-            {tab === 'Conflicts'    && <ConflictsTab />}
-          </div>
+              {tab === 'Exam Day'     && <ExamDayTab />}
+              {tab === 'Exam Details' && <ExamDetailsTab />}
+              {tab === 'Exam Book'    && <ExamBookTab />}
+              {tab === 'Dropoffs'     && <DropoffsTab />}
+              {tab === 'Returns'      && <ReturnsTab />}
+              {tab === 'Conflicts'    && <ConflictsTab />}
+            </div>
+          )}
         </main>
       </div>
     </div>

@@ -1134,6 +1134,99 @@ router.get("/schedule", async (req, res, next) => {
   }
 });
 
+// ── POST /api/institution/schedule/assign ────────────────────────────────────
+// Manually assign (or move) a confirmed booking to a room.
+const AssignSchema = z.object({
+  bookingId: z.string().uuid(),
+  roomId:    z.string().uuid(),
+  date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  examTime:  z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
+});
+
+router.post('/schedule/assign', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { bookingId, roomId, date, examTime } = AssignSchema.parse(req.body);
+
+    // Verify the booking is confirmed
+    const bookingCheck = await tenantQuery(schema,
+      `SELECT id FROM exam_booking_request WHERE id = $1 AND status = 'confirmed'`,
+      [bookingId],
+    );
+    if (!bookingCheck.rows.length) {
+      return res.status(400).json({ ok: false, error: 'Booking not found or not confirmed' });
+    }
+
+    // Find most recent schedule for this date, or create one
+    let scheduleId;
+    const existingSched = await tenantQuery(schema,
+      `SELECT id FROM booking_schedule WHERE date = $1 ORDER BY created_at DESC LIMIT 1`,
+      [date],
+    );
+    if (existingSched.rows.length) {
+      scheduleId = existingSched.rows[0].id;
+    } else {
+      const newSched = await tenantQuery(schema,
+        `INSERT INTO booking_schedule (date, created_by) VALUES ($1, $2) RETURNING id`,
+        [date, req.user.id],
+      );
+      scheduleId = newSched.rows[0].id;
+    }
+
+    // Find-or-create booking_schedule_room for this (schedule, room) pair
+    const existingSchedRoom = await tenantQuery(schema,
+      `SELECT id FROM booking_schedule_room WHERE schedule_id = $1 AND booking_room_id = $2`,
+      [scheduleId, roomId],
+    );
+    let scheduleRoomId;
+    if (existingSchedRoom.rows.length) {
+      scheduleRoomId = existingSchedRoom.rows[0].id;
+    } else {
+      const newSchedRoom = await tenantQuery(schema,
+        `INSERT INTO booking_schedule_room (schedule_id, booking_room_id) VALUES ($1, $2) RETURNING id`,
+        [scheduleId, roomId],
+      );
+      scheduleRoomId = newSchedRoom.rows[0].id;
+    }
+
+    // Upsert the booking assignment (unique on exam_booking_request_id)
+    await tenantQuery(schema,
+      `INSERT INTO booking_assignment (schedule_room_id, exam_booking_request_id)
+       VALUES ($1, $2)
+       ON CONFLICT (exam_booking_request_id)
+       DO UPDATE SET schedule_room_id = EXCLUDED.schedule_room_id`,
+      [scheduleRoomId, bookingId],
+    );
+
+    if (examTime) {
+      await tenantQuery(schema,
+        `UPDATE exam_booking_request SET exam_time = $1 WHERE id = $2`,
+        [examTime, bookingId],
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── DELETE /api/institution/schedule/assign/:bookingId ────────────────────────
+// Remove a booking from its assigned room (leaves it unassigned).
+router.delete('/schedule/assign/:bookingId', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { bookingId } = req.params;
+    await tenantQuery(schema,
+      `DELETE FROM booking_assignment WHERE exam_booking_request_id = $1`,
+      [bookingId],
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET /api/institution/courses ────────────────────────────────────────────
 // Get all courses linked to professors for scheduling dropdown
 router.get("/courses", async (req, res, next) => {

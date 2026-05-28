@@ -50,7 +50,7 @@ async function fetchPrepData(schema, date) {
        ebr.attendance_status, ebr.attendance_recorded_at,
        sp.id AS student_profile_id, sp.student_number,
        u.first_name, u.last_name,
-       br.name AS room_name,
+       br.id AS room_id, br.name AS room_name,
        pu.first_name AS prof_first_name, pu.last_name AS prof_last_name,
        pu.email AS prof_email, pp.phone AS prof_phone,
        eu.upload_found,
@@ -70,9 +70,11 @@ async function fetchPrepData(schema, date) {
             ON bs.id = bsr.schedule_id AND bs.date = ebr.exam_date
      LEFT JOIN booking_room br ON br.id = bsr.booking_room_id
      LEFT JOIN LATERAL (
-       SELECT eu2.exam_format, eu2.professor_profile_id,
+       SELECT eu2.id AS upload_id,
+              eu2.exam_format, eu2.professor_profile_id,
               eu2.student_instructions, eu2.exam_collection_method,
               eu2.calculator_type, eu2.password, eu2.scantron_needed,
+              eu2.materials, eu2.booklet_type,
               TRUE AS upload_found
        FROM exam_upload eu2
        JOIN exam_upload_date eud ON eud.exam_upload_id = eu2.id
@@ -175,7 +177,12 @@ async function fetchPrepData(schema, date) {
       studentNumber:        r.student_number,
       firstName:            r.first_name,
       lastName:             r.last_name,
+      roomId:               r.room_id,
       roomName:             r.room_name,
+      uploadId:             r.upload_id,
+      scantronNeeded:       r.scantron_needed,
+      materials:            r.materials,
+      bookletType:          r.booklet_type,
       profFirstName:        r.prof_first_name,
       profLastName:         r.prof_last_name,
       profEmail:            r.prof_email,
