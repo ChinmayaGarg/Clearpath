@@ -17,6 +17,10 @@
  * PATCH  /api/counsellor/registrations/:id/notes
  * POST   /api/counsellor/registrations/:id/attachments
  * DELETE /api/counsellor/registrations/:id/attachments/:attachmentId
+ * GET    /api/counsellor/renewal-requests
+ * GET    /api/counsellor/renewal-requests/:id
+ * POST   /api/counsellor/renewal-requests/:id/approve
+ * POST   /api/counsellor/renewal-requests/:id/reject
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -532,6 +536,231 @@ router.delete('/registrations/:id/attachments/:attachmentId', async (req, res, n
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Attachment not found' });
     await deleteFile(result.rows[0].file_path);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/counsellor/renewal-requests?status= ─────────────────────────────
+router.get('/renewal-requests', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const status = req.query.status ?? 'pending';
+    const result = await tenantQuery(
+      schema,
+      `SELECT arr.id, arr.status, arr.notes, arr.counsellor_notes, arr.reviewed_at, arr.created_at,
+              t.id AS term_id, t.label AS term_label,
+              u.first_name, u.last_name, u.email, sp.student_number
+       FROM accommodation_renewal_request arr
+       JOIN student_profile sp ON sp.id = arr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       JOIN term t ON t.id = arr.requested_term_id
+       WHERE arr.status = $1
+       ORDER BY arr.created_at ASC`,
+      [status],
+    );
+    res.json({ ok: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/counsellor/renewal-requests/:id ─────────────────────────────────
+router.get('/renewal-requests/:id', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+
+    const reqResult = await tenantQuery(
+      schema,
+      `SELECT arr.id, arr.status, arr.notes, arr.counsellor_notes, arr.reviewed_at, arr.created_at,
+              arr.student_profile_id,
+              t.id AS term_id, t.label AS term_label,
+              t.start_date AS term_start_date, t.end_date AS term_end_date,
+              (t.start_date IS NOT NULL
+               AND t.start_date <= CURRENT_DATE
+               AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)) AS is_current_term,
+              u.first_name, u.last_name, u.email, sp.student_number
+       FROM accommodation_renewal_request arr
+       JOIN student_profile sp ON sp.id = arr.student_profile_id
+       JOIN "user" u ON u.id = sp.user_id
+       JOIN term t ON t.id = arr.requested_term_id
+       WHERE arr.id = $1`,
+      [req.params.id],
+    );
+    if (!reqResult.rows.length) return res.status(404).json({ ok: false, error: 'Renewal request not found' });
+
+    const row = reqResult.rows[0];
+    const isFutureTerm = !row.is_current_term;
+
+    const [requestedCodesResult, contextAccomResult, allCodesResult] = await Promise.all([
+      // What the student selected in their renewal request
+      tenantQuery(
+        schema,
+        `SELECT rra.accommodation_code_id, ac.code, ac.label
+         FROM renewal_request_accommodation rra
+         JOIN accommodation_code ac ON ac.id = rra.accommodation_code_id
+         WHERE rra.renewal_request_id = $1
+         ORDER BY ac.label`,
+        [req.params.id],
+      ),
+      isFutureTerm
+        // Future: prefer existing grants for this future term (re-request), else fall back to most recent past-term
+        ? tenantQuery(
+            schema,
+            `SELECT DISTINCT ON (ac.id) sa.accommodation_code_id, sa.notes AS granted_notes,
+                    ac.code, ac.label,
+                    t.id AS term_id, t.label AS term_label
+             FROM student_accommodation sa
+             JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+             JOIN term t ON t.id = sa.term_id
+             WHERE sa.student_profile_id = $1
+               AND sa.is_active = TRUE
+               AND (
+                 sa.term_id = $2
+                 OR (sa.term_id != $2 AND (t.start_date IS NULL OR t.start_date < $3))
+               )
+             ORDER BY ac.id,
+               (sa.term_id = $2)::int DESC,
+               t.start_date DESC NULLS LAST`,
+            [row.student_profile_id, row.term_id, row.term_start_date],
+          )
+        // Current: this term's active grants
+        : tenantQuery(
+            schema,
+            `SELECT sa.accommodation_code_id, sa.notes AS granted_notes,
+                    ac.code, ac.label
+             FROM student_accommodation sa
+             JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id
+             WHERE sa.student_profile_id = $1
+               AND sa.term_id = $2
+               AND sa.is_active = TRUE
+             ORDER BY ac.label`,
+            [row.student_profile_id, row.term_id],
+          ),
+      // All active codes for additional-accommodation picker
+      tenantQuery(
+        schema,
+        `SELECT id, code, label FROM accommodation_code WHERE is_active = TRUE ORDER BY label`,
+      ),
+    ]);
+
+    // For future-term re-requests: contextAccommodations may include grants for this future term itself
+    const isReRequest = isFutureTerm && contextAccomResult.rows.some((r) => r.term_id === row.term_id);
+
+    res.json({
+      ok: true,
+      data: {
+        ...row,
+        isFutureTerm,
+        isReRequest,
+        requestedCodes: requestedCodesResult.rows,
+        contextAccommodations: contextAccomResult.rows,
+        allCodes: allCodesResult.rows,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/counsellor/renewal-requests/:id/approve ────────────────────────
+router.post('/renewal-requests/:id/approve', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { grantedCodes } = req.body; // [{ accommodationCodeId, notes }]
+
+    if (!Array.isArray(grantedCodes) || grantedCodes.length === 0) {
+      return res.status(400).json({ ok: false, error: 'grantedCodes must be a non-empty array' });
+    }
+
+    const reqResult = await tenantQuery(
+      schema,
+      `SELECT arr.id, arr.status, arr.student_profile_id, arr.requested_term_id,
+              (t.start_date IS NOT NULL
+               AND t.start_date <= CURRENT_DATE
+               AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)) AS is_current_term,
+              cp.id AS counsellor_profile_id
+       FROM accommodation_renewal_request arr
+       JOIN term t ON t.id = arr.requested_term_id
+       CROSS JOIN (SELECT id FROM counsellor_profile WHERE user_id = $2 LIMIT 1) cp
+       WHERE arr.id = $1`,
+      [req.params.id, req.user.id],
+    );
+    if (!reqResult.rows.length) return res.status(404).json({ ok: false, error: 'Renewal request not found' });
+
+    const { status, student_profile_id, requested_term_id, is_current_term, counsellor_profile_id } = reqResult.rows[0];
+    if (status !== 'pending') {
+      return res.status(409).json({ ok: false, error: 'Request is no longer pending' });
+    }
+
+    // Upsert all granted codes — named constraint avoids schema-resolution ambiguity
+    for (const { accommodationCodeId, notes } of grantedCodes) {
+      await tenantQuery(
+        schema,
+        `INSERT INTO student_accommodation
+           (student_profile_id, accommodation_code_id, term_id, notes, source, counsellor_profile_id, is_active)
+         VALUES ($1, $2, $3, $4, 'granted', $5, TRUE)
+         ON CONFLICT ON CONSTRAINT uq_student_accommodation_term
+         DO UPDATE SET is_active = TRUE, source = 'granted', notes = EXCLUDED.notes,
+                       counsellor_profile_id = EXCLUDED.counsellor_profile_id,
+                       updated_at = NOW()`,
+        [student_profile_id, accommodationCodeId, requested_term_id, notes?.trim() || null, counsellor_profile_id],
+      );
+    }
+
+    // For current-term requests: deactivate any existing grants the counsellor unchecked
+    if (is_current_term) {
+      const grantedIds = grantedCodes.map(c => c.accommodationCodeId);
+      await tenantQuery(
+        schema,
+        `UPDATE student_accommodation
+         SET is_active = FALSE, updated_at = NOW()
+         WHERE student_profile_id = $1
+           AND term_id = $2
+           AND is_active = TRUE
+           AND NOT (accommodation_code_id = ANY($3::uuid[]))`,
+        [student_profile_id, requested_term_id, grantedIds],
+      );
+    }
+
+    await tenantQuery(
+      schema,
+      `UPDATE accommodation_renewal_request
+       SET status = 'approved', counsellor_profile_id = $2, reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [req.params.id, counsellor_profile_id],
+    );
+
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/counsellor/renewal-requests/:id/reject ─────────────────────────
+router.post('/renewal-requests/:id/reject', async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const { reason } = req.body;
+
+    const reqResult = await tenantQuery(
+      schema,
+      `SELECT arr.id, arr.status,
+              cp.id AS counsellor_profile_id
+       FROM accommodation_renewal_request arr
+       CROSS JOIN (SELECT id FROM counsellor_profile WHERE user_id = $2 LIMIT 1) cp
+       WHERE arr.id = $1`,
+      [req.params.id, req.user.id],
+    );
+    if (!reqResult.rows.length) return res.status(404).json({ ok: false, error: 'Renewal request not found' });
+
+    const { status, counsellor_profile_id } = reqResult.rows[0];
+    if (status !== 'pending') {
+      return res.status(409).json({ ok: false, error: 'Request is no longer pending' });
+    }
+
+    await tenantQuery(
+      schema,
+      `UPDATE accommodation_renewal_request
+       SET status = 'rejected', counsellor_profile_id = $2, counsellor_notes = $3,
+           reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [req.params.id, counsellor_profile_id, reason?.trim() || null],
+    );
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

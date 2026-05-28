@@ -57,8 +57,8 @@ export async function getStudentAccommodations(schema, studentProfileId) {
     schema,
     `SELECT
        sa.id, sa.source, sa.notes, sa.created_at,
-       t.label AS term, t.start_date AS term_start,
-       ac.code, ac.label, ac.triggers_rwg_flag
+       t.id AS term_id, t.label AS term, t.start_date AS term_start,
+       ac.id AS accommodation_code_id, ac.code, ac.label, ac.triggers_rwg_flag
      FROM student_accommodation sa
      JOIN term t ON t.id = sa.term_id
      JOIN accommodation_code ac ON ac.id = sa.accommodation_code_id

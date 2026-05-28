@@ -1032,15 +1032,6 @@ router.get('/uploads/:id/messages', async (req, res, next) => {
        ORDER BY m.created_at ASC`,
       [req.params.id],
     );
-    // Mark conversation as read for this user (fire-and-forget)
-    tenantQuery(
-      req.tenantSchema,
-      `INSERT INTO exam_upload_thread_read (exam_upload_id, user_id, last_read_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (exam_upload_id, user_id) DO UPDATE SET last_read_at = NOW()`,
-      [req.params.id, req.user.id],
-    ).catch(() => {});
-
     res.json({ ok: true, messages: result.rows });
   } catch (err) {
     next(err);
@@ -1375,9 +1366,9 @@ function renderEDE(s, printedAt) {
     ? `${profName}${s.profEmail ? ` (${s.profEmail})` : ''}`
     : (s.profEmail ?? '—');
 
-  const stbRows = (s.stbMins ?? 0) > 20 ? 5 : 3;
+  const stbRows = (s.stbMins ?? 0) > 20 ? 5 : 5;
   const stbTableRows = Array.from({ length: stbRows }, () =>
-    `<tr><td style="height:28px"></td><td></td><td></td><td></td></tr>`,
+    `<tr ><td style="height:28px; border-left: none;"></td><td></td><td></td><td style="border-right: none;"></td></tr>`,
   ).join('');
 
   const totalWriting = fmtWritingTime(s.totalWritingMins);
@@ -1400,7 +1391,7 @@ function renderEDE(s, printedAt) {
 <table>
   <tr>
     <!-- LEFT: student info -->
-    <td style="width:48%;vertical-align:top;padding:0">
+    <td style="width:50%;vertical-align:top;padding:0">
       <table style="border:none;width:100%">
         <tr>
           <td class="lbl" style="border:none;width:110px;padding:5px 6px">Student ID</td>
@@ -1420,7 +1411,7 @@ function renderEDE(s, printedAt) {
     </td>
 
     <!-- RIGHT: exam details -->
-    <td style="width:52%;padding:0;vertical-align:top">
+    <td style="width:50%;padding:0;vertical-align:top">
       <table style="border:none;width:100%">
         <tr>
           <td class="lbl" style="border:none;width:105px;padding:5px 6px">Test Date</td>
@@ -1439,7 +1430,7 @@ function renderEDE(s, printedAt) {
           <td class="val" style="border:none;padding:5px 6px">${s.roomName ?? '—'}</td>
         </tr>
         <tr>
-          <td colspan="2" style="border:none;border-top:1px solid #000;
+          <td colspan="2" style="border-right:none;border-left:none;border-top:1px solid #000;
                text-align:center;font-size:16pt;font-weight:bold;padding:6px 0">
             ${s.courseCode}
           </td>
@@ -1462,7 +1453,7 @@ function renderEDE(s, printedAt) {
 </table>
 
 <!-- ── Invigilator Information header ─────────────────────────── -->
-<div class="invigi-header" style="margin-top:6px">Invigilator Information</div>
+<div class="invigi-header" style="margin-top:0px">Invigilator Information</div>
 
 <!-- ── Invigilator fields ─────────────────────────────────────── -->
 <table>
@@ -1506,26 +1497,26 @@ function renderEDE(s, printedAt) {
 <table class="grow" style="margin-top:0">
   <tr>
     <!-- Stop Time Breaks -->
-    <td style="width:58%;vertical-align:top;padding:0">
+    <td style="width:50%;vertical-align:top;padding:0">
       <div style="padding:5px 6px;font-weight:bold;font-size:9.5pt;border-bottom:1px solid #000">Stop Time Breaks</div>
       <table style="border:none;width:100%;margin:0">
         <tr>
-          <td class="lbl" style="border:none;width:148px;padding:5px 6px">Total Available<br>Stop Time</td>
+          <td class="lbl" style="border:none;width:148px;padding:5px 6px">Total Available Stop Time</td>
           <td style="border:none;padding:5px 6px">${stbAvail}</td>
         </tr>
       </table>
       <table>
         <tr>
-          <th style="font-size:9pt;background:#f0f0f0;text-align:center">Start</th>
+          <th style="font-size:9pt;background:#f0f0f0;text-align:center;border-left: none">Start</th>
           <th style="font-size:9pt;background:#f0f0f0;text-align:center">Stop</th>
           <th style="font-size:9pt;background:#f0f0f0;text-align:center">Length</th>
-          <th style="font-size:9pt;background:#f0f0f0;text-align:center">Remaining</th>
+          <th style="font-size:9pt;background:#f0f0f0;text-align:center;border-right: none;">Remaining</th>
         </tr>
         ${stbTableRows}
       </table>
     </td>
     <!-- Notes -->
-    <td style="width:42%;vertical-align:top;padding:6px">
+    <td style="width:50%;vertical-align:top;padding:6px">
       <div style="font-weight:bold;font-size:9.5pt;margin-bottom:6px">Notes</div>
       ${notesHtml}
     </td>
@@ -1533,7 +1524,7 @@ function renderEDE(s, printedAt) {
 </table>
 
 <!-- ── Tick questions ─────────────────────────────────────────── -->
-<table style="margin-top:6px">
+<table style="margin-top:0px">
   <tr>
     <td colspan="2" style="font-weight:bold;font-size:9.5pt;border-bottom:1px solid #ccc;padding-bottom:4px">
       Tick questions you have asked.

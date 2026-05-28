@@ -7,6 +7,9 @@
  * POST   /api/student/exam-requests
  * DELETE /api/student/exam-requests/:id
  * POST   /api/student/exam-requests/:id/cancellation-request
+ * GET    /api/student/terms
+ * GET    /api/student/renewal-requests
+ * POST   /api/student/renewal-requests
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -540,6 +543,128 @@ router.post("/exam-requests/:id/cancellation-request", async (req, res, next) =>
         message: "Cancellation request submitted for admin review",
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/student/terms ───────────────────────────────────────────────────
+router.get("/terms", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT id, label, start_date, end_date, is_active,
+              (start_date IS NOT NULL
+               AND start_date <= CURRENT_DATE
+               AND (end_date IS NULL OR end_date >= CURRENT_DATE)) AS is_current
+       FROM term
+       WHERE is_active = TRUE
+       ORDER BY start_date DESC NULLS LAST, label DESC`,
+    );
+    res.json({ ok: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/student/all-accommodation-codes ──────────────────────────────────
+router.get("/all-accommodation-codes", async (req, res, next) => {
+  try {
+    const result = await tenantQuery(
+      req.tenantSchema,
+      `SELECT id, code, label FROM accommodation_code WHERE is_active = TRUE ORDER BY label`,
+    );
+    res.json({ ok: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/student/renewal-requests ────────────────────────────────────────
+router.get("/renewal-requests", async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const studentProfileId = await getStudentProfileId(schema, req.user.id);
+    if (!studentProfileId) {
+      return res.status(404).json({ ok: false, error: "Student profile not found" });
+    }
+
+    const result = await tenantQuery(
+      schema,
+      `SELECT arr.id, arr.status, arr.notes, arr.counsellor_notes, arr.reviewed_at, arr.created_at,
+              t.id AS term_id, t.label AS term_label,
+              ARRAY(
+                SELECT rra.accommodation_code_id
+                FROM renewal_request_accommodation rra
+                WHERE rra.renewal_request_id = arr.id
+              ) AS requested_code_ids
+       FROM accommodation_renewal_request arr
+       JOIN term t ON t.id = arr.requested_term_id
+       WHERE arr.student_profile_id = $1
+       ORDER BY arr.created_at DESC`,
+      [studentProfileId],
+    );
+
+    res.json({ ok: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/student/renewal-requests ───────────────────────────────────────
+router.post("/renewal-requests", async (req, res, next) => {
+  try {
+    const schema = req.tenantSchema;
+    const studentProfileId = await getStudentProfileId(schema, req.user.id);
+    if (!studentProfileId) {
+      return res.status(404).json({ ok: false, error: "Student profile not found" });
+    }
+
+    const { termId, notes, requestedCodeIds } = req.body;
+    if (!termId) {
+      return res.status(400).json({ ok: false, error: "termId is required" });
+    }
+    if (!Array.isArray(requestedCodeIds) || requestedCodeIds.length === 0) {
+      return res.status(400).json({ ok: false, error: "requestedCodeIds must be a non-empty array" });
+    }
+
+    // Ensure term exists
+    const termCheck = await tenantQuery(schema, `SELECT id FROM term WHERE id = $1`, [termId]);
+    if (!termCheck.rows.length) {
+      return res.status(400).json({ ok: false, error: "Term not found" });
+    }
+
+    // Duplicate guard: block only if a pending request exists for the same term
+    const dupCheck = await tenantQuery(
+      schema,
+      `SELECT id FROM accommodation_renewal_request
+       WHERE student_profile_id = $1 AND requested_term_id = $2 AND status = 'pending'`,
+      [studentProfileId, termId],
+    );
+    if (dupCheck.rows.length) {
+      return res.status(409).json({ ok: false, error: "A pending renewal request for this term already exists" });
+    }
+
+    const renewalResult = await tenantQuery(
+      schema,
+      `INSERT INTO accommodation_renewal_request (student_profile_id, requested_term_id, notes)
+       VALUES ($1, $2, $3)
+       RETURNING id, status, created_at`,
+      [studentProfileId, termId, notes?.trim() || null],
+    );
+    const renewalId = renewalResult.rows[0].id;
+
+    // Insert requested accommodation codes into junction table
+    for (const codeId of requestedCodeIds) {
+      await tenantQuery(
+        schema,
+        `INSERT INTO renewal_request_accommodation (renewal_request_id, accommodation_code_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [renewalId, codeId],
+      );
+    }
+
+    res.status(201).json({ ok: true, data: renewalResult.rows[0] });
   } catch (err) {
     next(err);
   }

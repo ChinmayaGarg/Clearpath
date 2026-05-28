@@ -107,19 +107,175 @@ function AccomList({ items }) {
   );
 }
 
+// ── Renewal request card ───────────────────────────────────────────────────────
+function RenewalRequestCard({ renewal, codeById, upcoming }) {
+  const codes = (renewal.requested_code_ids ?? []).map((id) => codeById[id]).filter(Boolean);
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          {renewal.term_label}
+        </p>
+        {upcoming && (
+          <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">Upcoming</span>
+        )}
+      </div>
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+          <span className="text-xs text-gray-500">Accommodation request</span>
+          <div className="flex items-center gap-2">
+            {renewal.status === "pending"  && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Pending review</span>}
+            {renewal.status === "approved" && <span className="text-xs bg-green-100  text-green-700 px-2 py-0.5 rounded-full">Approved</span>}
+            {renewal.status === "rejected" && <span className="text-xs bg-red-100    text-red-600   px-2 py-0.5 rounded-full">Not approved</span>}
+            {(renewal.status === "approved" || renewal.status === "rejected") && renewal.reviewed_at && (
+              <span className="text-xs text-gray-400">
+                {new Date(renewal.reviewed_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {codes.length === 0 && (
+            <div className="px-4 py-2.5 text-xs text-gray-400">No codes specified</div>
+          )}
+          {codes.map((c) => (
+            <div key={c.id} className="px-4 py-2.5 flex items-center gap-2">
+              <span className="text-sm text-gray-700">{c.label}</span>
+              <span className="text-xs text-gray-400 font-mono">{c.code}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Accommodations tab ─────────────────────────────────────────────────────────
 function AccommodationsTab({ me }) {
-  const [terms, setTerms] = useState([]); // [{ term, items[] }]
+  const [terms, setTerms] = useState([]); // [{ term, term_id, items[] }]
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState("Active");
+  const [availableTerms, setAvailableTerms] = useState([]); // active current+future terms with no pending/approved request
+  const [allTermsData, setAllTermsData] = useState([]); // all active terms (with is_current flag)
+  const [renewalRequests, setRenewalRequests] = useState([]);
+
+  const [reqSubTab, setReqSubTab] = useState("Active");
+  const [historyTermFilter, setHistoryTermFilter] = useState("all");
+
+  // Modal state
+  const [showRenewalModal, setShowRenewalModal] = useState(false);
+  const [allCodes, setAllCodes] = useState([]); // { id, code, label }
+  const [renewalTermId, setRenewalTermId] = useState("");
+  const [selectedCodeIds, setSelectedCodeIds] = useState(new Set()); // checked code ids
+  const [disabledCodeIds, setDisabledCodeIds] = useState(new Set()); // can't uncheck
+  const [renewalNotes, setRenewalNotes] = useState("");
+  const [submittingRenewal, setSubmittingRenewal] = useState(false);
+
+  async function loadAll() {
+    try {
+      const [accomData, termsData, renewalData, codesData] = await Promise.all([
+        api.get("/student/accommodations"),
+        api.get("/student/terms"),
+        api.get("/student/renewal-requests"),
+        api.get("/student/all-accommodation-codes"),
+      ]);
+      const loadedTerms = accomData.data ?? [];
+      const loadedAllTerms = termsData.data ?? [];
+      const loadedRenewals = renewalData.data ?? [];
+      setTerms(loadedTerms);
+      setAllTermsData(loadedAllTerms);
+      setRenewalRequests(loadedRenewals);
+      setAllCodes(codesData.data ?? []);
+
+      // Available terms: current or future, no PENDING renewal request (approved = re-request allowed)
+      const busyTermIds = new Set(
+        loadedRenewals
+          .filter((r) => r.status === "pending")
+          .map((r) => r.term_id),
+      );
+      const today = new Date().toISOString().slice(0, 10);
+      setAvailableTerms(
+        loadedAllTerms.filter((t) => {
+          if (busyTermIds.has(t.id)) return false;
+          // exclude past terms (end_date < today)
+          if (t.end_date && t.end_date < today) return false;
+          return true;
+        }),
+      );
+    } catch {
+      toast("Failed to load accommodations", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    api
-      .get("/student/accommodations")
-      .then((d) => setTerms(d.data ?? []))
-      .catch(() => toast("Failed to load accommodations", "error"))
-      .finally(() => setLoading(false));
+    loadAll();
   }, []);
+
+  // Recompute pre-selections when the selected term changes — closes over current state
+  function applyTermPreselection(termId) {
+    const selectedTerm = allTermsData.find((t) => t.id === termId);
+    if (!selectedTerm) return;
+
+    // If this term already has granted accommodations, pre-select + grey them out (current or future re-request)
+    const termAccomGroup = terms.find((g) => g.items[0]?.term_id === termId);
+    if (termAccomGroup && termAccomGroup.items.length > 0) {
+      const grantedIds = new Set(termAccomGroup.items.map((i) => i.accommodation_code_id));
+      setSelectedCodeIds(new Set(grantedIds));
+      setDisabledCodeIds(new Set(grantedIds));
+    } else if (selectedTerm.is_current) {
+      // Current term with no grants yet → no pre-selection
+      setSelectedCodeIds(new Set());
+      setDisabledCodeIds(new Set());
+    } else {
+      // Future term with no grants yet → suggest from most recent term (all toggleable)
+      const recentGrantedIds = new Set((terms[0]?.items ?? []).map((i) => i.accommodation_code_id));
+      setSelectedCodeIds(new Set(recentGrantedIds));
+      setDisabledCodeIds(new Set());
+    }
+  }
+
+  function openRenewalModal() {
+    setShowRenewalModal(true);
+    const defaultTermId = availableTerms[0]?.id ?? "";
+    setRenewalTermId(defaultTermId);
+    setRenewalNotes("");
+    if (defaultTermId) applyTermPreselection(defaultTermId);
+  }
+
+  function handleTermChange(termId) {
+    setRenewalTermId(termId);
+    applyTermPreselection(termId);
+  }
+
+  function toggleCode(codeId) {
+    if (disabledCodeIds.has(codeId)) return;
+    setSelectedCodeIds((prev) => {
+      const next = new Set(prev);
+      next.has(codeId) ? next.delete(codeId) : next.add(codeId);
+      return next;
+    });
+  }
+
+  async function submitRenewal() {
+    if (!renewalTermId || selectedCodeIds.size === 0) return;
+    setSubmittingRenewal(true);
+    try {
+      await api.post("/student/renewal-requests", {
+        termId: renewalTermId,
+        notes: renewalNotes,
+        requestedCodeIds: [...selectedCodeIds],
+      });
+      toast("Request submitted", "success");
+      setShowRenewalModal(false);
+      loadAll();
+    } catch (err) {
+      toast(err?.response?.data?.error ?? "Failed to submit request", "error");
+    } finally {
+      setSubmittingRenewal(false);
+    }
+  }
 
   if (loading)
     return (
@@ -151,45 +307,173 @@ function AccommodationsTab({ me }) {
     );
   }
 
-  const activeTerm = terms[0] ?? null; // most recent term
-  const pastTerms = terms.slice(1); // all older terms
+  // Partition accommodation groups into current / upcoming / past using term metadata
+  const today = new Date().toISOString().slice(0, 10);
+  const termMetaById = Object.fromEntries(allTermsData.map((t) => [t.id, t]));
+  const currentTermAccoms  = [];
+  const upcomingTermAccoms = [];
+  const pastTermAccoms     = [];
+  for (const termGroup of terms) {
+    const meta = termMetaById[termGroup.items[0]?.term_id];
+    if (!meta) {
+      pastTermAccoms.push(termGroup);
+    } else if (meta.is_current) {
+      currentTermAccoms.push(termGroup);
+    } else if (meta.start_date && meta.start_date > today) {
+      upcomingTermAccoms.push(termGroup);
+    } else {
+      pastTermAccoms.push(termGroup);
+    }
+  }
 
-  // Set of accommodation codes actually granted (from student_accommodation records)
-  const grantedCodes = new Set(terms.flatMap(t => t.items.map(i => i.code)));
+  // Renewal request classification + code resolution
+  const codeById = Object.fromEntries(allCodes.map((c) => [c.id, c]));
+  // Active = only PENDING requests (current or upcoming term)
+  const currentRenewals  = renewalRequests.filter((r) => r.status === "pending" && termMetaById[r.term_id]?.is_current);
+  const upcomingRenewals = renewalRequests.filter((r) => {
+    if (r.status !== "pending") return false;
+    const meta = termMetaById[r.term_id];
+    return meta && !meta.is_current && meta.start_date > today;
+  });
+  // History = all approved/rejected requests (any term)
+  const historyRenewals = renewalRequests.filter((r) => r.status === "approved" || r.status === "rejected");
+  const historyTermOptions = [...new Map(historyRenewals.map((r) => [r.term_id, r.term_label])).entries()];
+  const filteredHistoryRenewals = historyTermFilter === "all"
+    ? historyRenewals
+    : historyRenewals.filter((r) => r.term_id === historyTermFilter);
+  const showRegistrationInActive  = regStatus !== "approved" && regStatus !== "rejected";
+  const showRegistrationInHistory = regStatus === "rejected";
+
+  // Is the selected term a current term?
+  const selectedTermMeta = allTermsData.find((t) => t.id === renewalTermId);
+  const selectedIsCurrent = selectedTermMeta?.is_current ?? false;
 
   return (
     <div className="space-y-6">
-      {/* Requested accommodations — always shown once registered */}
-      {requested.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Requested
-          </h2>
-          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            {requested.map((acc, i) => {
-              let badge;
-              if (regStatus === "rejected") {
-                badge = <span className="text-xs text-red-500">Not approved</span>;
-              } else if (regStatus === "approved") {
-                badge = grantedCodes.has(acc)
-                  ? <span className="text-xs text-green-600 font-medium">Approved</span>
-                  : <span className="text-xs text-gray-400">Not granted</span>;
-              } else {
-                badge = <span className="text-xs text-yellow-600">Pending review</span>;
-              }
-              return (
-                <div
-                  key={i}
-                  className="px-4 py-2.5 flex items-center justify-between gap-4"
-                >
-                  <span className="text-sm text-gray-700">{acc}</span>
-                  {badge}
-                </div>
-              );
-            })}
-          </div>
+      {/* ── Requests section ── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Requests</h2>
+          {regStatus === "approved" && availableTerms.length > 0 && (
+            <button
+              onClick={openRenewalModal}
+              className="text-sm text-brand-600 hover:text-brand-800 font-medium"
+            >
+              + Request Renewal
+            </button>
+          )}
         </div>
-      )}
+
+        {/* Sub-tabs */}
+        <div className="flex gap-1 mb-4 border-b border-gray-200">
+          {["Active", "History"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setReqSubTab(t)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors
+                ${reqSubTab === t
+                  ? "text-brand-700 border-b-2 border-brand-600 -mb-px bg-white"
+                  : "text-gray-500 hover:text-gray-700"}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Active requests — pending only */}
+        {reqSubTab === "Active" && (() => {
+          const hasContent = showRegistrationInActive || currentRenewals.length > 0 || upcomingRenewals.length > 0;
+          if (!hasContent) return (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+              <p className="text-sm text-gray-400">No active requests</p>
+            </div>
+          );
+          return (
+            <div className="space-y-5">
+              {showRegistrationInActive && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Registration Request
+                  </p>
+                  <div className="bg-white rounded-xl border border-gray-200">
+                    <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Initial registration</span>
+                      <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Pending review</span>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {requested.map((acc, i) => (
+                        <div key={i} className="px-4 py-2.5">
+                          <span className="text-sm text-gray-700">{acc}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {currentRenewals.map((r) => (
+                <RenewalRequestCard key={r.id} renewal={r} codeById={codeById} />
+              ))}
+              {upcomingRenewals.map((r) => (
+                <RenewalRequestCard key={r.id} renewal={r} codeById={codeById} upcoming />
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* History requests — all approved/rejected, filterable by term */}
+        {reqSubTab === "History" && (() => {
+          const hasContent = historyRenewals.length > 0 || showRegistrationInHistory;
+          if (!hasContent) return (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+              <p className="text-sm text-gray-400">No past requests</p>
+            </div>
+          );
+          return (
+            <div className="space-y-4">
+              {historyRenewals.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-500">Filter by term:</label>
+                  <select
+                    value={historyTermFilter}
+                    onChange={(e) => setHistoryTermFilter(e.target.value)}
+                    className="text-xs border border-gray-200 rounded px-2 py-1 text-gray-700 bg-white"
+                  >
+                    <option value="all">All terms</option>
+                    {historyTermOptions.map(([id, label]) => (
+                      <option key={id} value={id}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="space-y-5">
+                {filteredHistoryRenewals.map((r) => (
+                  <RenewalRequestCard key={r.id} renewal={r} codeById={codeById} />
+                ))}
+                {showRegistrationInHistory && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                      Registration Request
+                    </p>
+                    <div className="bg-white rounded-xl border border-gray-200">
+                      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Initial registration</span>
+                        <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">Not approved</span>
+                      </div>
+                      <div className="divide-y divide-gray-100">
+                        {requested.map((acc, i) => (
+                          <div key={i} className="px-4 py-2.5">
+                            <span className="text-sm text-gray-700">{acc}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
 
       {/* Sub-tabs: Active / History */}
       <div>
@@ -199,11 +483,9 @@ function AccommodationsTab({ me }) {
               key={t}
               onClick={() => setSubTab(t)}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors
-                ${
-                  subTab === t
-                    ? "text-brand-700 border-b-2 border-brand-600 -mb-px bg-white"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
+                ${subTab === t
+                  ? "text-brand-700 border-b-2 border-brand-600 -mb-px bg-white"
+                  : "text-gray-500 hover:text-gray-700"}`}
             >
               {t}
             </button>
@@ -211,18 +493,9 @@ function AccommodationsTab({ me }) {
         </div>
 
         {subTab === "Active" &&
-          (activeTerm ? (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                {activeTerm.term}
-              </p>
-              <AccomList items={activeTerm.items} />
-            </div>
-          ) : (
+          (currentTermAccoms.length === 0 && upcomingTermAccoms.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
-              <p className="text-sm font-medium text-gray-700">
-                No active accommodations
-              </p>
+              <p className="text-sm font-medium text-gray-700">No active accommodations</p>
               <p className="text-xs text-gray-400 mt-1">
                 {regStatus === "approved"
                   ? "Your registration was approved but no codes have been assigned yet. Contact your accessibility counsellor."
@@ -231,26 +504,41 @@ function AccommodationsTab({ me }) {
                     : "Accommodations will appear here once a counsellor reviews your registration."}
               </p>
             </div>
+          ) : (
+            <div className="space-y-5">
+              {currentTermAccoms.map((g) => (
+                <div key={g.term}>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    {g.term}
+                  </p>
+                  <AccomList items={g.items} />
+                </div>
+              ))}
+              {upcomingTermAccoms.map((g) => (
+                <div key={g.term}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{g.term}</p>
+                    <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">Upcoming</span>
+                  </div>
+                  <AccomList items={g.items} />
+                </div>
+              ))}
+            </div>
           ))}
 
         {subTab === "History" &&
-          (pastTerms.length ? (
+          (pastTermAccoms.length ? (
             <div className="space-y-5">
-              {pastTerms.map(({ term, items }) => (
+              {pastTermAccoms.map(({ term, items }) => (
                 <div key={term}>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                     {term}
                   </p>
                   <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
                     {items.map((g) => (
-                      <div
-                        key={g.id}
-                        className="px-4 py-2.5 flex items-center gap-3"
-                      >
+                      <div key={g.id} className="px-4 py-2.5 flex items-center gap-3">
                         <span className="text-sm text-gray-700">{g.label}</span>
-                        <span className="text-xs text-gray-400 font-mono">
-                          {g.code}
-                        </span>
+                        <span className="text-xs text-gray-400 font-mono">{g.code}</span>
                         {g.triggers_rwg_flag && (
                           <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
                             RWG
@@ -264,12 +552,123 @@ function AccommodationsTab({ me }) {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
-              <p className="text-sm text-gray-400">
-                No past accommodation history
-              </p>
+              <p className="text-sm text-gray-400">No past accommodation history</p>
             </div>
           ))}
       </div>
+
+      {/* Renewal / modification modal */}
+      {showRenewalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-800">
+                Request Accommodations
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Select the term and the accommodations you need.
+              </p>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-5">
+              {/* Term picker */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Term</label>
+                <select
+                  value={renewalTermId}
+                  onChange={(e) => handleTermChange(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {availableTerms.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}{t.is_current ? " (current)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {selectedIsCurrent && (
+                  <p className="text-xs text-blue-500 mt-1">
+                    Already-granted accommodations are pre-selected and cannot be removed — select additional ones below.
+                  </p>
+                )}
+                {!selectedIsCurrent && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Pre-selected from your most recent term. Adjust as needed.
+                  </p>
+                )}
+              </div>
+
+              {/* Accommodation checklist */}
+              <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-2">
+                    Accommodations requested
+                    <span className="ml-1 text-gray-400 font-normal">({selectedCodeIds.size} selected)</span>
+                  </label>
+                  <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                    {allCodes.map((c) => {
+                      const checked = selectedCodeIds.has(c.id);
+                      const disabled = disabledCodeIds.has(c.id);
+                      return (
+                        <label
+                          key={c.id}
+                          className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer
+                            ${disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={() => toggleCode(c.id)}
+                            className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                          />
+                          <div className="min-w-0">
+                            <span className="text-sm text-gray-800">{c.label}</span>
+                            <span className="ml-2 text-xs text-gray-400 font-mono">{c.code}</span>
+                            {disabled && (
+                              <span className="ml-2 text-xs text-blue-500">already granted</span>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Notes <span className="font-normal text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  value={renewalNotes}
+                  onChange={(e) => setRenewalNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Any changes to your situation or specific needs..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 flex gap-2 justify-end">
+              <button
+                onClick={() => setShowRenewalModal(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitRenewal}
+                disabled={submittingRenewal || selectedCodeIds.size === 0 || !renewalTermId}
+                className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+              >
+                {submittingRenewal ? "Submitting..." : "Submit Request"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

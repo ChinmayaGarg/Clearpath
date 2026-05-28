@@ -5,7 +5,7 @@ import { api }                        from '../../lib/api.js';
 import { toast }                      from '../../components/ui/Toast.jsx';
 import Spinner                        from '../../components/ui/Spinner.jsx';
 
-const PORTAL_TABS = ['Students', 'Registrations'];
+const PORTAL_TABS = ['Students', 'Registrations', 'Renewals'];
 
 export default function CounsellorPortal() {
   const { user, logout }         = useAuth();
@@ -13,11 +13,14 @@ export default function CounsellorPortal() {
   const [tab,             setTab]             = useState('Students');
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedReg,     setSelectedReg]     = useState(null);
+  const [selectedRenewal, setSelectedRenewal] = useState(null);
+  const [renewalRefreshKey, setRenewalRefreshKey] = useState(0);
 
   function handleTabChange(t) {
     setTab(t);
     setSelectedStudent(null);
     setSelectedReg(null);
+    setSelectedRenewal(null);
   }
 
   return (
@@ -84,6 +87,31 @@ export default function CounsellorPortal() {
           )
         )}
 
+        {tab === 'Renewals' && (
+          <>
+            <RenewalRequestsTab
+              onSelect={setSelectedRenewal}
+              selectedId={selectedRenewal?.id}
+              refreshKey={renewalRefreshKey}
+            />
+            {selectedRenewal && (
+              <>
+                <div
+                  className="fixed inset-0 bg-black/20 z-30"
+                  onClick={() => { setSelectedRenewal(null); setRenewalRefreshKey(k => k + 1); }}
+                />
+                <div className="fixed inset-y-0 right-0 w-[600px] bg-white border-l border-gray-200 shadow-2xl z-40 overflow-y-auto">
+                  <div className="p-6">
+                    <RenewalRequestDetail
+                      renewal={selectedRenewal}
+                      onBack={() => { setSelectedRenewal(null); setRenewalRefreshKey(k => k + 1); }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
 
       </div>
     </div>
@@ -1574,6 +1602,439 @@ function RegistrationDetail({ reg: initialReg, onBack }) {
                 {submitting ? 'Rejecting…' : 'Confirm rejection'}
               </button>
             </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Renewal requests list ─────────────────────────────────────────────────────
+function RenewalRequestsTab({ onSelect, selectedId, refreshKey }) {
+  const [renewals,    setRenewals]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [filter,      setFilter]      = useState('pending');
+  const [search,      setSearch]      = useState('');
+  const [termFilter,  setTermFilter]  = useState('all');
+
+  useEffect(() => {
+    setLoading(true);
+    api.get(`/counsellor/renewal-requests?status=${filter}`)
+      .then(d => setRenewals(d.data ?? []))
+      .catch(err => toast(err.message, 'error'))
+      .finally(() => setLoading(false));
+  }, [filter, refreshKey]);
+
+  // Reset filters when status tab changes
+  useEffect(() => {
+    setSearch('');
+    setTermFilter('all');
+  }, [filter]);
+
+  const termOptions = [...new Map(renewals.map(r => [r.term_id, r.term_label])).entries()];
+
+  const q = search.trim().toLowerCase();
+  const visible = renewals.filter(r => {
+    if (termFilter !== 'all' && r.term_id !== termFilter) return false;
+    if (!q) return true;
+    const name = `${r.first_name} ${r.last_name}`.toLowerCase();
+    const num  = (r.student_number ?? '').toLowerCase();
+    return name.includes(q) || num.includes(q);
+  });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold text-gray-900">Renewal Requests</h1>
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+          {['pending', 'approved', 'rejected'].map(s => (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors capitalize
+                ${filter === s ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Search + term filter */}
+      <div className="flex gap-2 mb-4">
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name or student number…"
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-sm
+                     focus:outline-none focus:ring-2 focus:ring-brand-600"
+        />
+        {termOptions.length > 1 && (
+          <select
+            value={termFilter}
+            onChange={e => setTermFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-brand-600"
+          >
+            <option value="all">All terms</option>
+            {termOptions.map(([id, label]) => (
+              <option key={id} value={id}>{label}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-12"><Spinner /></div>
+      ) : visible.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+          <p className="text-sm font-medium text-gray-700">
+            {renewals.length === 0 ? `No ${filter} renewal requests` : 'No results match your search'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {visible.map(r => (
+            <button
+              key={r.id}
+              onClick={() => onSelect(r)}
+              className={`w-full text-left px-4 py-3 bg-white rounded-xl border transition-colors
+                ${r.id === selectedId
+                  ? 'border-brand-400 bg-brand-50'
+                  : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50'}`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-gray-900">
+                      {r.first_name} {r.last_name}
+                    </span>
+                    {r.student_number && (
+                      <span className="text-xs text-gray-400 font-mono">{r.student_number}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Requesting: <span className="font-medium">{r.term_label}</span>
+                  </p>
+                </div>
+                <span className="text-xs text-gray-400 flex-shrink-0">
+                  {formatDate(r.created_at)}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Renewal request detail ────────────────────────────────────────────────────
+function RenewalRequestDetail({ renewal: initialRenewal, onBack }) {
+  const [detail,       setDetail]      = useState(null);
+  const [loading,      setLoading]     = useState(true);
+  const [submitting,   setSubmitting]  = useState(false);
+  // { [accommodationCodeId]: { checked: bool, notes: string } }
+  const [selectedCodes, setSelectedCodes] = useState({});
+  const [action,       setAction]      = useState(null); // 'reject' | null
+  const [rejectReason, setRejectReason] = useState('');
+
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await api.get(`/counsellor/renewal-requests/${initialRenewal.id}`);
+      const data = d.data;
+      setDetail(data);
+
+      // Build initial selection map
+      const contextIds = new Set((data.contextAccommodations ?? []).map(c => c.accommodation_code_id));
+      const requestedIds = new Set((data.requestedCodes ?? []).map(c => c.accommodation_code_id));
+      const contextNotes = {};
+      (data.contextAccommodations ?? []).forEach(c => { contextNotes[c.accommodation_code_id] = c.granted_notes ?? ''; });
+
+      const init = {};
+      (data.allCodes ?? []).forEach(c => {
+        // Check if this code is in requested OR in context (currently/previously granted)
+        const isSelected = requestedIds.has(c.id) || contextIds.has(c.id);
+        init[c.id] = { checked: isSelected, notes: contextNotes[c.id] ?? '' };
+      });
+      setSelectedCodes(init);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [initialRenewal.id]); // eslint-disable-line
+
+  function toggleCode(codeId) {
+    setSelectedCodes(prev => ({
+      ...prev,
+      [codeId]: { ...prev[codeId], checked: !prev[codeId]?.checked },
+    }));
+  }
+
+  function setNotes(codeId, notes) {
+    setSelectedCodes(prev => ({ ...prev, [codeId]: { ...prev[codeId], notes } }));
+  }
+
+  async function handleApprove() {
+    const grantedCodes = Object.entries(selectedCodes)
+      .filter(([, v]) => v.checked)
+      .map(([accommodationCodeId, v]) => ({ accommodationCodeId, notes: v.notes || undefined }));
+
+    if (grantedCodes.length === 0) {
+      toast('Select at least one accommodation to grant', 'error');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post(`/counsellor/renewal-requests/${initialRenewal.id}/approve`, { grantedCodes });
+      toast('Request approved');
+      onBack();
+    } catch (err) {
+      toast(err?.response?.data?.error ?? err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleReject(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await api.post(`/counsellor/renewal-requests/${initialRenewal.id}/reject`, { reason: rejectReason });
+      toast('Request rejected');
+      onBack();
+    } catch (err) {
+      toast(err?.response?.data?.error ?? err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+  if (!detail)  return null;
+
+  const isPending = detail.status === 'pending';
+  const { isFutureTerm, isReRequest = false, requestedCodes = [], contextAccommodations = [], allCodes = [] } = detail;
+
+  const requestedIds  = new Set(requestedCodes.map(c => c.accommodation_code_id));
+  const contextIds    = new Set(contextAccommodations.map(c => c.accommodation_code_id));
+
+  // Section membership
+  const section1 = allCodes.filter(c => isFutureTerm
+    ? (requestedIds.has(c.id) && contextIds.has(c.id))   // prev granted + requested
+    : contextIds.has(c.id));                               // currently granted this term
+
+  const section2 = allCodes.filter(c =>
+    requestedIds.has(c.id) && !contextIds.has(c.id));     // new requests (same for both)
+
+  const section3 = allCodes.filter(c =>
+    !requestedIds.has(c.id) && !contextIds.has(c.id));    // additional (counsellor adds)
+
+  // For future term: also show prev-granted codes student did NOT re-request
+  const prevNotRequested = isFutureTerm
+    ? allCodes.filter(c => contextIds.has(c.id) && !requestedIds.has(c.id))
+    : [];
+
+  function CodeRow({ c }) {
+    const sel = selectedCodes[c.id] ?? { checked: false, notes: '' };
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 space-y-2">
+        <label className={`flex items-center gap-3 ${isPending ? 'cursor-pointer' : ''}`}>
+          <input
+            type="checkbox"
+            checked={sel.checked}
+            disabled={!isPending}
+            onChange={() => toggleCode(c.id)}
+            className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-gray-800">{c.label}</span>
+            <span className="ml-2 text-xs text-gray-400 font-mono">{c.code}</span>
+          </div>
+        </label>
+        {sel.checked && isPending && (
+          <input
+            type="text"
+            value={sel.notes}
+            onChange={e => setNotes(c.id, e.target.value)}
+            placeholder="Notes (optional)"
+            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs
+                       focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        )}
+      </div>
+    );
+  }
+
+  function SectionBlock({ title, badge, codes, emptyMsg }) {
+    if (codes.length === 0 && !emptyMsg) return null;
+    return (
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</h3>
+          {badge && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{badge}</span>}
+        </div>
+        {codes.length > 0 ? (
+          <div className="space-y-2">{codes.map(c => <CodeRow key={c.id} c={c} />)}</div>
+        ) : (
+          emptyMsg && <p className="text-xs text-gray-400">{emptyMsg}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <h1 className="text-xl font-semibold text-gray-900">
+            {detail.first_name} {detail.last_name}
+          </h1>
+          {detail.student_number && (
+            <span className="text-xs text-gray-400 font-mono">{detail.student_number}</span>
+          )}
+        </div>
+        <button
+          onClick={onBack}
+          className="shrink-0 text-gray-400 hover:text-gray-600 text-2xl leading-none p-1"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Request summary */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Term</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-800">{detail.term_label}</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded ${isFutureTerm ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-700'}`}>
+              {isFutureTerm ? 'Future' : 'Current'}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Submitted</span>
+          <span className="text-sm text-gray-600">{formatDate(detail.created_at)}</span>
+        </div>
+        {detail.notes && (
+          <div className="pt-1 border-t border-gray-100">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Student Notes</span>
+            <p className="text-sm text-gray-700 mt-1">{detail.notes}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Sectioned accommodation checkboxes */}
+      <div className="space-y-5">
+        {isFutureTerm ? (
+          <>
+            <SectionBlock
+              title={isReRequest ? 'Already Granted This Term — Student Requested' : 'Previously Granted — Student Requested'}
+              codes={section1}
+              emptyMsg={section2.length === 0 ? (isReRequest ? 'No currently granted accommodations were requested.' : 'No previously granted accommodations were requested.') : null}
+            />
+            {prevNotRequested.length > 0 && (
+              <SectionBlock
+                title={isReRequest ? 'Already Granted This Term — Not Re-requested' : 'Previously Granted — Not Re-requested'}
+                badge="student did not include"
+                codes={prevNotRequested}
+              />
+            )}
+            <SectionBlock
+              title="New Accommodations Requested"
+              codes={section2}
+            />
+          </>
+        ) : (
+          <>
+            <SectionBlock
+              title="Granted This Term"
+              codes={section1}
+              emptyMsg="No accommodations currently granted for this term."
+            />
+            <SectionBlock
+              title="Newly Requested"
+              codes={section2}
+            />
+          </>
+        )}
+        <SectionBlock
+          title="Additional Accommodations"
+          badge="counsellor can add"
+          codes={section3}
+        />
+      </div>
+
+      {/* Decision panel */}
+      {isPending && (
+        <div className="space-y-3">
+          {action !== 'reject' && (
+            <button
+              onClick={handleApprove}
+              disabled={submitting}
+              className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm
+                         font-medium rounded-xl transition-colors disabled:opacity-50"
+            >
+              {submitting ? 'Approving…' : 'Approve'}
+            </button>
+          )}
+          {action !== 'reject' ? (
+            <button
+              onClick={() => setAction('reject')}
+              className="w-full py-2 text-sm text-red-500 hover:text-red-700 font-medium"
+            >
+              Reject
+            </button>
+          ) : (
+            <form onSubmit={handleReject} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Reason for rejection</label>
+                <textarea
+                  value={rejectReason}
+                  onChange={e => setRejectReason(e.target.value)}
+                  rows={3}
+                  placeholder="Explain why this request is being rejected…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+                  required
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAction(null)}
+                  className="flex-1 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-sm
+                             font-medium rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {submitting ? 'Rejecting…' : 'Confirm rejection'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Already actioned */}
+      {!isPending && (
+        <div className={`rounded-xl px-4 py-3 text-sm font-medium
+          ${detail.status === 'approved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+          This request was {detail.status}
+          {detail.reviewed_at ? ` on ${formatDate(detail.reviewed_at)}` : ''}.
+          {detail.counsellor_notes && (
+            <p className="mt-1 font-normal text-xs opacity-80">{detail.counsellor_notes}</p>
           )}
         </div>
       )}

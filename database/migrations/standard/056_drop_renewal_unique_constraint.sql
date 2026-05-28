@@ -1,0 +1,2 @@
+ALTER TABLE :schema_name.accommodation_renewal_request
+DROP CONSTRAINT accommodation_renewal_request_student_profile_id_requested_term_id_key;

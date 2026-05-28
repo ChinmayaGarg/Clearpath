@@ -75,6 +75,12 @@ const migrationMap = {
   51: "051_ebr_course_offering.sql",
   52: "052_upload_course_offering.sql",
   53: "053_auto_approve_source.sql",
+  54: "054_accommodation_renewal_request.sql",
+  55: "055_renewal_request_accommodations.sql",
+  56: "056_drop_renewal_unique_constraint.sql",
+  57: "057_drop_student_accommodation_old_unique.sql",
+  58: "058_drop_student_accommodation_granted_uq.sql",
+  59: "059_drop_student_accommodation_granted_index.sql",
 };
 
 const filename = migrationMap[targetVersion];
