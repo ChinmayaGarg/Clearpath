@@ -1460,12 +1460,12 @@ function renderEDE(s, printedAt) {
   <tr>
     <td style="width:50%;padding:0;vertical-align:top">
       <table style="border:none;width:100%">
-        <tr>
-          <td class="lbl" style="border:none;width:148px;padding:6px">Total Writing<br>Time</td>
+        <tr">
+          <td class="lbl" style="border:none;width:148px;padding:6px">Total Writing Time</td>
           <td class="val" style="border:none;padding:6px">${totalWriting}</td>
         </tr>
         <tr>
-          <td class="lbl" style="border:none;padding:6px">Estimated Finish<br>Time</td>
+          <td class="lbl" style="border:none;padding:6px">Estimated Finish Time</td>
           <td class="val" style="border:none;padding:6px">${estFinish}</td>
         </tr>
         <tr>
@@ -1507,10 +1507,10 @@ function renderEDE(s, printedAt) {
       </table>
       <table>
         <tr>
-          <th style="font-size:9pt;background:#f0f0f0;text-align:center;border-left: none">Start</th>
-          <th style="font-size:9pt;background:#f0f0f0;text-align:center">Stop</th>
-          <th style="font-size:9pt;background:#f0f0f0;text-align:center">Length</th>
-          <th style="font-size:9pt;background:#f0f0f0;text-align:center;border-right: none;">Remaining</th>
+          <th style="font-size:9pt;background:#f0f0f0;text-align:center;border-left: none;width: 25%;">Start</th>
+          <th style="font-size:9pt;background:#f0f0f0;text-align:center;width: 25%;">Stop</th>
+          <th style="font-size:9pt;background:#f0f0f0;text-align:center;width: 25%;">Length</th>
+          <th style="font-size:9pt;background:#f0f0f0;text-align:center;border-right: none;width: 25%;">Remaining</th>
         </tr>
         ${stbTableRows}
       </table>
