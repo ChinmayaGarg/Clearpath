@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api }                 from '../../lib/api.js';
 import { useAuth }             from '../../hooks/useAuth.js';
+import RoleManager             from './RoleManager.jsx';
 
 const ROLE_LABELS = {
   institution_admin: 'Admin',
@@ -75,9 +76,10 @@ export default function UserTable({ onInvite }) {
   const [users,      setUsers]      = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState('');
-  const [reinvited,  setReinvited]  = useState(null); // { email, password }
-  const [search,     setSearch]     = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
+  const [reinvited,     setReinvited]     = useState(null); // { email, password }
+  const [editRolesUser, setEditRolesUser] = useState(null); // user object
+  const [search,        setSearch]        = useState('');
+  const [roleFilter,    setRoleFilter]    = useState('');
 
   async function load() {
     setLoading(true);
@@ -240,36 +242,77 @@ export default function UserTable({ onInvite }) {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  {u.id !== currentUser?.id && (
-                    <div className="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => handleReinvite(u.id, u.email)}
-                        className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
-                      >
-                        Reinvite
-                      </button>
-                      {u.is_active
-                        ? <button
-                            onClick={() => handleDisable(u.id)}
-                            className="text-xs text-red-500 hover:text-red-700 transition-colors"
-                          >
-                            Disable
-                          </button>
-                        : <button
-                            onClick={() => handleEnable(u.id)}
-                            className="text-xs text-green-600 hover:text-green-800 transition-colors"
-                          >
-                            Enable
-                          </button>
-                      }
-                    </div>
-                  )}
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => setEditRolesUser(u)}
+                      className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
+                    >
+                      Edit roles
+                    </button>
+                    {u.id !== currentUser?.id && (
+                      <>
+                        <button
+                          onClick={() => handleReinvite(u.id, u.email)}
+                          className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
+                        >
+                          Reinvite
+                        </button>
+                        {u.is_active
+                          ? <button
+                              onClick={() => handleDisable(u.id)}
+                              className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                            >
+                              Disable
+                            </button>
+                          : <button
+                              onClick={() => handleEnable(u.id)}
+                              className="text-xs text-green-600 hover:text-green-800 transition-colors"
+                            >
+                              Enable
+                            </button>
+                        }
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {editRolesUser && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-medium text-gray-900">
+                  {editRolesUser.first_name} {editRolesUser.last_name}
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">{editRolesUser.email}</p>
+              </div>
+              <button
+                onClick={() => { setEditRolesUser(null); load(); }}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <RoleManager user={editRolesUser} />
+            </div>
+            <div className="px-6 pb-5">
+              <button
+                onClick={() => { setEditRolesUser(null); load(); }}
+                className="w-full py-2 text-sm font-medium text-gray-700 border border-gray-200
+                           rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,10 +10,9 @@ const ALL_ROLES = [
 ];
 
 export default function RoleManager({ user, onUpdate }) {
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-
-  const currentRoles = user.roles.map(r => r.role ?? r);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
+  const [currentRoles, setCurrentRoles] = useState(() => user.roles.map(r => r.role ?? r));
 
   async function toggleRole(role) {
     setError('');
@@ -21,8 +20,10 @@ export default function RoleManager({ user, onUpdate }) {
     try {
       if (currentRoles.includes(role)) {
         await api.delete(`/users/${user.id}/roles/${role}`);
+        setCurrentRoles(prev => prev.filter(r => r !== role));
       } else {
         await api.post(`/users/${user.id}/roles`, { role });
+        setCurrentRoles(prev => [...prev, role]);
       }
       onUpdate?.();
     } catch (err) {
