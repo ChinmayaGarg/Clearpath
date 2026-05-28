@@ -2,6 +2,7 @@ import { Link, NavLink } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth.js";
 import NotificationBell from "../notifications/NotificationBell.jsx";
+import RoleSwitcher from "./RoleSwitcher.jsx";
 
 function useUnreadMessageCount(enabled) {
   const [count, setCount] = useState(0);
@@ -22,7 +23,7 @@ function useUnreadMessageCount(enabled) {
 }
 
 export default function TopNav() {
-  const { user, isAdmin, isLead, logout } = useAuth();
+  const { user, roles, isAdmin, isLead, logout } = useAuth();
   const unread = useUnreadMessageCount(isAdmin || isLead);
 
   const navLinks = [
@@ -47,7 +48,7 @@ export default function TopNav() {
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-30">
-      <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
         <div className="flex items-center gap-8 min-w-0 overflow-x-auto">
           <Link to="/" className="font-semibold text-brand-800">
             Clearpath
@@ -76,6 +77,7 @@ export default function TopNav() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          <RoleSwitcher roles={roles} />
           <NotificationBell />
           <span className="text-xs text-gray-400">{user?.email}</span>
           <button

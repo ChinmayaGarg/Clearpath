@@ -4,6 +4,7 @@ import { useAuth } from "../../hooks/useAuth.js";
 import { api } from "../../lib/api.js";
 import { toast } from "../../components/ui/Toast.jsx";
 import Spinner from "../../components/ui/Spinner.jsx";
+import RoleSwitcher from "../../components/ui/RoleSwitcher.jsx";
 
 const EXAM_TYPES = [
   { value: "midterm",    label: "Midterm" },
@@ -1380,7 +1381,7 @@ function BookingForm({ onSuccess, onCancel }) {
 const TABS = ["Accommodations", "Exam requests"];
 
 export default function StudentPortal() {
-  const { user, logout } = useAuth();
+  const { user, roles, logout } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState("Accommodations");
   const [me, setMe] = useState(null);
@@ -1431,6 +1432,7 @@ export default function StudentPortal() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <RoleSwitcher roles={roles} />
             <span className="text-xs text-gray-400">{user?.email}</span>
             <button
               onClick={async () => {

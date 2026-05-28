@@ -4,11 +4,12 @@ import { useAuth }                    from '../../hooks/useAuth.js';
 import { api }                        from '../../lib/api.js';
 import { toast }                      from '../../components/ui/Toast.jsx';
 import Spinner                        from '../../components/ui/Spinner.jsx';
+import RoleSwitcher                   from '../../components/ui/RoleSwitcher.jsx';
 
 const PORTAL_TABS = ['Students', 'Registrations', 'Renewals'];
 
 export default function CounsellorPortal() {
-  const { user, logout }         = useAuth();
+  const { user, roles, logout }  = useAuth();
   const navigate                 = useNavigate();
   const [tab,             setTab]             = useState('Students');
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -36,6 +37,7 @@ export default function CounsellorPortal() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <RoleSwitcher roles={roles} />
             <span className="text-xs text-gray-400">{user?.email}</span>
             <button
               onClick={async () => { await logout(); navigate('/login'); }}

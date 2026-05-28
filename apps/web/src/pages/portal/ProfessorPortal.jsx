@@ -8,10 +8,11 @@ import UploadList              from '../../components/portal/UploadList.jsx';
 import UploadForm              from '../../components/portal/UploadForm.jsx';
 import UploadThreadPanel       from '../../components/portal/UploadThreadPanel.jsx';
 import TermSelector            from '../../components/portal/TermSelector.jsx';
+import RoleSwitcher            from '../../components/ui/RoleSwitcher.jsx';
 const TABS = ['Dashboard', 'My uploads', 'My students', 'Exam requests', 'Messages'];
 
 export default function ProfessorPortal() {
-  const { user, logout }       = useAuth();
+  const { user, roles, logout } = useAuth();
   const navigate               = useNavigate();
   const [tab,      setTab]     = useState('Dashboard');
   const [me,       setMe]      = useState(null);
@@ -173,6 +174,7 @@ export default function ProfessorPortal() {
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            <RoleSwitcher roles={roles} />
             <span className="text-xs text-gray-400">{user?.email}</span>
             <button
               onClick={async () => { await logout(); navigate('/login'); }}
