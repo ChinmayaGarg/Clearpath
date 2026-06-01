@@ -229,6 +229,15 @@ function UploadCards({ uploads, onEdit, onThread }) {
   );
 }
 
+function isStillUpcoming(dateStr, examTime) {
+  if (dateStr > todayStr) return true;
+  if (dateStr < todayStr) return false;
+  if (!examTime) return true;
+  const [h, m] = String(examTime).slice(0, 5).split(':').map(Number);
+  const now = new Date();
+  return now.getHours() < h || (now.getHours() === h && now.getMinutes() < m);
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 const UPLOAD_TABS = ['Upcoming', 'Pending', 'History'];
@@ -257,7 +266,7 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
           for (const dg of (course.dates ?? [])) {
             const dateStr = String(dg.examDate).slice(0, 10);
             const nonCancelledCount = dg.students?.filter(s => s.status !== 'cancelled').length ?? 0;
-            if (!dg.examUploaded && dateStr >= todayStr && nonCancelledCount > 0) {
+            if (!dg.examUploaded && isStillUpcoming(dateStr, dg.examTime) && nonCancelledCount > 0) {
               missing.push({
                 key: `${course.courseCode}__${dg.examDate}__${dg.examType}`,
                 courseId:     course.courseId,
@@ -268,7 +277,7 @@ export default function UploadList({ onEdit, onNewUpload, onNewWordDocUpload }) 
                 studentCount: nonCancelledCount,
               });
             }
-            if (dg.hasRwgStudents && !dg.wordDocUploaded && dateStr >= todayStr && nonCancelledCount > 0) {
+            if (dg.hasRwgStudents && !dg.wordDocUploaded && isStillUpcoming(dateStr, dg.examTime) && nonCancelledCount > 0) {
               missingWd.push({
                 key: `wd__${course.courseCode}__${dg.examDate}__${dg.examType}`,
                 courseId:   course.courseId,
